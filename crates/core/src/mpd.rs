@@ -26,15 +26,32 @@ impl MpdConfig {
     }
 }
 
-/// Connect to MPD and run a function with the client, then close. One-shot for simplicity.
-pub async fn with_mpd<F, Fut, T>(config: &MpdConfig, f: F) -> Result<T>
-where
-    F: FnOnce(&mut Client) -> Fut,
-    Fut: std::future::Future<Output = Result<T>> + Send,
-{
+/// Connect to MPD, run get_state, then close. Avoids closure lifetime issues.
+pub async fn get_state_connected(config: &MpdConfig) -> Result<VolumioState> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
-    f(&mut client).await
+    get_state(&mut client).await
+}
+
+/// Connect to MPD, run get_queue, then close.
+pub async fn get_queue_connected(config: &MpdConfig) -> Result<Vec<QueueItem>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (mut client, _) = Client::connect(stream).await?;
+    get_queue(&mut client).await
+}
+
+/// Connect to MPD, run run_command, then close.
+pub async fn run_command_connected(
+    config: &MpdConfig,
+    cmd: &str,
+    volume: Option<u8>,
+    position: Option<i64>,
+    repeat: Option<bool>,
+    random: Option<bool>,
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (mut client, _) = Client::connect(stream).await?;
+    run_command(&mut client, cmd, volume, position, repeat, random).await
 }
 
 /// Volumio-style state JSON (matches what the UI expects from getState).

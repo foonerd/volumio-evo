@@ -26,7 +26,7 @@ pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
 /// GET /api/v1/getState
 pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
-    match mpd::with_mpd(&config, |client| Box::pin(mpd::get_state(client))).await {
+    match mpd::get_state_connected(&config).await {
         Ok(s) => Json::<VolumioState>(s).into_response(),
         Err(e) => {
             tracing::warn!("getState MPD error: {}", e);
@@ -78,11 +78,7 @@ pub async fn commands(
     let random = (cmd == "random").then(|| q.value.as_deref() == Some("true"));
 
     let config = mpd_config_from_app(&state);
-    match mpd::with_mpd(&config, |client| {
-        Box::pin(mpd::run_command(client, cmd, volume, position, repeat, random))
-    })
-    .await
-    {
+    match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
         Ok(()) => Json(serde_json::json!({
             "response": cmd.to_string() + " Success"
         }))
@@ -101,7 +97,7 @@ pub async fn commands(
 /// GET /api/v1/getQueue
 pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
-    match mpd::with_mpd(&config, |client| Box::pin(mpd::get_queue(client))).await {
+    match mpd::get_queue_connected(&config).await {
         Ok(items) => Json(serde_json::json!({ "queue": items })).into_response(),
         Err(e) => {
             tracing::warn!("getQueue MPD error: {}", e);
