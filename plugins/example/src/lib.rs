@@ -4,6 +4,11 @@
 
 #![no_std]
 
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
+
 extern "C" {
     /// Host-provided: log message at (ptr, len) in linear memory.
     fn log(ptr: i32, len: i32);
