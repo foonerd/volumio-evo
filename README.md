@@ -23,11 +23,11 @@ Binary: `target/release/volumio-evo`.
 
 Supported targets for minimal Trixie or Pi OS images:
 
-| Target | Use case | Backend |
-|--------|----------|---------|
-| **arm64** (aarch64) | Pi OS 64-bit, Rock Pi, Khadas, Trixie arm64 | Cranelift (JIT) |
-| **amd64** (x86_64) | Trixie amd64, x86 PCs | Cranelift (JIT) |
-| **armhf** (armv7) | Pi 0, Pi 1, 32-bit Pi OS, Trixie armhf | Pulley (interpreter) |
+| Target | Use case | WASM plugins |
+|--------|----------|--------------|
+| **arm64** (aarch64) | Pi OS 64-bit, Rock Pi, Khadas, Trixie arm64 | Yes (Cranelift) |
+| **amd64** (x86_64) | Trixie amd64, x86 PCs | Yes (Cranelift) |
+| **armhf** (armv7) | Pi 0, Pi 1, 32-bit Pi OS | No (core only) |
 
 Use [cross](https://github.com/cross-rs/cross) or the [CI workflow](.github/workflows/build.yml):
 
@@ -38,11 +38,11 @@ cross build --release --target aarch64-unknown-linux-gnu
 # amd64 (Debian x86_64; native on x86_64 host)
 cross build --release --target x86_64-unknown-linux-gnu
 
-# armhf (Pi 0, Pi 1, 32-bit Pi OS) – uses Pulley interpreter
-cross build --release --target armv7-unknown-linux-gnueabihf --no-default-features --features pulley -p volumio-evo-core
+# armhf (32-bit Pi OS): core only, no WASM (wasmtime doesn't build for 32-bit ARM)
+cross build --release --target armv7-unknown-linux-gnueabihf -p volumio-evo-core --no-default-features
 ```
 
-On **armhf**, the core is built with wasmtime’s **Pulley** interpreter instead of Cranelift (which does not support 32-bit ARM). Plugin execution is slower but runs on Pi 0, Pi 1, and 32-bit images.
+On armhf the core runs without the WASM plugin layer. For full plugin support use arm64 (e.g. Pi Zero 2 W with 64-bit Pi OS).
 
 ## Layer
 

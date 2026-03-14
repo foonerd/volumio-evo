@@ -35,9 +35,9 @@ jobs:
         run: cargo build --release -p volumio-evo-plugin-example --target wasm32-unknown-unknown
 
   # Cross-build for Debian Trixie / Pi OS minimal image targets:
-  # - arm64 (aarch64): Pi OS 64-bit, Trixie arm64. Cranelift.
-  # - amd64 (x86_64): Trixie amd64. Native on runner. Cranelift.
-  # - arm32/armhf (armv7): Pi 0, Pi 1, 32-bit Pi OS. Pulley interpreter (no Cranelift on 32-bit).
+  # - arm64 (aarch64): Pi OS 64-bit, Trixie arm64. WASM plugins (Cranelift).
+  # - amd64 (x86_64): Trixie amd64. Native on runner. WASM plugins (Cranelift).
+  # - armhf (armv7): Pi 0, Pi 1, 32-bit Pi OS. No WASM (wasmtime doesn't build for 32-bit); core only.
   cross:
     runs-on: ubuntu-latest
     strategy:
@@ -49,7 +49,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             evo_features: ""
           - target: armv7-unknown-linux-gnueabihf
-            evo_features: "--no-default-features --features pulley"
+            evo_features: "--no-default-features"
     steps:
       - uses: actions/checkout@v4
 

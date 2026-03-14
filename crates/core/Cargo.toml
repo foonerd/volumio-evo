@@ -9,10 +9,9 @@ name = "volumio-evo"
 path = "src/main.rs"
 
 [features]
-# Default: Cranelift JIT (arm64, amd64). For 32-bit (armhf) use --no-default-features --features pulley.
-default = ["wasmtime/cranelift"]
-# Pulley interpreter backend for 32-bit ARM (Pi 0, Pi 1, armhf). Slower than Cranelift but runs on armv7.
-pulley = ["wasmtime/pulley"]
+# WASM plugins via wasmtime (arm64, amd64). Disable for armhf (wasmtime runtime does not build for 32-bit ARM).
+default = ["wasm"]
+wasm = ["dep:wasmtime", "wasmtime/cranelift"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -23,7 +22,6 @@ serde_json = "1"
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# Cranelift (default) for arm64/amd64; use pulley feature for armhf (32-bit).
-wasmtime = { version = "26", default-features = false, features = ["wat", "runtime", "std"] }
+wasmtime = { version = "26", optional = true, default-features = false, features = ["wat", "runtime", "std"] }
 anyhow = "1"
 thiserror = "1"
