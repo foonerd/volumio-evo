@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build core (host)
+        run: cargo build --release -p volumio-evo-core
+
+      - name: Build example plugin (WASM)
+        run: cargo build --release -p volumio-evo-plugin-example --target wasm32-unknown-unknown
+
+  cross:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [armv7-unknown-linux-gnueabihf, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust + target
+        run: |
+          rustup set profile minimal
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Build core for ${{ matrix.target }}
+        run: cargo build --release -p volumio-evo-core --target ${{ matrix.target }}

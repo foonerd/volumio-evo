@@ -1,0 +1,6 @@
+# Volumio Evo config. Copy to /etc/volumio-evo/config.toml
+
+bind = "0.0.0.0:3000"
+plugin_dir = "/usr/share/volumio-evo/plugins"
+mpd_host = "127.0.0.1"
+mpd_port = 6600

@@ -1,0 +1,12 @@
+[package]
+name = "volumio-evo-plugin-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "SDK and ABI for Volumio Evo WASM plugins"
+
+[lib]
+name = "volumio_evo_plugin_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

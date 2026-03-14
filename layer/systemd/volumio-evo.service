@@ -1,0 +1,13 @@
+[Unit]
+Description=Volumio Evo backend
+After=network.target sound.target mpd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/volumio-evo
+Restart=on-failure
+RestartSec=5
+Environment=VOLUMIO_EVO_CONFIG=/etc/volumio-evo/config.toml
+
+[Install]
+WantedBy=multi-user.target
