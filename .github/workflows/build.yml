@@ -37,6 +37,7 @@ jobs:
   cross:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target: [armv7-unknown-linux-gnueabihf, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu]
     steps:
@@ -48,5 +49,11 @@ jobs:
           rustup update stable
           rustup target add ${{ matrix.target }}
 
+      - name: Install armv7 cross-compiler
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
+
       - name: Build core for ${{ matrix.target }}
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
         run: cargo build --release -p volumio-evo-core --target ${{ matrix.target }}
