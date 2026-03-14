@@ -3,10 +3,10 @@
 use anyhow::Result;
 use mpd_client::{
     commands::{
-        ClearQueue, CurrentSong, Next, Pause as MpdPause, Play, Previous, Queue, Seek as MpdSeekCmd,
-        SetRandom, SetRepeat, SetVolume, Status, Stop,
+        ClearQueue, CurrentSong, Next, Play, Previous, Queue, Seek as MpdSeekCmd,
+        SeekMode, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Status, Stop,
     },
-    responses::{PlayState, SeekMode},
+    responses::PlayState,
     Client,
 };
 use serde::Serialize;
@@ -70,12 +70,13 @@ pub async fn get_state(client: &mut Client) -> Result<VolumioState> {
 
     let (title, artist, album, uri, track_type) = if position.is_some() {
         match client.command(CurrentSong).await? {
-            Some(song) => {
-                let title = song.title().map(String::from);
-                let artist = song.artists().first().map(String::from);
-                let album = song.album().map(String::from);
-                let uri = Some(song.url.clone());
-                let track_type = song.url.split('.').last().map(String::from);
+            Some(song_in_queue) => {
+                let s = &song_in_queue.song;
+                let title = s.title().map(String::from);
+                let artist = s.artists().first().map(String::from);
+                let album = s.album().map(String::from);
+                let uri = Some(s.url.clone());
+                let track_type = s.url.split('.').last().map(String::from);
                 (title, artist, album, uri, track_type)
             }
             None => (None, None, None, None, None),
@@ -85,9 +86,9 @@ pub async fn get_state(client: &mut Client) -> Result<VolumioState> {
     };
 
     let status_str = match status.state {
-        PlayState::Play => Some("play".to_string()),
-        PlayState::Pause => Some("pause".to_string()),
-        PlayState::Stop => Some("stop".to_string()),
+        PlayState::Playing => Some("play".to_string()),
+        PlayState::Paused => Some("pause".to_string()),
+        PlayState::Stopped => Some("stop".to_string()),
     };
 
     Ok(VolumioState {
@@ -122,15 +123,15 @@ pub async fn get_queue(client: &mut Client) -> Result<Vec<QueueItem>> {
     let list = client.command(Queue::all()).await?;
     let items = list
         .into_iter()
-        .enumerate()
-        .map(|(i, song)| {
-            let duration = song.duration.map(|d| d.as_secs());
+        .map(|song_in_queue| {
+            let s = &song_in_queue.song;
+            let duration = s.duration.map(|d| d.as_secs());
             QueueItem {
-                position: i as u32,
-                title: song.title().map(String::from),
-                artist: song.artists().first().map(String::from),
-                album: song.album().map(String::from),
-                uri: Some(song.url),
+                position: song_in_queue.position.0 as u32,
+                title: s.title().map(String::from),
+                artist: s.artists().first().map(String::from),
+                album: s.album().map(String::from),
+                uri: Some(s.url.clone()),
                 duration,
             }
         })
@@ -164,7 +165,7 @@ pub async fn run_command(
         }
         "toggle" => {
             let status = client.command(Status).await?;
-            let pause = status.state != PlayState::Pause;
+            let pause = status.state != PlayState::Paused;
             client.command(MpdPause(pause)).await?;
         }
         "stop" => {
