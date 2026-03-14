@@ -35,8 +35,9 @@ fn default_mpd_host() -> String {
 /// Load config from file and env. Path: VOLUMIO_EVO_CONFIG or default paths.
 pub fn load() -> anyhow::Result<Config> {
     let path = std::env::var("VOLUMIO_EVO_CONFIG")
+        .ok()
         .map(PathBuf::from)
-        .or_else(|_| {
+        .or_else(|| {
             [
                 "/etc/volumio-evo/config.toml",
                 "config/volumio-evo.toml",

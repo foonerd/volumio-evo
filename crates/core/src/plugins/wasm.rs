@@ -26,7 +26,7 @@ pub fn load_plugin(path: &Path) -> Result<PluginHandle> {
     let _instance = linker.instantiate(&mut store, &module)?;
 
     // Call plugin_init if present.
-    if let Ok(init) = _instance.get_func(&mut store, "plugin_init") {
+    if let Some(init) = _instance.get_func(&mut store, "plugin_init") {
         let init = init.typed::<(), ()>(&store)?;
         init.call(&mut store, ())?;
     }
