@@ -27,7 +27,7 @@ pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
 pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     match mpd::with_mpd(&config, |client| Box::pin(mpd::get_state(client))).await {
-        Ok(s) => Json(s).into_response(),
+        Ok(s) => Json::<VolumioState>(s).into_response(),
         Err(e) => {
             tracing::warn!("getState MPD error: {}", e);
             (
