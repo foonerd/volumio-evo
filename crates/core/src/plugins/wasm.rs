@@ -6,6 +6,7 @@ use anyhow::Result;
 use wasmtime::*;
 
 /// Handle to a loaded plugin (engine + module + store). Lifecycle TBD.
+#[allow(dead_code)]
 pub struct PluginHandle {
     _engine: Engine,
     _module: Module,
@@ -13,6 +14,7 @@ pub struct PluginHandle {
 }
 
 /// Load a plugin from a `.wasm` file. Stub: instantiates and calls no exports yet.
+#[allow(dead_code)]
 pub fn load_plugin(path: &Path) -> Result<PluginHandle> {
     let engine = Engine::default();
     let module = Module::from_file(&engine, path)?;

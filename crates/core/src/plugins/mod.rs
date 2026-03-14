@@ -4,6 +4,7 @@
 mod wasm;
 
 #[cfg(feature = "wasm")]
+#[allow(unused_imports)]
 pub use wasm::{load_plugin, PluginHandle};
 
 /// Stub when WASM plugins are disabled (e.g. armhf build; wasmtime does not support 32-bit ARM).

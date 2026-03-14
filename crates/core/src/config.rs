@@ -11,9 +11,11 @@ pub struct Config {
     pub bind: String,
     /// Directory containing WASM plugin modules.
     #[serde(default = "default_plugin_dir")]
+    #[allow(dead_code)]
     pub plugin_dir: PathBuf,
     /// MPD host.
     #[serde(default = "default_mpd_host")]
+    #[allow(dead_code)]
     pub mpd_host: String,
     /// MPD port.
     #[serde(default)]

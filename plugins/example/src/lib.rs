@@ -11,6 +11,7 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 extern "C" {
     /// Host-provided: log message at (ptr, len) in linear memory.
+    #[allow(dead_code)]
     fn log(ptr: i32, len: i32);
 }
 
