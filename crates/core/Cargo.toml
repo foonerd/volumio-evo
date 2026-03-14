@@ -25,3 +25,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 wasmtime = { version = "26", optional = true, default-features = false, features = ["wat", "runtime", "std"] }
 anyhow = "1"
 thiserror = "1"
+mpd_client = "1.4"

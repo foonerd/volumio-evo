@@ -1,9 +1,11 @@
 //! Volumio Evo: Rust backend + WASM plugins.
 
+use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod api;
 mod config;
+mod mpd;
 mod plugins;
 
 #[tokio::main]
@@ -14,11 +16,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = config::load()?;
-    tracing::info!("config loaded: bind={}", config.bind);
+    tracing::info!(
+        "config loaded: bind={}, mpd={}:{}",
+        config.bind,
+        config.mpd_host,
+        config.mpd_port
+    );
 
-    let app = api::router();
-    let listener = tokio::net::TcpListener::bind(&config.bind).await?;
-    tracing::info!("listening on {}", config.bind);
+    let state = Arc::new(config);
+    let app = api::router(state.clone());
+    let listener = tokio::net::TcpListener::bind(&state.bind).await?;
+    tracing::info!("listening on {}", state.bind);
 
     axum::serve(listener, app).await?;
     Ok(())
