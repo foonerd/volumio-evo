@@ -13,6 +13,7 @@
 - **Core (Rust):** One static binary per arch (arm/arm64/amd64). HTTP/WebSocket API for the UI. Talks to MPD, system (e.g. systemd, ALSA), config. Loads and runs plugins as WASM modules.
 - **Plugins (WASM):** Extensions are `.wasm` modules; one clear ABI (e.g. init + handle request). Sandboxed: no arbitrary OS access unless the host exposes it. Add/update by adding or replacing files; no recompile of the core.
 - **Result:** No Node, no npm on device; robust, single binary, easy to extend via plugins.
+- **32-bit (armhf):** On Pi 0, Pi 1, and 32-bit Pi OS / Trixie armhf, the core is built with wasmtime’s **Pulley** interpreter (Cranelift does not support 32-bit ARM). Same API and plugins; execution is slower than on arm64/amd64.
 
 ## 3. Frontend
 

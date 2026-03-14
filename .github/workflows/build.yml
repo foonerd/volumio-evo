@@ -34,12 +34,22 @@ jobs:
       - name: Build example plugin (WASM)
         run: cargo build --release -p volumio-evo-plugin-example --target wasm32-unknown-unknown
 
+  # Cross-build for Debian Trixie / Pi OS minimal image targets:
+  # - arm64 (aarch64): Pi OS 64-bit, Trixie arm64. Cranelift.
+  # - amd64 (x86_64): Trixie amd64. Native on runner. Cranelift.
+  # - arm32/armhf (armv7): Pi 0, Pi 1, 32-bit Pi OS. Pulley interpreter (no Cranelift on 32-bit).
   cross:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [armv7-unknown-linux-gnueabihf, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu]
+        include:
+          - target: aarch64-unknown-linux-gnu
+            evo_features: ""
+          - target: x86_64-unknown-linux-gnu
+            evo_features: ""
+          - target: armv7-unknown-linux-gnueabihf
+            evo_features: "--no-default-features --features pulley"
     steps:
       - uses: actions/checkout@v4
 
@@ -49,11 +59,16 @@ jobs:
           rustup update stable
           rustup target add ${{ matrix.target }}
 
-      - name: Install armv7 cross-compiler
+      - name: Install arm64 cross-compiler
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install armhf cross-compiler
         if: matrix.target == 'armv7-unknown-linux-gnueabihf'
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
 
       - name: Build core for ${{ matrix.target }}
         env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
-        run: cargo build --release -p volumio-evo-core --target ${{ matrix.target }}
+        run: cargo build --release -p volumio-evo-core --target ${{ matrix.target }} ${{ matrix.evo_features }}
