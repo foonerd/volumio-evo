@@ -1,6 +1,7 @@
-//! HTTP and WebSocket API.
+//! HTTP and Socket.IO API.
 
 mod http;
+mod socketio;
 mod v1;
 
 pub use http::router;

@@ -70,6 +70,16 @@ pub async fn add_to_queue_connected(config: &MpdConfig, uri: &str) -> Result<()>
     Ok(())
 }
 
+/// Remove item at queue position (0-based). Volumio UI may send 1-based; caller can pass pos - 1.
+pub async fn remove_from_queue_connected(config: &MpdConfig, position: u32) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("delete").argument(position.to_string()))
+        .await?;
+    Ok(())
+}
+
 /// Clear queue, add URI, and start playing.
 pub async fn add_play_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
