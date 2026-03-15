@@ -7,9 +7,9 @@ Rust backend + WASM plugins on a stock minimal OS. No Node, no debootstrap.
 - **Base:** Stock minimal image (Raspberry Pi OS Lite / Debian Trixie).
 - **Layer:** Volumio Evo binary, plugins, config, and systemd applied on top.
 - **Backend:** Single Rust binary; loads sandboxed WASM plugins.
-- **UI:** Unchanged (e.g. React) over HTTP/WebSocket.
+- **UI:** Unchanged (e.g. React) over HTTP and Socket.IO.
 
-See [docs/CONCEPT.md](docs/CONCEPT.md) and [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md).
+See [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), and [docs/PORTING.md](docs/PORTING.md) for API port status.
 
 ## Build
 
@@ -58,7 +58,7 @@ Evo uses its **own layout** for music sources instead of relying on Volumio OS p
   - **usb** - removable media (e.g. symlink to `/media`).
   - **nas** / **smb** - mount points or symlinks for network shares.
 
-Browse root `GET /api/v1/browse?uri=music-library` returns these four sources; subpaths use MPD `lsinfo`. Config allows optional overrides (`music_sources.local`, etc.) for where each source points; the installer or a small init script can create the dirs/symlinks under `music_root`.
+Browse root `GET /api/v1/browse?uri=music-library` returns these four sources; subpaths use MPD `lsinfo`. The four subdirs must exist (or be symlinks) under `music_root` so MPD can list them. In config you can set optional `music_sources.local`, `usb`, `nas`, `smb` to document where each source points; the installer or a small init script then creates the dirs/symlinks under `music_root`.
 
 ## Layer
 
