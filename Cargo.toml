@@ -1,3 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/core", "crates/plugin-sdk", "plugins/example"]
+
+# WASM plugin needs panic=abort (no unwinding without std); safe for all members
+[profile.release]
+panic = "abort"
+[profile.dev]
+panic = "abort"

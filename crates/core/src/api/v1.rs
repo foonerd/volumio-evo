@@ -1,4 +1,4 @@
-//! Volumio v1 REST API: getState, commands, getQueue, stubs for browse/getInstalledPlugins.
+//! Volumio v1 REST API: getState, commands, getQueue, browse, stubs for getInstalledPlugins.
 //! Mirrors the Node backend so the existing UI works.
 
 use axum::{
@@ -39,14 +39,16 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// GET /api/v1/commands?cmd=...&volume=...&position=...&value=...
+/// GET /api/v1/commands?cmd=...&volume=...&position=...&value=...&N=...
 #[derive(Debug, Deserialize)]
 pub struct CommandsQuery {
     pub cmd: Option<String>,
     pub volume: Option<String>,
     pub position: Option<String>,
     pub value: Option<String>,
-    pub N: Option<String>,
+    /// Position (same as position); Volumio UI sometimes sends N
+    #[serde(rename = "N")]
+    pub n: Option<String>,
 }
 
 pub async fn commands(
@@ -71,13 +73,61 @@ pub async fn commands(
         .or_else(|| if q.volume.as_deref() == Some("mute") { Some(0) } else { None });
     let position = q
         .position
-        .or(q.N)
+        .or(q.n)
         .as_deref()
         .and_then(|s| s.parse::<i64>().ok());
     let repeat = (cmd == "repeat").then(|| q.value.as_deref() == Some("true"));
     let random = (cmd == "random").then(|| q.value.as_deref() == Some("true"));
 
     let config = mpd_config_from_app(&state);
+
+    if cmd == "addToQueue" {
+        let uri = match &q.value {
+            Some(u) if !u.is_empty() => u.as_str(),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"Error": "addToQueue requires value=uri"})),
+                )
+                    .into_response()
+            }
+        };
+        return match mpd::add_to_queue_connected(&config, uri).await {
+            Ok(()) => Json(serde_json::json!({"response": "addToQueue Success"})).into_response(),
+            Err(e) => {
+                tracing::warn!("addToQueue MPD error: {}", e);
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({"error": "MPD unavailable"})),
+                )
+                    .into_response()
+            }
+        };
+    }
+    if cmd == "addPlay" {
+        let uri = match &q.value {
+            Some(u) if !u.is_empty() => u.as_str(),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"Error": "addPlay requires value=uri"})),
+                )
+                    .into_response()
+            }
+        };
+        return match mpd::add_play_connected(&config, uri).await {
+            Ok(()) => Json(serde_json::json!({"response": "addPlay Success"})).into_response(),
+            Err(e) => {
+                tracing::warn!("addPlay MPD error: {}", e);
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({"error": "MPD unavailable"})),
+                )
+                    .into_response()
+            }
+        };
+    }
+
     match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
         Ok(()) => Json(serde_json::json!({
             "response": cmd.to_string() + " Success"
@@ -115,9 +165,33 @@ pub async fn get_installed_plugins() -> impl IntoResponse {
     Json(serde_json::json!([]))
 }
 
-/// GET /api/v1/browse - stub (returns empty navigation)
-pub async fn browse() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "navigation": { "lists": [] }
-    }))
+/// GET /api/v1/browse?uri=music-library|music-library/...
+#[derive(Debug, Deserialize)]
+pub struct BrowseQuery {
+    #[serde(default)]
+    pub uri: String,
+}
+
+/// GET /api/v1/browse - MPD lsinfo-based library browse
+pub async fn browse(
+    State(state): State<AppState>,
+    Query(q): Query<BrowseQuery>,
+) -> impl IntoResponse {
+    let uri = if q.uri.is_empty() {
+        "music-library"
+    } else {
+        q.uri.as_str()
+    };
+    let config = mpd_config_from_app(&state);
+    match mpd::browse_connected(&config, uri).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => {
+            tracing::warn!("browse {} MPD error: {}", uri, e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "MPD unavailable"})),
+            )
+                .into_response()
+        }
+    }
 }

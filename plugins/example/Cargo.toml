@@ -7,4 +7,11 @@ description = "Example Volumio Evo WASM plugin"
 [lib]
 crate-type = ["cdylib"]
 
+# WASM/no_std does not support panic unwinding; use abort.
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
+
 [dependencies]
