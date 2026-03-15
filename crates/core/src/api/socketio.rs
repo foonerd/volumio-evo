@@ -301,7 +301,7 @@ async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
     let _ = mpd::run_command_connected(&config, "clearQueue", None, None, None, None).await;
 }
 
-async fn get_installed_plugins(s: SocketRef) {
-    let empty: Vec<serde_json::Value> = vec![];
-    s.emit("pushInstalledPlugins", &empty).ok();
+async fn get_installed_plugins(s: SocketRef, State(state): State<AppState>) {
+    let plugins = super::v1::list_installed_plugins(&state).await;
+    s.emit("pushInstalledPlugins", &plugins).ok();
 }

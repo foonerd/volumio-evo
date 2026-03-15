@@ -1,11 +1,26 @@
-//! Axum router, REST v1, and Socket.IO layer.
+//! Axum router, REST v1, Socket.IO layer, and album-art placeholder routes.
 
-use axum::{routing::{get, post}, Router};
+use axum::{http::StatusCode, response::IntoResponse, routing::{get, post}, Router};
 use socketioxide::SocketIo;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use super::v1;
+
+/// GET /albumart - placeholder (Node serves from cache/MPD). Return 404 so UI can show fallback.
+async fn album_art() -> impl IntoResponse {
+    StatusCode::NOT_FOUND
+}
+
+/// GET /albumartd - direct album art. Placeholder 404.
+async fn album_art_direct() -> impl IntoResponse {
+    StatusCode::NOT_FOUND
+}
+
+/// GET /tinyart/* - tiny art variant. Placeholder 404.
+async fn album_art_tiny() -> impl IntoResponse {
+    StatusCode::NOT_FOUND
+}
 
 pub fn router(state: super::AppState) -> Router {
     let (socket_layer, io) = SocketIo::builder()
@@ -34,6 +49,9 @@ pub fn router(state: super::AppState) -> Router {
     Router::new()
         .route("/", get(health))
         .route("/api/health", get(health))
+        .route("/albumart", get(album_art))
+        .route("/albumartd", get(album_art_direct))
+        .route("/tinyart/*path", get(album_art_tiny))
         .nest("/api/v1", v1_routes)
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())

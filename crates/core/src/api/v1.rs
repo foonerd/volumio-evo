@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::config::{Config, MUSIC_SOURCE_NAMES};
@@ -160,9 +160,37 @@ pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// GET /api/v1/getInstalledPlugins - stub for UI compatibility
-pub async fn get_installed_plugins() -> impl IntoResponse {
-    Json(serde_json::json!([]))
+/// Plugin list entry for getInstalledPlugins (name from .wasm filename stem).
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginInfo {
+    pub name: String,
+}
+
+/// List WASM plugins in plugin_dir (.wasm files; name = filename stem).
+pub async fn list_installed_plugins(state: &AppState) -> Vec<PluginInfo> {
+    let mut read_dir = match tokio::fs::read_dir(&state.plugin_dir).await {
+        Ok(rd) => rd,
+        Err(_) => return vec![],
+    };
+    let mut plugins = Vec::new();
+    while let Ok(Some(entry)) = read_dir.next_entry().await {
+        let name = entry.file_name();
+        let s = name.to_string_lossy();
+        if s.ends_with(".wasm") {
+            let name = entry
+                .path()
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            plugins.push(PluginInfo { name });
+        }
+    }
+    plugins
+}
+
+/// GET /api/v1/getInstalledPlugins - list WASM plugins from plugin_dir
+pub async fn get_installed_plugins(State(state): State<AppState>) -> impl IntoResponse {
+    Json(list_installed_plugins(&state).await)
 }
 
 /// GET /api/v1/ping - liveness (Node returns "pong")

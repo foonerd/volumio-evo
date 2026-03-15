@@ -10,7 +10,7 @@ What's done vs what's left to port from volumio3-backend so the existing UI and 
 | **getQueue** | done: MPD queue |
 | **commands** | done: play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, **addToQueue**, **addPlay** (GET with query) |
 | **browse** | done: Evo layout (local, usb, nas, smb); MPD lsinfo under each source |
-| **getInstalledPlugins** | done: Stub (returns `[]`) for UI compatibility |
+| **getInstalledPlugins** | done: List WASM plugins from plugin_dir (REST + Socket.IO pushInstalledPlugins) |
 | **Music layout** | done: Config + music_root (install/first-run, different user) |
 | **Health** | done: `/`, `/api/health` |
 | **Socket.IO** | done: socketioxide (v4); getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins |
@@ -43,11 +43,11 @@ Node serves:
 
 - `/albumart`, `/tinyart/*`, `/albumartd` (proxy to local or MPD/readpicture).
 
-Evo: not implemented. UI may show placeholders or break without. Lower priority if UI tolerates missing art; otherwise add a small route that fetches art (e.g. from MPD or music_root) or returns 404.
+Evo: routes added; return 404 so UI gets a valid HTTP response and can show placeholders. Future: serve from MPD readpicture or music_root.
 
 ### 3. Plugins and config
 
-- **getInstalledPlugins:** Stub is enough for now; real implementation = list WASM plugins from `plugin_dir`.
+- **getInstalledPlugins:** Done: list .wasm files in `plugin_dir`, return array of `{ name }` (filename stem).
 - **Plugin REST/WebSocket endpoints** (pluginEndpoint, etc.): Defer until plugin ABI is fixed and plugins need HTTP.
 
 ### 4. Optional: push state/queue on MPD changes
@@ -64,5 +64,5 @@ Socket.IO adapter currently responds to UI requests only. For live updates (e.g.
 **Summary - suggested order:**  
 1) ~~**WebSocket adapter**~~ Done (Socket.IO with socketioxide v4).  
 2) ~~**REST quick wins**~~ Done: ping, getSystemVersion, getSystemInfo (stubs), listplaylists, search, superSearch, collectionstats, getzones (stub), replaceAndPlay.  
-3) **Album art** if the UI requires it.  
-4) **getInstalledPlugins** real (list WASM) and plugin endpoints when needed.
+3) ~~**Album art**~~ Routes added (404 for now; UI can show placeholders).  
+4) ~~**getInstalledPlugins** real~~ Done (list WASM from plugin_dir). Plugin REST/WebSocket endpoints when needed.
