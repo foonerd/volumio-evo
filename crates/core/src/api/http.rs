@@ -20,6 +20,11 @@ pub fn router(state: super::AppState) -> Router {
         .route("/getQueue", get(v1::get_queue))
         .route("/getInstalledPlugins", get(v1::get_installed_plugins))
         .route("/browse", get(v1::browse))
+        .route("/ping", get(v1::ping))
+        .route("/getSystemVersion", get(v1::get_system_version))
+        .route("/getSystemInfo", get(v1::get_system_info))
+        .route("/listplaylists", get(v1::list_playlists))
+        .route("/search", get(v1::search))
         .with_state(state.clone());
 
     Router::new()

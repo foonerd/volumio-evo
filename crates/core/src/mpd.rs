@@ -237,6 +237,55 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, uri_prefix: 
     items
 }
 
+/// List MPD stored playlists (listplaylists). Returns playlist names.
+pub async fn list_playlists_connected(config: &MpdConfig) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("listplaylists");
+    let frame = client.raw_command(raw).await?;
+    let names: Vec<String> = frame
+        .fields()
+        .filter(|(k, _)| *k == "playlist")
+        .map(|(_, v)| v.to_string())
+        .collect();
+    Ok(names)
+}
+
+/// Search MPD library (find any <query>). Returns browse-style response.
+pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseResponse> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(BrowseResponse {
+            navigation: BrowseNavigation {
+                prev: BrowsePrev {
+                    uri: "music-library".to_string(),
+                },
+                lists: vec![BrowseList {
+                    available_list_views: vec!["list", "grid"],
+                    items: vec![],
+                }],
+            },
+        });
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    // find any "term" searches in any tag
+    let raw = RawCommand::new("find").argument("any").argument(query);
+    let frame = client.raw_command(raw).await?;
+    let items = parse_lsinfo_frame(frame, "music-library");
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "music-library".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
 /// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library" or "music-library/INTERNAL"), return browse response.
 pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;

@@ -1,4 +1,4 @@
-//! Volumio v1 REST API: getState, commands, getQueue, browse, stubs for getInstalledPlugins.
+//! Volumio v1 REST API: getState, commands, getQueue, browse, ping, getSystemVersion, getSystemInfo, listplaylists, search, stubs.
 //! Mirrors the Node backend so the existing UI works.
 
 use axum::{
@@ -163,6 +163,89 @@ pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
 /// GET /api/v1/getInstalledPlugins - stub for UI compatibility
 pub async fn get_installed_plugins() -> impl IntoResponse {
     Json(serde_json::json!([]))
+}
+
+/// GET /api/v1/ping - liveness (Node returns "pong")
+pub async fn ping() -> &'static str {
+    "pong"
+}
+
+/// GET /api/v1/getSystemVersion - stub for UI (Node returns systemversion, variant, hardware, os, builddate)
+pub async fn get_system_version() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "systemversion": "4.0",
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null
+    }))
+}
+
+/// GET /api/v1/getSystemInfo - stub for UI (Node returns getSystemVersion + hostname, hwUuid, etc.)
+pub async fn get_system_info() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "systemversion": "4.0",
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null,
+        "hostname": "volumio-evo",
+        "hwUuid": "evo-stub"
+    }))
+}
+
+/// GET /api/v1/listplaylists - MPD listplaylists (Node returns array of { name } or similar)
+pub async fn list_playlists(State(state): State<AppState>) -> impl IntoResponse {
+    let config = mpd_config_from_app(&state);
+    match mpd::list_playlists_connected(&config).await {
+        Ok(names) => {
+            let list: Vec<serde_json::Value> = names
+                .into_iter()
+                .map(|n| serde_json::json!({ "name": n }))
+                .collect();
+            Json(serde_json::Value::Array(list)).into_response()
+        }
+        Err(e) => {
+            tracing::warn!("listplaylists MPD error: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "MPD unavailable"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/search?query=... - MPD find (Node listingSearch returns browse-like result)
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    #[serde(default)]
+    pub query: String,
+}
+
+pub async fn search(
+    State(state): State<AppState>,
+    Query(q): Query<SearchQuery>,
+) -> impl IntoResponse {
+    if q.query.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "No search query provided"})),
+        )
+            .into_response();
+    }
+    let config = mpd_config_from_app(&state);
+    match mpd::search_connected(&config, &q.query).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => {
+            tracing::warn!("search MPD error: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "MPD unavailable"})),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// GET /api/v1/browse?uri=music-library|music-library/...

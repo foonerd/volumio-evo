@@ -14,6 +14,7 @@ What's done vs what's left to port from volumio3-backend so the existing UI and 
 | **Music layout** | done: Config + music_root (install/first-run, different user) |
 | **Health** | done: `/`, `/api/health` |
 | **Socket.IO** | done: socketioxide (v4); getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins |
+| **REST quick wins** | done: GET /ping (pong), /getSystemVersion, /getSystemInfo (stubs), /listplaylists (MPD), /search (MPD find) |
 
 ## Next (by priority)
 
@@ -23,18 +24,18 @@ From `rest_api/index.js`, not yet in Evo:
 
 | Endpoint | Use |
 |----------|-----|
-| **GET /search** | listingSearch - search library |
+| **GET /search** | done: MPD find, browse-like response |
 | **GET /superSearch** | listingSuperSearch |
-| **GET /listplaylists** | MPD playlists list |
+| **GET /listplaylists** | done: MPD listplaylists |
 | **GET /collectionstats** | Stats (e.g. track count) |
 | **GET /getzones** | Multi-room / zones (can stay stub) |
-| **GET /getSystemVersion** | Version string (stub or from build) |
-| **GET /getSystemInfo** | Hostname, etc. (stub) |
-| **GET /ping** | Liveness (we have /api/health; alias if UI calls /api/v1/ping) |
+| **GET /getSystemVersion** | done: stub |
+| **GET /getSystemInfo** | done: stub |
+| **GET /ping** | done: returns "pong" |
 | **POST /replaceAndPlay** | Clear, add URI, play (we have addPlay; replaceAndPlay may take list) |
-| **removeFromQueue** | MPD delete position (REST + WS) |
+| **removeFromQueue** | done (Socket.IO + MPD delete) |
 
-Quick wins: **ping** (alias), **getSystemVersion** / **getSystemInfo** (stubs), **listplaylists** (MPD listplaylists), **search** (MPD search if MPD supports it).
+Remaining: **superSearch**, **collectionstats**, **getzones** (stub), **replaceAndPlay**.
 
 ### 2. Album art / assets
 
@@ -62,6 +63,6 @@ Socket.IO adapter currently responds to UI requests only. For live updates (e.g.
 
 **Summary - suggested order:**  
 1) ~~**WebSocket adapter**~~ Done (Socket.IO with socketioxide v4).  
-2) **REST:** ping, getSystemVersion, getSystemInfo (stubs), listplaylists, then search/replaceAndPlay (removeFromQueue done via Socket.IO + MPD delete).  
+2) ~~**REST quick wins**~~ Done: ping, getSystemVersion, getSystemInfo (stubs), listplaylists, search. Remaining: superSearch, collectionstats, replaceAndPlay.  
 3) **Album art** if the UI requires it.  
 4) **getInstalledPlugins** real (list WASM) and plugin endpoints when needed.
