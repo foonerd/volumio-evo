@@ -10,8 +10,8 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::config::Config;
-use crate::mpd::{self, MpdConfig, VolumioState};
+use crate::config::{Config, MUSIC_SOURCE_NAMES};
+use crate::mpd::{self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig, VolumioState};
 
 /// Shared app state (config only; MPD is per-request connect).
 pub type AppState = Arc<Config>;
@@ -172,7 +172,7 @@ pub struct BrowseQuery {
     pub uri: String,
 }
 
-/// GET /api/v1/browse - MPD lsinfo-based library browse
+/// GET /api/v1/browse - Evo-driven layout (local, usb, nas, smb) then MPD lsinfo
 pub async fn browse(
     State(state): State<AppState>,
     Query(q): Query<BrowseQuery>,
@@ -182,6 +182,35 @@ pub async fn browse(
     } else {
         q.uri.as_str()
     };
+
+    // Root: return our four sources (no MPD call). MPD music_directory must be music_root.
+    if uri == "music-library" {
+        let items: Vec<BrowseItem> = MUSIC_SOURCE_NAMES
+            .iter()
+            .map(|(name, title)| BrowseItem {
+                item_type: "folder".to_string(),
+                title: title.to_string(),
+                uri: format!("music-library/{}", name),
+                service: "mpd".to_string(),
+                artist: None,
+                album: None,
+                duration: None,
+            })
+            .collect();
+        let resp = BrowseResponse {
+            navigation: BrowseNavigation {
+                prev: BrowsePrev {
+                    uri: String::new(),
+                },
+                lists: vec![BrowseList {
+                    available_list_views: vec!["list", "grid"],
+                    items,
+                }],
+            },
+        };
+        return Json(resp).into_response();
+    }
+
     let config = mpd_config_from_app(&state);
     match mpd::browse_connected(&config, uri).await {
         Ok(resp) => Json(resp).into_response(),

@@ -1,6 +1,13 @@
 # Volumio Evo config. Copy to /etc/volumio-evo/config.toml
+# Install or first run: set music_root here or via VOLUMIO_EVO_MUSIC_ROOT
+# (e.g. in systemd override). Service may run as a different user than volumio.
 
 bind = "0.0.0.0:3000"
 plugin_dir = "/usr/share/volumio-evo/plugins"
 mpd_host = "127.0.0.1"
 mpd_port = 6600
+
+[music_sources]
+# Base path for local, usb, nas, smb. MPD music_directory must match.
+# Override at install: Environment=VOLUMIO_EVO_MUSIC_ROOT=/var/lib/volumio-evo/music
+music_root = "/var/lib/volumio-evo/music"

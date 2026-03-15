@@ -4,6 +4,58 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+/// Evo-owned layout for music sources. MPD's `music_directory` must be set to
+/// `music_root` so that paths like `local/`, `usb/`, `nas/`, `smb/` exist under it
+/// (as dirs or symlinks). Works on vanilla Debian (no Volumio overlayfs).
+#[derive(Debug, Clone, Deserialize, Default)]
+#[allow(dead_code)] // used by config file and future init/ensure-layout
+pub struct MusicSourcesConfig {
+    /// Base path for music. MPD must use this as music_directory.
+    /// Under it: local, usb, nas, smb (create or symlink per deployment).
+    #[serde(default = "default_music_root")]
+    pub music_root: PathBuf,
+    /// Optional path for "local" (on-device) storage. If set, installer/startup
+    /// should ensure music_root/local exists and points here (e.g. symlink).
+    pub local: Option<PathBuf>,
+    /// Optional path for USB media (e.g. /media). music_root/usb can symlink here.
+    pub usb: Option<PathBuf>,
+    /// Optional path for NAS mount. music_root/nas can be a mount point or symlink.
+    pub nas: Option<PathBuf>,
+    /// Optional path for SMB mount. music_root/smb can be a mount point or symlink.
+    pub smb: Option<PathBuf>,
+}
+
+fn default_music_root() -> PathBuf {
+    PathBuf::from("/var/lib/volumio-evo/music")
+}
+
+/// User-aware default when no config file exists: prefer XDG_DATA_HOME or HOME
+/// so a non-volumio user gets a writable path. Install/first-run can set
+/// VOLUMIO_EVO_MUSIC_ROOT instead.
+fn user_or_system_music_root_default() -> PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        let p = PathBuf::from(xdg).join("volumio-evo").join("music");
+        if !p.as_os_str().is_empty() {
+            return p;
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join(".local").join("share").join("volumio-evo").join("music");
+        if !p.as_os_str().is_empty() {
+            return p;
+        }
+    }
+    default_music_root()
+}
+
+/// Default source names under music_root. URI prefix: music-library/<name>/...
+pub const MUSIC_SOURCE_NAMES: &[(&str, &str)] = &[
+    ("local", "Local"),
+    ("usb", "USB"),
+    ("nas", "NAS"),
+    ("smb", "SMB"),
+];
+
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
     /// Bind address for the HTTP/WebSocket server.
@@ -20,6 +72,10 @@ pub struct Config {
     /// MPD port.
     #[serde(default)]
     pub mpd_port: u16,
+    /// Music sources layout (local, usb, nas, smb). Evo drives this; MPD uses music_root.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub music_sources: MusicSourcesConfig,
 }
 
 fn default_bind() -> String {
@@ -35,6 +91,9 @@ fn default_mpd_host() -> String {
 }
 
 /// Load config from file and env. Path: VOLUMIO_EVO_CONFIG or default paths.
+/// music_root: set at install or first run via VOLUMIO_EVO_MUSIC_ROOT, or in config;
+/// when no config file exists, a user-aware default is used (XDG_DATA_HOME or
+/// HOME/.local/share/volumio-evo/music) so a different-than-volumio user can run.
 pub fn load() -> anyhow::Result<Config> {
     let path = std::env::var("VOLUMIO_EVO_CONFIG")
         .ok()
@@ -49,6 +108,7 @@ pub fn load() -> anyhow::Result<Config> {
             .find(|p| p.exists())
         });
 
+    let from_file = path.is_some();
     let mut config: Config = if let Some(p) = path {
         let s = std::fs::read_to_string(&p)?;
         toml::from_str(&s)?
@@ -58,6 +118,13 @@ pub fn load() -> anyhow::Result<Config> {
 
     if config.mpd_port == 0 {
         config.mpd_port = 6600;
+    }
+
+    // music_root: env overrides; when no config file, use user-aware default
+    if let Ok(env_root) = std::env::var("VOLUMIO_EVO_MUSIC_ROOT") {
+        config.music_sources.music_root = PathBuf::from(env_root);
+    } else if !from_file {
+        config.music_sources.music_root = user_or_system_music_root_default();
     }
 
     Ok(config)

@@ -44,6 +44,22 @@ cross build --release --target armv7-unknown-linux-gnueabihf -p volumio-evo-core
 
 On armhf the core runs without the WASM plugin layer. For full plugin support use arm64 (e.g. Pi Zero 2 W with 64-bit Pi OS).
 
+## Music sources (local, USB, NAS, SMB)
+
+Evo uses its **own layout** for music sources instead of relying on Volumio OS paths (`/mnt/INTERNAL`, overlayfs, etc.). This works on vanilla Debian (e.g. Trixie) and keeps MPD integration explicit.
+
+- **Base path:** `music_sources.music_root`. Can be set at **install** or **first run** so it’s not tied to a specific user (e.g. not only `volumio`):
+  - **Env:** `VOLUMIO_EVO_MUSIC_ROOT` overrides config (e.g. in systemd unit or install script).
+  - **Config file:** `[music_sources] music_root = "..."` in `/etc/volumio-evo/config.toml` or `config/volumio-evo.toml`.
+  - **No config file:** user-aware default: `$XDG_DATA_HOME/volumio-evo/music` or `$HOME/.local/share/volumio-evo/music`, else `/var/lib/volumio-evo/music`. So a different user (e.g. `pi`, `debian`) gets a writable path when running without a config file.
+- **MPD:** Set MPD’s `music_directory` to the same path (install or MPD config) so MPD sees one root with four subdirs.
+- **Subdirs:** Under `music_root` create (or symlink) **local**, **usb**, **nas**, **smb**:
+  - **local** — on-device storage (e.g. symlink to `/data/INTERNAL` on Volumio OS, or a dir on rootfs on vanilla).
+  - **usb** — removable media (e.g. symlink to `/media`).
+  - **nas** / **smb** — mount points or symlinks for network shares.
+
+Browse root `GET /api/v1/browse?uri=music-library` returns these four sources; subpaths use MPD `lsinfo`. Config allows optional overrides (`music_sources.local`, etc.) for where each source points; the installer or a small init script can create the dirs/symlinks under `music_root`.
+
 ## Layer
 
 Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [layer/README.md](layer/README.md).
