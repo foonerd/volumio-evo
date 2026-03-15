@@ -248,6 +248,66 @@ pub async fn search(
     }
 }
 
+/// GET /api/v1/superSearch?query=... - same as search (Node listingSuperSearch, browse-like result)
+pub async fn super_search(
+    State(state): State<AppState>,
+    Query(q): Query<SearchQuery>,
+) -> impl IntoResponse {
+    search(State(state), Query(q)).await
+}
+
+/// GET /api/v1/collectionstats - MPD stats (artists, albums, songs, playtime)
+pub async fn collection_stats(State(state): State<AppState>) -> impl IntoResponse {
+    let config = mpd_config_from_app(&state);
+    match mpd::collection_stats_connected(&config).await {
+        Ok(stats) => Json(stats).into_response(),
+        Err(e) => {
+            tracing::warn!("collectionstats MPD error: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "MPD unavailable"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /api/v1/getzones - multi-room zones stub (Node returns { zones: list })
+pub async fn get_zones() -> impl IntoResponse {
+    Json(serde_json::json!({ "zones": [] }))
+}
+
+/// POST /api/v1/replaceAndPlay - JSON body { uri }, clear queue + add + play
+#[derive(Debug, Deserialize)]
+pub struct ReplaceAndPlayBody {
+    pub uri: String,
+}
+
+pub async fn replace_and_play(
+    State(state): State<AppState>,
+    Json(body): Json<ReplaceAndPlayBody>,
+) -> impl IntoResponse {
+    if body.uri.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Missing uri"})),
+        )
+            .into_response();
+    }
+    let config = mpd_config_from_app(&state);
+    match mpd::add_play_connected(&config, &body.uri).await {
+        Ok(()) => Json(serde_json::json!({"response": "success"})).into_response(),
+        Err(e) => {
+            tracing::warn!("replaceAndPlay MPD error: {}", e);
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "MPD unavailable"})),
+            )
+                .into_response()
+        }
+    }
+}
+
 /// GET /api/v1/browse?uri=music-library|music-library/...
 #[derive(Debug, Deserialize)]
 pub struct BrowseQuery {

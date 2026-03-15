@@ -1,6 +1,6 @@
 //! Axum router, REST v1, and Socket.IO layer.
 
-use axum::{routing::get, Router};
+use axum::{routing::{get, post}, Router};
 use socketioxide::SocketIo;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -25,6 +25,10 @@ pub fn router(state: super::AppState) -> Router {
         .route("/getSystemInfo", get(v1::get_system_info))
         .route("/listplaylists", get(v1::list_playlists))
         .route("/search", get(v1::search))
+        .route("/superSearch", get(v1::super_search))
+        .route("/collectionstats", get(v1::collection_stats))
+        .route("/getzones", get(v1::get_zones))
+        .route("/replaceAndPlay", post(v1::replace_and_play))
         .with_state(state.clone());
 
     Router::new()

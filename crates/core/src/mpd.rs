@@ -237,6 +237,41 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, uri_prefix: 
     items
 }
 
+/// Collection stats from MPD (stats command). Returns artists, albums, songs, playtime (HH:MM:SS).
+#[derive(Debug, Default, Serialize)]
+pub struct CollectionStats {
+    pub artists: u64,
+    pub albums: u64,
+    pub songs: u64,
+    pub playtime: String,
+}
+
+pub async fn collection_stats_connected(config: &MpdConfig) -> Result<CollectionStats> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("stats");
+    let frame = client.raw_command(raw).await?;
+    let mut stats = CollectionStats::default();
+    stats.playtime = "00:00:00".to_string();
+    for (k, v) in frame.fields() {
+        match k {
+            "songs" => stats.songs = v.parse().unwrap_or(0),
+            "artists" => stats.artists = v.parse().unwrap_or(0),
+            "albums" => stats.albums = v.parse().unwrap_or(0),
+            "db_playtime" => {
+                if let Ok(secs) = v.parse::<u64>() {
+                    let h = secs / 3600;
+                    let m = (secs % 3600) / 60;
+                    let s = secs % 60;
+                    stats.playtime = format!("{:02}:{:02}:{:02}", h, m, s);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(stats)
+}
+
 /// List MPD stored playlists (listplaylists). Returns playlist names.
 pub async fn list_playlists_connected(config: &MpdConfig) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
