@@ -1,4 +1,4 @@
-# Volumio Evo – Plugin ABI
+# Volumio Evo - Plugin ABI
 
 Contract between the host (Rust core) and guest (WASM plugin).
 
