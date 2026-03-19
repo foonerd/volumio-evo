@@ -163,7 +163,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
 | Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
-| Album art resolution (path, cache, personal, online, default) | Yes | path → folder/metadata cache → folder covers → personal → web cache → online (Cover Art Archive, Last.fm, iTunes, Volumio meta) → default |
+| Album art resolution (path, cache, personal, exiftool, online, icon, resize) | Yes | path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online → icon/sectionimage/sourceicon → default; albumartd 500px, tinyart 250px |
 
 ---
 
@@ -176,7 +176,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata; resolution order: path on disk → folder/metadata cache → folder covers → personal → web cache → online providers (Cover Art Archive, Last.fm, iTunes, Volumio meta; API keys in config or env) → default image or embedded placeholder.
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px).
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
@@ -186,11 +186,11 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **HDMI standby, OAuth, pushNotificationUrls:** stubs or skip for minimal port.
 - **Playlist manager (create/delete/addToPlaylist/...), favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art:** full resolution implemented including **online providers** (see [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md)): Cover Art Archive, Last.fm, iTunes Search, Volumio meta (artist). API keys in `[albumart_providers]` or env. Exiftool, icon/sectionimage/sourceicon fallbacks, resize for albumartd/tinyart deferred.
+- **Album art:** full handling implemented: exiftool (embedded art when metadata=true), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px). MPD readpicture not implemented.
 
 ### 3.3 Optional / future
 
-- **Album art:** exiftool/metadata extraction; icon/sectionimage/sourceicon from plugin dirs; resize for albumartd/tinyart; MPD readpicture if needed.
+- **Album art:** MPD readpicture if needed; exiftool path configurable (default /usr/bin/exiftool).
 
 ---
 

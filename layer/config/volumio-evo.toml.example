@@ -10,6 +10,9 @@ mpd_port = 6600
 # Album art cache and personal uploads (folder, metadata, web, personal). Override: VOLUMIO_EVO_ALBUMART_ROOT
 albumart_root = "/var/lib/volumio-evo/albumart"
 
+# Path to exiftool for embedded art extraction (?metadata=true). Override: VOLUMIO_EVO_EXIFTOOL_PATH
+# exiftool_path = "/usr/bin/exiftool"
+
 # Optional: API keys for online album-art providers (for large libraries, avoids rate limits).
 # Env overrides: VOLUMIO_EVO_LASTFM_API_KEY, VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT
 # [albumart_providers]

@@ -17,7 +17,6 @@ use crate::albumart;
 use super::v1;
 
 #[derive(Debug, Deserialize, Default)]
-#[allow(dead_code)] // icon, source_icon, section_image reserved for plugin/fallback handling
 pub struct AlbumArtQuery {
     pub web: Option<String>,
     pub path: Option<String>,
@@ -39,6 +38,81 @@ const FALLBACK_PNG: &[u8] = &[
 ];
 
 const CACHE_MAX_AGE: &str = "public, max-age=2628000"; // 30d
+
+/// Plugin dirs to search for icon/sectionimage/sourceicon (Volumio-compatible order).
+fn albumart_plugin_dirs(plugin_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    vec![
+        plugin_dir.to_path_buf(),
+        std::path::PathBuf::from("/data/plugins"),
+        std::path::PathBuf::from("/usr/share/volumio-evo/plugins"),
+    ]
+}
+
+/// Try to serve icon/sectionimage/sourceicon from plugin dirs before default. Returns (body, content_type).
+fn try_icon_fallback(state: &super::AppState, q: &AlbumArtQuery) -> Option<(Vec<u8>, &'static str)> {
+    let dirs = albumart_plugin_dirs(&state.plugin_dir);
+    if let Some(ref icon) = q.icon {
+        let name = format!("{}.svg", icon);
+        for base in &dirs {
+            let path = base.join("icons").join(&name);
+            if path.exists() {
+                if let Ok(data) = std::fs::read(&path) {
+                    return Some((data, "image/svg+xml"));
+                }
+            }
+        }
+    }
+    if let Some(ref section) = q.section_image {
+        for base in &dirs {
+            let path = base.join(section);
+            if path.exists() {
+                if let Ok(data) = std::fs::read(&path) {
+                    let ct = if section.ends_with(".svg") {
+                        "image/svg+xml"
+                    } else if section.ends_with(".png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    };
+                    return Some((data, ct));
+                }
+            }
+        }
+    }
+    if let Some(ref src) = q.source_icon {
+        for base in &dirs {
+            let path = base.join(src);
+            if path.exists() {
+                if let Ok(data) = std::fs::read(&path) {
+                    let ct = if src.ends_with(".svg") {
+                        "image/svg+xml"
+                    } else if src.ends_with(".png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    };
+                    return Some((data, ct));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resize image to fit inside max_dim x max_dim, encode as JPEG. Returns None if decode fails.
+fn resize_image_to_jpeg(data: &[u8], max_dim: u32) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+    let img = image::load_from_memory(data).ok()?;
+    let thumb = img.thumbnail(max_dim, max_dim);
+    let mut out = Vec::new();
+    thumb
+        .write_to(&mut Cursor::new(&mut out), image::ImageFormat::Jpeg)
+        .ok()?;
+    if out.is_empty() {
+        return None;
+    }
+    Some(out)
+}
 
 /// Try to load default image from albumart_root (default.jpg then default.png); else return embedded placeholder.
 fn default_album_art_bytes(state: &super::AppState) -> (Vec<u8>, &'static str) {
@@ -68,7 +142,7 @@ fn image_response(data: Vec<u8>, content_type: &'static str) -> Response {
         .unwrap()
 }
 
-/// GET /albumart - resolve from path/web/online providers then default/placeholder.
+/// GET /albumart - resolve from path/web/online providers then icon fallbacks then default/placeholder.
 async fn album_art(
     State(state): State<super::AppState>,
     Query(q): Query<AlbumArtQuery>,
@@ -82,6 +156,7 @@ async fn album_art(
         q.web.as_deref(),
         metadata,
         &state.albumart_providers,
+        &state.exiftool_path,
     )
     .await
     {
@@ -89,36 +164,46 @@ async fn album_art(
             return image_response(data, ct);
         }
     }
+    if let Some((data, ct)) = try_icon_fallback(&state, &q) {
+        return image_response(data, ct);
+    }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)
 }
 
-/// GET /albumartd - direct album art; same resolution as /albumart.
+/// GET /albumartd - direct album art; same resolution as /albumart, resized to max 500px.
 async fn album_art_direct(
     State(state): State<super::AppState>,
     Query(q): Query<AlbumArtQuery>,
 ) -> impl IntoResponse {
     let music_root = &state.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
-    if let Some((file_path, ct)) = albumart::resolve_async(
+    if let Some((file_path, _ct)) = albumart::resolve_async(
         &state.albumart_root,
         music_root,
         q.path.as_deref(),
         q.web.as_deref(),
         metadata,
         &state.albumart_providers,
+        &state.exiftool_path,
     )
     .await
     {
         if let Ok(data) = std::fs::read(&file_path) {
-            return image_response(data, ct);
+            if let Some(resized) = resize_image_to_jpeg(&data, 500) {
+                return image_response(resized, "image/jpeg");
+            }
+            return image_response(data, "image/jpeg");
         }
+    }
+    if let Some((data, ct)) = try_icon_fallback(&state, &q) {
+        return image_response(data, ct);
     }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)
 }
 
-/// GET /tinyart/*path - path is artist/album/resolution (used as web when query web is absent).
+/// GET /tinyart/*path - path is artist/album/resolution; resized to max 250px.
 async fn album_art_tiny(
     State(state): State<super::AppState>,
     Path((path_from_url,)): Path<(String,)>,
@@ -131,19 +216,26 @@ async fn album_art_tiny(
         .as_deref()
         .or_else(|| Some(path_from_url.as_str()))
         .filter(|s| !s.is_empty());
-    if let Some((file_path, ct)) = albumart::resolve_async(
+    if let Some((file_path, _ct)) = albumart::resolve_async(
         &state.albumart_root,
         music_root,
         q.path.as_deref(),
         web_param,
         metadata,
         &state.albumart_providers,
+        &state.exiftool_path,
     )
     .await
     {
         if let Ok(data) = std::fs::read(&file_path) {
-            return image_response(data, ct);
+            if let Some(resized) = resize_image_to_jpeg(&data, 250) {
+                return image_response(resized, "image/jpeg");
+            }
+            return image_response(data, "image/jpeg");
         }
+    }
+    if let Some((data, ct)) = try_icon_fallback(&state, &q) {
+        return image_response(data, ct);
     }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)

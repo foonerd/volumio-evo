@@ -1,7 +1,8 @@
-//! Album art resolution: path → folder cache → metadata → folder covers → personal
+//! Album art resolution: path → folder cache → metadata (incl. exiftool) → folder covers → personal
 //! → online providers (Cover Art Archive, Last.fm, iTunes, Volumio meta) → default.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::config::AlbumArtProvidersConfig;
@@ -16,6 +17,8 @@ const COVER_NAMES: &[&str] = &[
 
 const MAX_COVER_BYTES: u64 = 5_000_000;
 const DEFAULT_USER_AGENT: &str = "VolumioEvo/1.0 (https://volumio.org)";
+
+static AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "aif", "aiff", "m4a"];
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
@@ -440,6 +443,69 @@ fn save_web_cache(
     Some((path, "image/jpeg"))
 }
 
+/// Find first audio file in folder (mp3, flac, aif, etc.) for exiftool extraction.
+fn first_audio_file_in_folder(folder: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(folder).ok()?;
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .map(|e| e.path())
+        .collect();
+    files.sort();
+    for p in files {
+        if let Some(ext) = p.extension() {
+            let ext = ext.to_string_lossy();
+            if AUDIO_EXTENSIONS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Extract embedded picture via exiftool into metadata cache. Returns (cache_path, "image/jpeg") or None.
+/// Call from spawn_blocking (runs subprocess).
+pub fn extract_metadata_to_cache(
+    albumart_root: &Path,
+    music_root: &Path,
+    folder: &Path,
+    exiftool_path: &Path,
+) -> Option<(PathBuf, &'static str)> {
+    if !exiftool_path.exists() {
+        return None;
+    }
+    let audio_file = first_audio_file_in_folder(folder)?;
+    let check = Command::new(exiftool_path)
+        .arg(&audio_file)
+        .output()
+        .ok()?;
+    if !check.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    if !stdout.contains("Picture") {
+        return None;
+    }
+    let rel = folder.strip_prefix(music_root).ok()?;
+    let meta_path = albumart_root.join("metadata").join(rel).join("metadata.jpeg");
+    if let Err(e) = std::fs::create_dir_all(meta_path.parent()?) {
+        tracing::debug!("albumart metadata mkdir {:?}: {}", meta_path.parent(), e);
+        return None;
+    }
+    let extract = Command::new(exiftool_path)
+        .args(["-b", "-Picture"])
+        .arg(&audio_file)
+        .output()
+        .ok()?;
+    if !extract.status.success() || extract.stdout.is_empty() {
+        return None;
+    }
+    if std::fs::write(&meta_path, &extract.stdout).is_err() {
+        return None;
+    }
+    Some((meta_path, "image/jpeg"))
+}
+
 /// Resolve album art (sync only: local + personal). Returns (file path, content_type) or None.
 pub fn resolve(
     albumart_root: &Path,
@@ -495,7 +561,7 @@ pub fn resolve(
 }
 
 /// Resolve album art with online providers. Tries local/personal/web cache first (sync), then
-/// fetches from Cover Art Archive → Last.fm → iTunes → Volumio meta (artist only), caches to web/, returns path.
+/// exiftool extraction (if metadata=true), then Cover Art Archive → Last.fm → iTunes → Volumio meta.
 pub async fn resolve_async(
     albumart_root: &Path,
     music_root: &Path,
@@ -503,10 +569,31 @@ pub async fn resolve_async(
     web_param: Option<&str>,
     metadata: bool,
     providers: &AlbumArtProvidersConfig,
+    exiftool_path: &Path,
 ) -> Option<(PathBuf, &'static str)> {
     // 1) Sync local + personal + existing web cache
     if let Some(r) = resolve(albumart_root, music_root, path_param, web_param, metadata) {
         return Some(r);
+    }
+
+    // 2) Exiftool: extract embedded art to metadata cache when metadata=true and we have path
+    if metadata {
+        if let Some(path) = path_param {
+            if let Some(folder) = path_to_folder(music_root, path) {
+                let art_root = albumart_root.to_path_buf();
+                let mus_root = music_root.to_path_buf();
+                let exiftool = exiftool_path.to_path_buf();
+                if let Some(r) = tokio::task::spawn_blocking(move || {
+                    extract_metadata_to_cache(&art_root, &mus_root, &folder, &exiftool)
+                })
+                .await
+                .ok()
+                .and_then(|x| x)
+                {
+                    return Some(r);
+                }
+            }
+        }
     }
 
     let (artist, album) = web_param.and_then(parse_web)?;

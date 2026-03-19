@@ -94,6 +94,13 @@ pub struct Config {
     /// Optional API keys for online album-art providers (Last.fm, MusicBrainz User-Agent, etc.).
     #[serde(default)]
     pub albumart_providers: AlbumArtProvidersConfig,
+    /// Path to exiftool for extracting embedded album art (metadata=true). Env: VOLUMIO_EVO_EXIFTOOL_PATH.
+    #[serde(default = "default_exiftool_path")]
+    pub exiftool_path: PathBuf,
+}
+
+fn default_exiftool_path() -> PathBuf {
+    PathBuf::from("/usr/bin/exiftool")
 }
 
 fn default_bind() -> String {
@@ -165,6 +172,12 @@ pub fn load() -> anyhow::Result<Config> {
     if let Ok(ua) = std::env::var("VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT") {
         if !ua.is_empty() {
             config.albumart_providers.musicbrainz_user_agent = Some(ua);
+        }
+    }
+
+    if let Ok(p) = std::env::var("VOLUMIO_EVO_EXIFTOOL_PATH") {
+        if !p.is_empty() {
+            config.exiftool_path = PathBuf::from(p);
         }
     }
 
