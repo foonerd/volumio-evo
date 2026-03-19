@@ -174,7 +174,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
-- **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins.
+- **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
 - **Album art routes:** GET /albumart, /albumartd, /tinyart/* present; serve default image from albumart_root (default.jpg/default.png) or embedded placeholder.
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
@@ -189,7 +189,6 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 
 ### 3.3 Optional / future
 
-- **Push state/queue:** MPD idle or polling -> broadcast pushState/pushQueue to Socket.IO clients.
 - **Queue reorder:** moveQueue, playNext (MPD move/priority).
 - **Album art:** full resolution (path → folder cache → metadata/exiftool → personal → online → icon) and MPD readpicture; default/placeholder already served.
 

@@ -24,7 +24,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let state = Arc::new(config);
-    let app = api::router(state.clone());
+    let (app, io) = api::router(state.clone());
+    tokio::spawn(api::push_state_queue_loop(state.clone(), io));
     let listener = tokio::net::TcpListener::bind(&state.bind).await?;
     tracing::info!("listening on {}", state.bind);
 

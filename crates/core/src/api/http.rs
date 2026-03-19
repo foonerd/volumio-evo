@@ -71,7 +71,8 @@ async fn album_art_tiny(State(state): State<super::AppState>) -> impl IntoRespon
     image_response(data, ct)
 }
 
-pub fn router(state: super::AppState) -> Router {
+/// Returns the router and the SocketIo handle so the caller can broadcast (e.g. pushState/pushQueue).
+pub fn router(state: super::AppState) -> (Router, SocketIo) {
     let (socket_layer, io) = SocketIo::builder()
         .with_state(state.clone())
         .max_payload(1_000_000)
@@ -95,7 +96,7 @@ pub fn router(state: super::AppState) -> Router {
         .route("/replaceAndPlay", post(v1::replace_and_play))
         .with_state(state.clone());
 
-    Router::new()
+    let app = Router::new()
         .route("/", get(health))
         .route("/api/health", get(health))
         .route("/albumart", get(album_art))
@@ -105,7 +106,9 @@ pub fn router(state: super::AppState) -> Router {
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        .with_state(state.clone())
+        .with_state(state.clone());
+
+    (app, io)
 }
 
 async fn health() -> &'static str {

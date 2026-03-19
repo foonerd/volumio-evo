@@ -305,3 +305,24 @@ async fn get_installed_plugins(s: SocketRef, State(state): State<AppState>) {
     let plugins = super::v1::list_installed_plugins(&state).await;
     s.emit("pushInstalledPlugins", &plugins).ok();
 }
+
+/// Poll MPD periodically and broadcast pushState/pushQueue to all Socket.IO clients in the default namespace.
+/// Run this in a spawned task so the UI updates when state or queue changes (e.g. from another client or MPD).
+pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) {
+    let config = mpd_config(&state);
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+    loop {
+        interval.tick().await;
+        if let Ok(s) = mpd::get_state_connected(&config).await {
+            if io.emit("pushState", &s).await.is_err() {
+                tracing::debug!("pushState broadcast error (connection closed?)");
+            }
+        }
+        if let Ok(items) = mpd::get_queue_connected(&config).await {
+            let payload = serde_json::json!({ "queue": items });
+            if io.emit("pushQueue", &payload).await.is_err() {
+                tracing::debug!("pushQueue broadcast error (connection closed?)");
+            }
+        }
+    }
+}
