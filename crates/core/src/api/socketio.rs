@@ -79,6 +79,7 @@ async fn on_connect(s: SocketRef) {
     s.on("playItemsList", play_items_list);
     s.on("search", search);
     s.on("superSearch", super_search);
+    s.on("getMyCollectionStats", get_my_collection_stats);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -139,6 +140,16 @@ async fn super_search(
 ) {
     // Same as search in Evo (MPD find any); Volumio may differ for superSearch.
     search(s, state, Data(payload)).await
+}
+
+async fn get_my_collection_stats(s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    match mpd::collection_stats_connected(&config).await {
+        Ok(stats) => {
+            s.emit("pushMyCollectionStats", &stats).ok();
+        }
+        Err(e) => tracing::warn!("getMyCollectionStats MPD error: {}", e),
+    }
 }
 
 #[derive(Debug, Deserialize)]
