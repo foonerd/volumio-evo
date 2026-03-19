@@ -82,6 +82,8 @@ async fn on_connect(s: SocketRef) {
     s.on("getMyCollectionStats", get_my_collection_stats);
     s.on("removeQueueItem", remove_queue_item);
     s.on("addQueueUids", add_queue_uids);
+    s.on("skipBackwards", skip_backwards);
+    s.on("skipForward", skip_forward);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -201,6 +203,22 @@ impl AddQueueUidsPayload {
             AddQueueUidsPayload::Raw(v) => v,
             AddQueueUidsPayload::Wrapped { uids } => uids,
         }
+    }
+}
+
+const SKIP_SECONDS: u64 = 10;
+
+async fn skip_backwards(_s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::skip_backwards_connected(&config, SKIP_SECONDS).await {
+        tracing::warn!("skipBackwards MPD error: {}", e);
+    }
+}
+
+async fn skip_forward(_s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
+        tracing::warn!("skipForward MPD error: {}", e);
     }
 }
 

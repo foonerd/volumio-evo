@@ -834,3 +834,23 @@ pub async fn run_command(
     }
     Ok(())
 }
+
+/// Seek backwards within current song (default 10 seconds). For skipBackwards.
+pub async fn skip_backwards_connected(config: &MpdConfig, seconds: u64) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .command(MpdSeekCmd(SeekMode::Backward(Duration::from_secs(seconds))))
+        .await?;
+    Ok(())
+}
+
+/// Seek forward within current song (default 10 seconds). For skipForward.
+pub async fn skip_forward_connected(config: &MpdConfig, seconds: u64) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .command(MpdSeekCmd(SeekMode::Forward(Duration::from_secs(seconds))))
+        .await?;
+    Ok(())
+}
