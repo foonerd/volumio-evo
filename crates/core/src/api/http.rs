@@ -2,7 +2,7 @@
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{Multipart, Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -15,6 +15,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::albumart;
 use super::v1;
+
+const ALBUMART_UPLOAD_MAX_BYTES: usize = 1_000_000; // 1MB, match Volumio
 
 #[derive(Debug, Deserialize, Default)]
 pub struct AlbumArtQuery {
@@ -269,9 +271,11 @@ pub fn router(state: super::AppState) -> (Router, SocketIo) {
     let app = Router::new()
         .route("/", get(health))
         .route("/api/health", get(health))
+        .route("/status", get(status))
         .route("/albumart", get(album_art))
         .route("/albumartd", get(album_art_direct))
         .route("/tinyart/*path", get(album_art_tiny))
+        .route("/albumart-upload", post(album_art_upload))
         .nest("/api/v1", v1_routes)
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
@@ -283,4 +287,139 @@ pub fn router(state: super::AppState) -> (Router, SocketIo) {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+/// GET /status - return system status string (Volumio uses process.env.VOLUMIO_SYSTEM_STATUS).
+async fn status() -> impl IntoResponse {
+    let s = std::env::var("VOLUMIO_SYSTEM_STATUS").unwrap_or_else(|_| "ready".to_string());
+    (StatusCode::OK, s)
+}
+
+/// Sanitize a path component for albumart personal dir (no / \ NUL).
+fn sanitize_albumart_component(s: &str) -> String {
+    s.chars()
+        .map(|c| if c == '/' || c == '\\' || c == '\0' { '_' } else { c })
+        .collect()
+}
+
+/// POST /albumart-upload - multipart: artist, album (optional), file. Saves to albumart_root/personal/album/artist/album/ or personal/artist/artist/.
+async fn album_art_upload(
+    State(state): State<super::AppState>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut artist: Option<String> = None;
+    let mut album: Option<String> = None;
+    let mut file_data: Option<Vec<u8>> = None;
+    let mut file_ext: Option<String> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "artist" {
+            if let Ok(bytes) = field.bytes().await {
+                artist = Some(String::from_utf8_lossy(&bytes).trim().to_string());
+            }
+        } else if name == "album" {
+            if let Ok(bytes) = field.bytes().await {
+                let s = String::from_utf8_lossy(&bytes).trim().to_string();
+                if !s.is_empty() {
+                    album = Some(s);
+                }
+            }
+        } else if name == "filePath" {
+            // Volumio sends filePath for path-based upload; we only support artist/album here
+            let _ = field.bytes().await;
+        } else {
+            // File field (any name with a filename)
+            let file_name = field.file_name().map(|s| s.to_string());
+            if let Some(name) = file_name {
+                if let Ok(data) = field.bytes().await {
+                    if data.len() > ALBUMART_UPLOAD_MAX_BYTES {
+                        return (
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            Body::from("Album art upload exceeds 1MB"),
+                        )
+                            .into_response();
+                    }
+                    let ext = std::path::Path::new(&name)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase());
+                    if let Some(ext) = ext {
+                        if matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
+                            file_data = Some(data.to_vec());
+                            file_ext = Some(ext);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let artist = match artist {
+        Some(a) if !a.is_empty() => a,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Body::from("Missing or empty artist"),
+            )
+                .into_response();
+        }
+    };
+    let (file_data, file_ext) = match (file_data, file_ext) {
+        (Some(d), Some(e)) => (d, e),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Body::from("Missing or invalid image file (jpg, jpeg, png)"),
+            )
+                .into_response();
+        }
+    };
+
+    let root = &state.albumart_root;
+    let artist_esc = sanitize_albumart_component(&artist);
+    let dir = if let Some(ref album_name) = album {
+        let album_esc = sanitize_albumart_component(album_name);
+        root.join("personal").join("album").join(&artist_esc).join(&album_esc)
+    } else {
+        root.join("personal").join("artist").join(&artist_esc)
+    };
+
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("albumart-upload mkdir {:?}: {}", dir, e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Body::from("Failed to create directory"),
+        )
+            .into_response();
+    }
+
+    // Replace existing cover (Volumio clears dir then writes one file)
+    let filename = format!("cover.{}", file_ext);
+    let path = dir.join(&filename);
+    if let Err(e) = std::fs::write(&path, &file_data) {
+        tracing::warn!("albumart-upload write {:?}: {}", path, e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Body::from("Failed to save image"),
+        )
+            .into_response();
+    }
+
+    let return_path = if let Some(ref a) = album {
+        format!(
+            "/albumart?web={}/{}/extralarge",
+            urlencoding::encode(&artist),
+            urlencoding::encode(a)
+        )
+    } else {
+        format!("/albumart?web={}%2F%2Fextralarge", urlencoding::encode(&artist))
+    };
+    let json = serde_json::json!({ "path": return_path });
+    (
+        StatusCode::CREATED,
+        [(header::CONTENT_TYPE, "application/json")],
+        Body::from(json.to_string()),
+    )
+        .into_response()
 }

@@ -115,8 +115,10 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | `GET /tinyart/*` | Yes | Same resolution; URL path used as web when query web absent |
 | `GET /albumartd` | Yes | Same resolution as /albumart |
 | `/api` (REST) | Yes | Mounted; v1 under `/api/v1` |
-| `/dev`, `/plugin-serve`, `/stream`, `/partnerlogo`, `/status` | No | Not implemented |
-| `POST /plugin-upload`, `/backgrounds-upload`, `/albumart-upload` | No | Not implemented |
+| `/dev`, `/plugin-serve`, `/stream`, `/partnerlogo` | No | Not implemented |
+| `GET /status` | Yes | Returns VOLUMIO_SYSTEM_STATUS env or "ready" |
+| `POST /albumart-upload` | Yes | Multipart artist, album (optional), file → personal/album or personal/artist; 1MB max; JSON { path } |
+| `POST /plugin-upload`, `/backgrounds-upload` | No | Not implemented |
 
 ### REST API `/api/v1/`
 
@@ -176,7 +178,8 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px).
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px). POST /albumart-upload (multipart → personal).
+- **Status:** GET /status returns VOLUMIO_SYSTEM_STATUS or "ready".
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
