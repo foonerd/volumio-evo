@@ -105,6 +105,9 @@ async fn on_connect(s: SocketRef) {
     s.on("getLibraryFilters", get_library_filters);
     s.on("getPlaylistIndex", get_playlist_index);
     s.on("getMultiRoomDevices", get_multi_room_devices);
+    s.on("serviceUpdateTracklist", service_update_tracklist);
+    s.on("updateAllMetadata", update_all_metadata);
+    s.on("importServicePlaylists", import_service_playlists);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -419,6 +422,15 @@ async fn get_playlist_index(s: SocketRef, TryData(_uid): TryData<serde_json::Val
 async fn get_multi_room_devices(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
     s.emit("pushMultiRoomDevices", &serde_json::json!([])).ok();
 }
+
+/// No-op: Node calls music_service plugin rebuildTracklist; Evo has single MPD source.
+async fn service_update_tracklist(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
+
+/// No-op: Node calls commandRouter.updateAllMetadata (library refresh); Evo has no library DB.
+async fn update_all_metadata(_s: SocketRef) {}
+
+/// No-op: Node calls playlistFS.importServicePlaylists; Evo has no service playlists to import.
+async fn import_service_playlists(_s: SocketRef) {}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
