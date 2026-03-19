@@ -1,6 +1,6 @@
 # Porting: Volumio backend to Evo
 
-This document first lists **all current Volumio (volumio3-backend) functionality** so we can make informed decisions on what to take over and how. The second part summarizes **Evo port status and decisions**.
+This document (1) lists **all current Volumio (volumio3-backend) functionality**, (2) summarizes **what Evo already covers**, (3) records **decisions**, (4) sets **outstanding work by phase** (core, UI compatibility, networking, plugins, system, other), and (5) states **what cannot be ported and why**.
 
 Reference codebase: **volumio3-backend** (Node/Express). Volumio4, if present elsewhere, can be added to the inventory later.
 
@@ -103,7 +103,18 @@ From `http/restapi.js`: router mounted at `/api`, then `api.use('/api', api)` an
 
 ## Part 2: What is already covered in Evo
 
-Quick reference: what exists in Evo today (implemented or stubbed). Details and gaps are in 2.1–2.3 below.
+Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 below.
+
+**Terminology used in this doc:**
+
+| Term | Meaning |
+|------|--------|
+| **Implemented** | Evo has real behaviour (e.g. MPD for playback, real browse, real playlists). |
+| **Minimal response** | Evo emits the same event/response name with empty or fixed payload (e.g. `[]`, `{}`) so the existing UI gets a valid response and does not hang. No real feature behind it. |
+| **No-op** | Handler registered; it accepts the payload but does nothing (optionally emits a minimal response). Used when the UI sends a command that has no Evo equivalent. |
+| **Deferred** | Not implemented yet; design or dependency (e.g. plugin ABI) not decided. May be implemented in a later phase. |
+| **Not ported** | Not implemented; could be added in a later phase if the product requires it. |
+| **Cannot be ported** | Fundamentally incompatible with Evo’s architecture or stack; would require a different design or service (see Part 5). |
 
 ### HTTP routes (root)
 
@@ -197,7 +208,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | setOutputDevices | Yes (no-op) | No-op (Node: alsa_controller saveAlsaOptions; Evo has no ALSA device config). |
 | getDonePage, getWizard, getWizardSteps, getWizardUiConfig | Yes (stub) | pushDonePage: minimal object (congratulations, title, message, donation, donationAmount); pushWizard: `{ openWizard: false }`; pushWizardSteps: `[]`; pushWizardUiConfig: `{}` (Node: wizard plugin). |
 | deleteBackground | Yes (no-op) | No-op (Node: appearance deleteBackgrounds; Evo has no backgrounds). |
-| All other Socket.IO events | No | Not implemented (favourites, network, plugins lifecycle, etc.) |
+| All other Socket.IO events | No | See **Part 4** (outstanding by phase). |
 
 ### Other
 
@@ -237,9 +248,102 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 
 ---
 
+## Part 4: Outstanding work by phase
+
+What is left to do, grouped by phase. Each phase states what is **done**, what is **outstanding** (could be implemented or minimal/no-op for UI), and what **cannot be ported** (reasons in Part 5).
+
+### Phase 1 – Core playback & browse
+
+| Status | Scope |
+|--------|--------|
+| **Done** | Playback (getState, getQueue, play, pause, volume, seek, etc.), queue ops, browseLibrary (Evo layout + MPD), playlists (MPD stored), album art (path/cache/personal/MPD/exiftool/online), music layout (local/usb/nas/smb), replaceAndPlay, goTo, search, superSearch, getMyCollectionStats, rescanDb, updateDb. |
+| **Outstanding** | None. |
+| **Cannot be ported** | N/A. |
+
+### Phase 2 – Socket.IO UI compatibility
+
+Events the Volumio UI sends that only need a **valid response** (minimal or no-op) so the UI does not hang. Most are done; remaining:
+
+| Status | Events / area |
+|--------|----------------|
+| **Done** | closeAllModals, getState, getQueue, browseLibrary, playlists, device/system/menu/ui stubs (getDeviceInfo, getSystemVersion, getMenuItems, getUiConfig, getUiSettings, getBackgrounds, getExperienceAdvancedSettings, etc.), getDonePage, getWizard, getWizardSteps, getWizardUiConfig, deleteBackground, getExtendedOutputDevices, getOutputDevices, setOutputDevices, getMultiRoomDevices, getMultiroom, setMultiroom, writeMultiroom, getSleep, getAlarms, getPrivacySettings, getInfinityPlayback, timezone/language stubs, initSocket, serviceUpdateTracklist, updateAllMetadata, importServicePlaylists. |
+| **Outstanding** | getWirelessNetworks → pushWirelessNetworks; getInfoNetwork → pushInfoNetwork; getListShares → pushListShares; getOnboardingWizard, setOnboardingWizardFalse, runFirstConfigWizard, setWizardAction; getAvailablePlugins → pushAvailablePlugins; getPluginDetails; getDeviceActivationStatus → pushDeviceActivationStatus; getMyVolumioStatus → pushMyVolumioToken; getMyMusicPlugins → pushMyMusicPlugins; getAutomaticUpdateEnabled, getUpdaterChannel, updateCheckCache → push*; setTOSAccepted, isLatestTOSAccepted → pushLatestTOSAccepted; checkPassword; regenerateThumbnails. All of these can be **minimal response or no-op** so the UI does not block. |
+| **Cannot be ported** | Same event names can be handled; “cannot be ported” applies to the *real* feature behind them (see Part 5 for network, plugins, My Volumio, updates). |
+
+### Phase 3 – Networking
+
+| Status | Scope |
+|--------|--------|
+| **Done** | None (no real network implementation in Evo). |
+| **Outstanding** | **Minimal responses for UI:** getWirelessNetworks → pushWirelessNetworks `[]`; getWirelessNetworksCache; getInfoNetwork → pushInfoNetwork `{}`; saveWirelessNetworkSettings, connectWirelessNetworkWizard (no-op). **Real implementation (optional):** If Evo ever manages WiFi, it would be via the OS (e.g. NetworkManager, connman) or a small Evo service, not a port of the Node WiFi plugin. |
+| **Cannot be ported** | Volumio’s networking is implemented in Node plugins (e.g. network_manager) talking to OS tools. Evo does not run those plugins. Real WiFi/network management in Evo would be a **new implementation** using the same OS primitives, not a line-by-line port. |
+
+### Phase 4 – Plugins
+
+Breakdown of what exists in Volumio vs Evo.
+
+| Sub-area | Volumio | Evo status | Notes |
+|----------|---------|------------|--------|
+| **List installed** | getInstalledPlugins → pushInstalledPlugins (Node plugins) | **Implemented** | Evo lists `.wasm` files in plugin dir; same event name, different payload shape (name only). |
+| **Plugin store / catalog** | getAvailablePlugins, getPluginDetails (from Volumio store/cloud) | **Not ported** | Store is a Volumio service for **Node** plugins. Evo has no plugin store yet. |
+| **Install / update / uninstall** | installPlugin, updatePlugin, unInstallPlugin (zip from store or upload) | **Not ported** | Node: npm/zip install, enable/disable in config. Evo: different mechanism (e.g. drop .wasm, config). |
+| **Enable / disable / status** | enablePlugin, disablePlugin, modifyPluginStatus, preUninstallPlugin | **Not ported** | Node: config + plugin lifecycle. Evo: no equivalent lifecycle yet. |
+| **Generic plugin RPC** | callMethod(endpoint, method, data), pluginEndpoint REST | **Deferred** | Only **callMethod(clearAlbumartCache)** is implemented (broadcast to UI). Full callMethod/pluginEndpoint depend on Evo plugin ABI. |
+| **Plugin UI config** | getUiConfig, getDSPUiConfig (from plugins) | **Minimal response** | Evo emits empty `{ page, sections }` so UI does not hang; no plugin-provided config. |
+
+**Outstanding (UI only):** getAvailablePlugins → pushAvailablePlugins `[]`; getPluginDetails → push (minimal or no-op); installPlugin, updatePlugin, unInstallPlugin, enablePlugin, disablePlugin, modifyPluginStatus, preUninstallPlugin → no-op or minimal push so UI does not block.
+
+**Cannot be ported:** See Part 5 (Node plugin system, plugin store).
+
+### Phase 5 – System (updates, factory, HDMI, OAuth, etc.)
+
+| Area | Status | Notes |
+|------|--------|------|
+| **Updates** | **Not ported** | updateCheck, updateCheckCache, update, getAutomaticUpdateEnabled, getUpdaterChannel, setUpdaterChannel. Volumio uses its own updater (OS/image). Evo may have a different update story. **Outstanding (UI):** minimal push* responses so UI does not hang. |
+| **Factory reset / user data** | **Not ported** | deleteUserData, factoryReset. Could be ported if Evo defines “factory reset” (e.g. wipe config, preserve OS). |
+| **HDMI standby** | **Not ported** | enableHDMIDisplayStandby, disableHDMIDisplayStandby. Often platform-specific (e.g. Raspberry Pi). Could be ported per platform if Evo has a HAL. |
+| **OAuth** | **Not ported** | GET /v1/oauth. Volumio-specific flow. **Cannot be ported** as-is without Volumio OAuth provider. |
+| **Push notification URLs** | **Not ported** | GET/POST/DELETE /v1/pushNotificationUrls. **Cannot be ported** without the same backend service. |
+| **Host / welcome** | **Not ported** | GET/POST /api/host, GET /api welcome. Could be ported (e.g. host from system, welcome message). |
+
+### Phase 6 – Other (favourites, radio, backup, multiroom, My Volumio, shares, etc.)
+
+| Area | Status | Notes |
+|------|--------|------|
+| **Favourites** | **Not ported** | addToFavourites, removeFromFavourites, playFavourites; radio favourites. Node: stored in plugin/data. Evo could implement with its own storage; no port of Node code. |
+| **Web radio** | **Not ported** | addWebRadio, removeWebRadio. Evo could support streams via MPD; no port of Node web-radio plugin. |
+| **Backup / restore** | **Not ported** | manageBackup, getBackup, restoreConfig. Volumio-specific format. Could be reimplemented for Evo config/data. |
+| **Multi-room** | **Minimal response** | getMultiRoomDevices, getMultiroom, setMultiroom, writeMultiroom already stubbed. receiveMultiroomDeviceUpdate, setAsMultiroomSingle/Server/Client **not ported**. Real multi-room would be a new implementation (discovery + sync), not a port of Node volumiodiscovery. |
+| **My Volumio (cloud)** | **Not ported** | setDeviceActivationCode, getDeviceActivationStatus, getMyVolumioStatus, getMyVolumioToken, setMyVolumioToken, myVolumioLogout, enable/disable/delete My Volumio device, getMyMusicPlugins, enableDisableMyMusicPlugin. **Cannot be ported** without Volumio cloud (see Part 5). **Outstanding (UI):** minimal push* so UI does not hang. |
+| **Shares / storage** | **Not ported** | addShare, deleteShare, getListShares, getInfoShare, editShare, listUsbDrives, safeRemoveDrive. Node: SMB/NFS etc. via plugins. Evo could implement shares via config + mount; **outstanding (UI):** getListShares → pushListShares `[]`. |
+| **Audio outputs (extra)** | **Not ported** | getAudioOutputs, enableAudioOutput, disableAudioOutput, setAudioOutputVolume, audioOutputPlay, audioOutputPause → pushAudioOutputs. Node: alsa_controller. Evo has getExtendedOutputDevices/getOutputDevices (minimal `[]`); full ALSA output switching **not ported**. |
+| **Library** | **Not ported** | deleteFolder. MPD could support; not implemented in Evo. |
+| **Misc** | **Not ported** | regenerateThumbnails (no-op or minimal); installToDisk (OS installer, out of scope). |
+
+---
+
+## Part 5: Cannot be ported (and why)
+
+Features that are **fundamentally not portable** from Node/Volumio to Evo as-is. Evo may later offer equivalent or alternative behaviour with a different design.
+
+| Feature / area | Why it cannot be ported |
+|----------------|-------------------------|
+| **Node.js plugin system** | Volumio plugins are Node modules (JavaScript, npm, require). Evo uses WebAssembly (.wasm) and a different ABI. There is no 1:1 port of “a Node plugin” to Evo. Plugin *concepts* (e.g. “music source”, “settings panel”) can be reimplemented in Evo’s plugin model. |
+| **callMethod / pluginEndpoint (generic)** | These call into Node plugins by name and method. Evo has no Node runtime and no equivalent generic RPC to Node plugins. Only specific behaviours (e.g. clearAlbumartCache broadcast) are reimplemented in Evo. Full plugin RPC is **deferred** until Evo’s plugin API is defined. |
+| **Volumio plugin store** | The store is a Volumio-hosted service that serves **Node** plugin metadata and packages. Evo has no Node plugin store. A future Evo “store” would serve Wasm or other Evo-native artifacts, not Node packages. |
+| **My Volumio (cloud)** | Activation, device linking, tokens, My Music plugins, and subscription features depend on Volumio’s cloud and APIs. Evo does not implement or replace that backend. Without the same (or a compatible) cloud service, My Volumio features **cannot be ported**. |
+| **Volumio OS updater** | Update flow (updateCheck, update, channels) is tied to Volumio OS images and their update mechanism. Evo may use a different OS or update strategy; porting would mean reimplementing an updater for Evo’s stack, not reusing Node updater code. |
+| **OAuth / pushNotificationUrls** | Depend on Volumio or third-party OAuth and push services. No implementation in Evo; would require the same or compatible providers. |
+| **Multi-room (Volumio discovery/sync)** | Node uses volumiodiscovery and in-house sync protocols. Evo has no equivalent discovery or sync stack. Real multi-room on Evo would be a **new design** (e.g. same protocol or a new one), not a port of the Node code. |
+| **Node-based networking (WiFi wizard)** | WiFi and network configuration in Volumio are implemented inside Node plugins that shell out to OS tools. Evo does not run those plugins. Any WiFi/network management in Evo would be a **new implementation** using the same OS primitives (e.g. NetworkManager), not a copy of the Node logic. |
+| **installToDisk** | Volumio OS installer (e.g. write image to SD/USB). This is an OS-level tool, not part of the “backend API” port. Out of scope for Evo backend. |
+
+---
+
 ## How to use this doc
 
 1. **Before adding a feature:** Check Part 1 for the exact contract (params, response shape, Socket.IO event names) and any dependencies (plugins, paths, external APIs).
-2. **What's already done:** Use Part 2 ("What is already covered") to see at a glance which routes and events Evo implements or stubs.
-3. **When deciding scope:** Use Part 3 to keep “implemented / stubbed / deferred” consistent and to avoid ad-hoc gaps.
-4. **When updating:** Add or refine inventory items from volumio3-backend (or volumio4) first; then update Part 2 and Part 3.
+2. **What's already done:** Use Part 2 ("What is already covered") and the terminology table to see what Evo implements, minimal response, no-op, or defers.
+3. **When deciding scope:** Use Part 3 for high-level status and Part 4 for outstanding work by phase (networking, plugins breakdown, system, etc.).
+4. **What we will never port as-is:** Use Part 5 ("Cannot be ported") for architecture and service limits (Node plugins, cloud, updater, etc.).
+5. **When updating:** Add or refine inventory from volumio3-backend first; then update Part 2, Part 3, and Part 4 so the phased list stays accurate.
