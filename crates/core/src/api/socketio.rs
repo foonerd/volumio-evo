@@ -115,6 +115,10 @@ async fn on_connect(s: SocketRef) {
     s.on("getPrivacySettings", get_privacy_settings);
     s.on("getInfinityPlayback", get_infinity_playback);
     s.on("setInfinityPlayback", set_infinity_playback);
+    s.on("getSleep", get_sleep);
+    s.on("setSleep", set_sleep);
+    s.on("getAlarms", get_alarms);
+    s.on("saveAlarm", save_alarm);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -469,6 +473,26 @@ async fn get_infinity_playback(s: SocketRef) {
 
 /// No-op: Node calls metavolumio setInfinityPlayback; Evo has no infinity playback.
 async fn set_infinity_playback(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
+
+/// Stub: no sleep timer (Node: alarm-clock getSleep -> pushSleep).
+async fn get_sleep(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushSleep", &serde_json::json!({})).ok();
+}
+
+/// Stub: accept set, emit pushSleep {} (Node: alarm-clock setSleep -> pushSleep).
+async fn set_sleep(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushSleep", &serde_json::json!({})).ok();
+}
+
+/// Stub: no alarms (Node: alarm-clock getAlarms -> pushAlarm).
+async fn get_alarms(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushAlarm", &serde_json::json!([])).ok();
+}
+
+/// Stub: accept save, emit pushSleep {} (Node: alarm-clock saveAlarm -> pushSleep).
+async fn save_alarm(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushSleep", &serde_json::json!({})).ok();
+}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
