@@ -94,6 +94,8 @@ async fn on_connect(s: SocketRef) {
     s.on("getUiConfig", get_ui_config);
     s.on("getDSPUiConfig", get_dsp_ui_config);
     s.on("getAvailableLanguages", get_available_languages);
+    s.on("getDeviceName", get_device_name);
+    s.on("setLanguage", set_language);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -329,6 +331,26 @@ async fn get_available_languages(s: SocketRef) {
         "available": [{ "language": "English", "code": "en" }]
     });
     s.emit("pushAvailableLanguages", &data).ok();
+}
+
+async fn get_device_name(s: SocketRef) {
+    let data = serde_json::json!({ "name": "Volumio Evo" });
+    s.emit("pushDeviceName", &data).ok();
+}
+
+/// No-op: Node calls appearance plugin setLanguage; Evo has no persistence for language.
+async fn set_language(_s: SocketRef, TryData(_payload): TryData<SetLanguagePayload>) {
+    // Accept payload so client doesn't error; do nothing.
+}
+
+#[derive(Debug, Deserialize)]
+struct SetLanguagePayload {
+    #[serde(default, rename = "defaultLanguage")]
+    #[allow(dead_code)]
+    default_language: Option<serde_json::Value>,
+    #[serde(default, rename = "disallowReload")]
+    #[allow(dead_code)]
+    disallow_reload: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
