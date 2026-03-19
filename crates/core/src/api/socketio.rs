@@ -93,6 +93,7 @@ async fn on_connect(s: SocketRef) {
     s.on("getMenuItems", get_menu_items);
     s.on("getUiConfig", get_ui_config);
     s.on("getDSPUiConfig", get_dsp_ui_config);
+    s.on("getAvailableLanguages", get_available_languages);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -319,6 +320,15 @@ async fn get_ui_config(s: SocketRef, TryData(payload): TryData<GetUiConfigPayloa
 
 async fn get_dsp_ui_config(s: SocketRef) {
     s.emit("pushDSPUiConfig", &empty_ui_config()).ok();
+}
+
+/// Stub: English only (Node reads appearance plugin languages.json).
+async fn get_available_languages(s: SocketRef) {
+    let data = serde_json::json!({
+        "defaultLanguage": { "language": "English", "code": "en" },
+        "available": [{ "language": "English", "code": "en" }]
+    });
+    s.emit("pushAvailableLanguages", &data).ok();
 }
 
 #[derive(Debug, Deserialize)]
