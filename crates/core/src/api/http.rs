@@ -68,20 +68,23 @@ fn image_response(data: Vec<u8>, content_type: &'static str) -> Response {
         .unwrap()
 }
 
-/// GET /albumart - resolve from path/web then default/placeholder.
+/// GET /albumart - resolve from path/web/online providers then default/placeholder.
 async fn album_art(
     State(state): State<super::AppState>,
     Query(q): Query<AlbumArtQuery>,
 ) -> impl IntoResponse {
     let music_root = &state.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
-    if let Some((file_path, ct)) = albumart::resolve(
+    if let Some((file_path, ct)) = albumart::resolve_async(
         &state.albumart_root,
         music_root,
         q.path.as_deref(),
         q.web.as_deref(),
         metadata,
-    ) {
+        &state.albumart_providers,
+    )
+    .await
+    {
         if let Ok(data) = std::fs::read(&file_path) {
             return image_response(data, ct);
         }
@@ -97,13 +100,16 @@ async fn album_art_direct(
 ) -> impl IntoResponse {
     let music_root = &state.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
-    if let Some((file_path, ct)) = albumart::resolve(
+    if let Some((file_path, ct)) = albumart::resolve_async(
         &state.albumart_root,
         music_root,
         q.path.as_deref(),
         q.web.as_deref(),
         metadata,
-    ) {
+        &state.albumart_providers,
+    )
+    .await
+    {
         if let Ok(data) = std::fs::read(&file_path) {
             return image_response(data, ct);
         }
@@ -125,13 +131,16 @@ async fn album_art_tiny(
         .as_deref()
         .or_else(|| Some(path_from_url.as_str()))
         .filter(|s| !s.is_empty());
-    if let Some((file_path, ct)) = albumart::resolve(
+    if let Some((file_path, ct)) = albumart::resolve_async(
         &state.albumart_root,
         music_root,
         q.path.as_deref(),
         web_param,
         metadata,
-    ) {
+        &state.albumart_providers,
+    )
+    .await
+    {
         if let Ok(data) = std::fs::read(&file_path) {
             return image_response(data, ct);
         }

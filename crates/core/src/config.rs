@@ -56,6 +56,18 @@ pub const MUSIC_SOURCE_NAMES: &[(&str, &str)] = &[
     ("smb", "SMB"),
 ];
 
+/// Optional API keys for online album-art providers. Used when fetching art
+/// for large libraries (e.g. 10k+ tracks) to stay within rate limits or enable access.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct AlbumArtProvidersConfig {
+    /// Last.fm API key (album.getinfo, artist.getinfo). Get one at https://www.last.fm/api/account/create.
+    /// Env override: VOLUMIO_EVO_LASTFM_API_KEY.
+    pub lastfm_api_key: Option<String>,
+    /// User-Agent for MusicBrainz / Cover Art Archive (required by their API policy).
+    /// Env override: VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT.
+    pub musicbrainz_user_agent: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
     /// Bind address for the HTTP/WebSocket server.
@@ -79,6 +91,9 @@ pub struct Config {
     /// Root for album art cache and personal uploads (folder, metadata, web, personal).
     #[serde(default = "default_albumart_root")]
     pub albumart_root: PathBuf,
+    /// Optional API keys for online album-art providers (Last.fm, MusicBrainz User-Agent, etc.).
+    #[serde(default)]
+    pub albumart_providers: AlbumArtProvidersConfig,
 }
 
 fn default_bind() -> String {
@@ -139,6 +154,18 @@ pub fn load() -> anyhow::Result<Config> {
     }
     if let Ok(env_albumart) = std::env::var("VOLUMIO_EVO_ALBUMART_ROOT") {
         config.albumart_root = PathBuf::from(env_albumart);
+    }
+
+    // Album-art provider keys: env overrides (so keys can be set without editing config file)
+    if let Ok(k) = std::env::var("VOLUMIO_EVO_LASTFM_API_KEY") {
+        if !k.is_empty() {
+            config.albumart_providers.lastfm_api_key = Some(k);
+        }
+    }
+    if let Ok(ua) = std::env::var("VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT") {
+        if !ua.is_empty() {
+            config.albumart_providers.musicbrainz_user_agent = Some(ua);
+        }
     }
 
     Ok(config)

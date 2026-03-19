@@ -10,6 +10,12 @@ mpd_port = 6600
 # Album art cache and personal uploads (folder, metadata, web, personal). Override: VOLUMIO_EVO_ALBUMART_ROOT
 albumart_root = "/var/lib/volumio-evo/albumart"
 
+# Optional: API keys for online album-art providers (for large libraries, avoids rate limits).
+# Env overrides: VOLUMIO_EVO_LASTFM_API_KEY, VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT
+# [albumart_providers]
+# lastfm_api_key = "your-lastfm-api-key"
+# musicbrainz_user_agent = "VolumioEvo/1.0 (https://volumio.org)"
+
 [music_sources]
 # Base path for local, usb, nas, smb. MPD music_directory must match.
 # Override at install: Environment=VOLUMIO_EVO_MUSIC_ROOT=/var/lib/volumio-evo/music

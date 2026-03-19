@@ -91,7 +91,7 @@ From `http/restapi.js`: router mounted at `/api`, then `api.use('/api', api)` an
 
 ### 1.4 Album art behaviour (summary)
 
-- **Sources (in order):** path on disk (cover files in folder, or exiftool embedded picture) -> `/data/albumart` cache (folder, metadata, web, personal) -> online (Volumio meta API for artist art, Last.fm for album art) -> icon/sectionimage/sourceicon from plugins -> default image.
+- **Sources (in order):** path on disk (cover files in folder, or exiftool embedded picture) -> `/data/albumart` cache (folder, metadata, web, personal) -> online (Volumio: meta for artist, Last.fm for album; Evo plan: multiple providers — see [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md)) -> icon/sectionimage/sourceicon from plugins -> default image.
 - **Params:** `web` (artist/album/resolution), `path` (file/folder), `metadata=true`, `icon`, `sourceicon`, `sectionimage`.
 
 ### 1.5 Plugins and extensibility
@@ -163,7 +163,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
 | Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
-| Album art resolution (path, cache, personal, default) | Yes | path → folder cache → metadata cache → folder covers → personal → default; exiftool/online/icon deferred |
+| Album art resolution (path, cache, personal, online, default) | Yes | path → folder/metadata cache → folder covers → personal → web cache → online (Cover Art Archive, Last.fm, iTunes, Volumio meta) → default |
 
 ---
 
@@ -176,7 +176,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata; resolution order: path on disk → folder cache → metadata cache → folder covers → personal → default image or embedded placeholder.
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata; resolution order: path on disk → folder/metadata cache → folder covers → personal → web cache → online providers (Cover Art Archive, Last.fm, iTunes, Volumio meta; API keys in config or env) → default image or embedded placeholder.
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
@@ -186,11 +186,11 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **HDMI standby, OAuth, pushNotificationUrls:** stubs or skip for minimal port.
 - **Playlist manager (create/delete/addToPlaylist/...), favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art:** resolution (path → folder cache → metadata cache → folder covers → personal → default) is implemented. Exiftool, online (Volumio/Last.fm), icon/sectionimage/sourceicon fallbacks, and resize for albumartd/tinyart are deferred.
+- **Album art:** full resolution implemented including **online providers** (see [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md)): Cover Art Archive, Last.fm, iTunes Search, Volumio meta (artist). API keys in `[albumart_providers]` or env. Exiftool, icon/sectionimage/sourceicon fallbacks, resize for albumartd/tinyart deferred.
 
 ### 3.3 Optional / future
 
-- **Album art:** exiftool/metadata extraction, online (Volumio/Last.fm), icon/sectionimage/sourceicon from plugin dirs, resize for albumartd/tinyart; MPD readpicture if needed.
+- **Album art:** exiftool/metadata extraction; icon/sectionimage/sourceicon from plugin dirs; resize for albumartd/tinyart; MPD readpicture if needed.
 
 ---
 
