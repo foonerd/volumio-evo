@@ -1,6 +1,6 @@
 # Volumio Evo layer
 
-Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo.
+Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo. For detailed step-by-step instructions (including MPD setup and validation), see [docs/TESTER_GUIDE.md](../docs/TESTER_GUIDE.md).
 
 ## Contents
 
