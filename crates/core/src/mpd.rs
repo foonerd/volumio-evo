@@ -305,6 +305,108 @@ pub async fn list_playlists_connected(config: &MpdConfig) -> Result<Vec<String>>
     Ok(names)
 }
 
+/// List content of a stored playlist (listplaylist "name"). Returns URIs (music-library/...).
+pub async fn list_playlist_content_connected(config: &MpdConfig, name: &str) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("listplaylist").argument(name);
+    let frame = client.raw_command(raw).await?;
+    let uris: Vec<String> = frame
+        .fields()
+        .filter(|(k, _)| *k == "file")
+        .map(|(_, v)| {
+            let path = v.to_string();
+            if path.starts_with("music-library/") {
+                path
+            } else {
+                format!("music-library/{}", path)
+            }
+        })
+        .collect();
+    Ok(uris)
+}
+
+/// Load stored playlist into queue and start playing (replaces queue).
+pub async fn load_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("load").argument(name))
+        .await?;
+    client.command(Play::current()).await?;
+    Ok(())
+}
+
+/// Save current queue as stored playlist.
+pub async fn save_queue_to_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("save").argument(name))
+        .await?;
+    Ok(())
+}
+
+/// Remove stored playlist.
+pub async fn delete_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("rm").argument(name))
+        .await?;
+    Ok(())
+}
+
+/// Create empty stored playlist (clear queue, save as name).
+pub async fn create_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(ClearQueue).await?;
+    client
+        .raw_command(RawCommand::new("save").argument(name))
+        .await?;
+    Ok(())
+}
+
+/// Add URI to stored playlist. URI can be Volumio (music-library/...) or MPD path.
+pub async fn add_to_playlist_connected(config: &MpdConfig, name: &str, uri: &str) -> Result<()> {
+    let path = volumio_uri_to_mpd_path(uri);
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("playlistadd").argument(name).argument(path))
+        .await?;
+    Ok(())
+}
+
+/// Remove song at position (0-based) from stored playlist.
+pub async fn remove_from_playlist_connected(
+    config: &MpdConfig,
+    name: &str,
+    position: u32,
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(
+            RawCommand::new("playlistdelete")
+                .argument(name)
+                .argument(position.to_string()),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Load stored playlist into queue (append, do not clear). Then emit queue/state.
+pub async fn enqueue_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client
+        .raw_command(RawCommand::new("load").argument(name))
+        .await?;
+    Ok(())
+}
+
 /// Search MPD library (find any <query>). Returns browse-style response.
 pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseResponse> {
     let query = query.trim();

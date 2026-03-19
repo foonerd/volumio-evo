@@ -46,6 +46,16 @@ async fn on_connect(s: SocketRef) {
     s.on("getInstalledPlugins", get_installed_plugins);
     s.on("moveQueue", move_queue);
     s.on("playNext", play_next);
+    // Playlist manager
+    s.on("getPlaylistContent", get_playlist_content);
+    s.on("listPlaylist", list_playlist);
+    s.on("playPlaylist", play_playlist);
+    s.on("saveQueueToPlaylist", save_queue_to_playlist);
+    s.on("createPlaylist", create_playlist);
+    s.on("deletePlaylist", delete_playlist);
+    s.on("addToPlaylist", add_to_playlist);
+    s.on("removeFromPlaylist", remove_from_playlist);
+    s.on("enqueue", enqueue);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -115,6 +125,81 @@ async fn browse_library(
             },
         };
         s.emit("pushBrowseLibrary", &resp).ok();
+        return;
+    }
+
+    if uri == "playlists" {
+        let config = mpd_config(&state);
+        match mpd::list_playlists_connected(&config).await {
+            Ok(names) => {
+                let items: Vec<BrowseItem> = names
+                    .into_iter()
+                    .map(|name| BrowseItem {
+                        item_type: "folder".to_string(),
+                        title: name.clone(),
+                        uri: format!("playlists/{}", name),
+                        service: "mpd".to_string(),
+                        artist: None,
+                        album: None,
+                        duration: None,
+                    })
+                    .collect();
+                let resp = BrowseResponse {
+                    navigation: BrowseNavigation {
+                        prev: BrowsePrev {
+                            uri: String::new(),
+                        },
+                        lists: vec![BrowseList {
+                            available_list_views: vec!["list", "grid"],
+                            items,
+                        }],
+                    },
+                };
+                s.emit("pushBrowseLibrary", &resp).ok();
+            }
+            Err(e) => tracing::warn!("browse playlists MPD error: {}", e),
+        }
+        return;
+    }
+
+    if let Some(playlist_name) = uri.strip_prefix("playlists/") {
+        let config = mpd_config(&state);
+        match mpd::list_playlist_content_connected(&config, playlist_name).await {
+            Ok(uris) => {
+                let items: Vec<BrowseItem> = uris
+                    .into_iter()
+                    .map(|uri| {
+                        let title = uri
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(uri.as_str())
+                            .to_string();
+                        BrowseItem {
+                            item_type: "song".to_string(),
+                            title,
+                            uri,
+                            service: "mpd".to_string(),
+                            artist: None,
+                            album: None,
+                            duration: None,
+                        }
+                    })
+                    .collect();
+                let resp = BrowseResponse {
+                    navigation: BrowseNavigation {
+                        prev: BrowsePrev {
+                            uri: "playlists".to_string(),
+                        },
+                        lists: vec![BrowseList {
+                            available_list_views: vec!["list", "grid"],
+                            items,
+                        }],
+                    },
+                };
+                s.emit("pushBrowseLibrary", &resp).ok();
+            }
+            Err(e) => tracing::warn!("browse playlists/{} MPD error: {}", playlist_name, e),
+        }
         return;
     }
 
@@ -354,6 +439,301 @@ async fn play_next(
             }
         }
         Err(e) => tracing::warn!("playNext MPD error: {}", e),
+    }
+}
+
+// ---- Playlist manager ----
+
+#[derive(Debug, Deserialize)]
+struct PlaylistNamePayload {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AddToPlaylistPayload {
+    name: String,
+    #[serde(default)]
+    service: String,
+    uri: String,
+    #[serde(default)]
+    album_title: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoveFromPlaylistPayload {
+    name: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    service: String,
+    uri: String,
+}
+
+async fn get_playlist_content(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::list_playlist_content_connected(&config, &payload.name).await {
+        Ok(uris) => {
+            let items: Vec<serde_json::Value> = uris
+                .into_iter()
+                .map(|uri| {
+                    let title = uri
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or(uri.as_str())
+                        .to_string();
+                    serde_json::json!({
+                        "service": "mpd",
+                        "uri": uri,
+                        "name": title,
+                        "title": title
+                    })
+                })
+                .collect();
+            let payload_out = serde_json::json!({ "name": payload.name, "lists": [ items ] });
+            s.emit("pushPlaylistContent", &payload_out).ok();
+        }
+        Err(e) => tracing::warn!("getPlaylistContent MPD error: {}", e),
+    }
+}
+
+async fn list_playlist(s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    match mpd::list_playlists_connected(&config).await {
+        Ok(names) => {
+            s.emit("pushListPlaylist", &names).ok();
+        }
+        Err(e) => tracing::warn!("listPlaylist MPD error: {}", e),
+    }
+}
+
+async fn play_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::load_playlist_connected(&config, &payload.name).await {
+        Ok(()) => {
+            s.emit("pushPlayPlaylist", &serde_json::json!({ "name": payload.name }))
+                .ok();
+        }
+        Err(e) => tracing::warn!("playPlaylist MPD error: {}", e),
+    }
+}
+
+async fn save_queue_to_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::save_queue_to_playlist_connected(&config, &payload.name).await {
+        Ok(()) => {
+            s.emit("pushSaveQueueToPlaylist", &serde_json::json!({ "name": payload.name }))
+                .ok();
+        }
+        Err(e) => tracing::warn!("saveQueueToPlaylist MPD error: {}", e),
+    }
+}
+
+async fn create_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::create_playlist_connected(&config, &payload.name).await {
+        Ok(()) => {
+            s.emit(
+                "pushCreatePlaylist",
+                &serde_json::json!({ "success": true, "name": payload.name }),
+            )
+            .ok();
+            if let Ok(names) = mpd::list_playlists_connected(&config).await {
+                s.emit("pushListPlaylist", &names).ok();
+            }
+        }
+        Err(e) => {
+            tracing::warn!("createPlaylist MPD error: {}", e);
+            s.emit(
+                "pushCreatePlaylist",
+                &serde_json::json!({ "success": false, "name": payload.name }),
+            )
+            .ok();
+        }
+    }
+}
+
+async fn delete_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::delete_playlist_connected(&config, &payload.name).await {
+        Ok(()) => {
+            if let Ok(names) = mpd::list_playlists_connected(&config).await {
+                s.emit("pushListPlaylist", &names).ok();
+                let items: Vec<BrowseItem> = names
+                    .into_iter()
+                    .map(|name| BrowseItem {
+                        item_type: "folder".to_string(),
+                        title: name.clone(),
+                        uri: format!("playlists/{}", name),
+                        service: "mpd".to_string(),
+                        artist: None,
+                        album: None,
+                        duration: None,
+                    })
+                    .collect();
+                let resp = BrowseResponse {
+                    navigation: BrowseNavigation {
+                        prev: BrowsePrev {
+                            uri: String::new(),
+                        },
+                        lists: vec![BrowseList {
+                            available_list_views: vec!["list", "grid"],
+                            items,
+                        }],
+                    },
+                };
+                s.emit("pushBrowseLibrary", &resp).ok();
+            }
+        }
+        Err(e) => tracing::warn!("deletePlaylist MPD error: {}", e),
+    }
+}
+
+async fn add_to_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<AddToPlaylistPayload>,
+) {
+    if payload.name.is_empty() || payload.uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::add_to_playlist_connected(&config, &payload.name, &payload.uri).await {
+        Ok(()) => {
+            if let Ok(names) = mpd::list_playlists_connected(&config).await {
+                s.emit("pushListPlaylist", &names).ok();
+            }
+            s.emit(
+                "pushAddToPlaylist",
+                &serde_json::json!({
+                    "name": payload.name,
+                    "service": if payload.service.is_empty() { "mpd" } else { payload.service.as_str() },
+                    "uri": payload.uri,
+                    "albumTitle": payload.album_title
+                }),
+            )
+            .ok();
+        }
+        Err(e) => tracing::warn!("addToPlaylist MPD error: {}", e),
+    }
+}
+
+async fn remove_from_playlist(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<RemoveFromPlaylistPayload>,
+) {
+    if payload.name.is_empty() || payload.uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    let uris = match mpd::list_playlist_content_connected(&config, &payload.name).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!("removeFromPlaylist list content MPD error: {}", e);
+            return;
+        }
+    };
+    let position = uris
+        .iter()
+        .position(|u| u == &payload.uri)
+        .map(|p| p as u32);
+    let Some(pos) = position else {
+        tracing::warn!("removeFromPlaylist: uri not found in playlist");
+        return;
+    };
+    match mpd::remove_from_playlist_connected(&config, &payload.name, pos).await {
+        Ok(()) => {
+            if let Ok(updated) = mpd::list_playlist_content_connected(&config, &payload.name).await
+            {
+                let items: Vec<BrowseItem> = updated
+                    .into_iter()
+                    .map(|uri| {
+                        let title = uri
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(uri.as_str())
+                            .to_string();
+                        BrowseItem {
+                            item_type: "song".to_string(),
+                            title,
+                            uri,
+                            service: "mpd".to_string(),
+                            artist: None,
+                            album: None,
+                            duration: None,
+                        }
+                    })
+                    .collect();
+                let resp = BrowseResponse {
+                    navigation: BrowseNavigation {
+                        prev: BrowsePrev {
+                            uri: "playlists".to_string(),
+                        },
+                        lists: vec![BrowseList {
+                            available_list_views: vec!["list", "grid"],
+                            items,
+                        }],
+                    },
+                };
+                s.emit("pushBrowseLibrary", &resp).ok();
+            }
+        }
+        Err(e) => tracing::warn!("removeFromPlaylist MPD error: {}", e),
+    }
+}
+
+async fn enqueue(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlaylistNamePayload>,
+) {
+    if payload.name.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::enqueue_playlist_connected(&config, &payload.name).await {
+        Ok(()) => {
+            s.emit("pushEnqueue", &serde_json::json!({ "name": payload.name }))
+                .ok();
+            if let Ok(q) = mpd::get_queue_connected(&config).await {
+                s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
+            }
+        }
+        Err(e) => tracing::warn!("enqueue MPD error: {}", e),
     }
 }
 
