@@ -112,6 +112,9 @@ async fn on_connect(s: SocketRef) {
     s.on("getDeviceHWUUID", get_device_hw_uuid);
     s.on("getUiSettings", get_ui_settings);
     s.on("getShutdownOrStandbyMode", get_shutdown_or_standby_mode);
+    s.on("getPrivacySettings", get_privacy_settings);
+    s.on("getInfinityPlayback", get_infinity_playback);
+    s.on("setInfinityPlayback", set_infinity_playback);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -453,6 +456,19 @@ async fn get_ui_settings(s: SocketRef) {
 async fn get_shutdown_or_standby_mode(s: SocketRef) {
     s.emit("pushShutdownOrStandbyMode", &serde_json::json!({})).ok();
 }
+
+/// Stub: empty privacy settings (Node: system plugin getPrivacySettings -> pushPrivacySettings).
+async fn get_privacy_settings(s: SocketRef) {
+    s.emit("pushPrivacySettings", &serde_json::json!({})).ok();
+}
+
+/// Stub: infinity playback disabled (Node: metavolumio getInfinityPlayback -> pushInfinityPlayback).
+async fn get_infinity_playback(s: SocketRef) {
+    s.emit("pushInfinityPlayback", &serde_json::json!({ "enabled": false })).ok();
+}
+
+/// No-op: Node calls metavolumio setInfinityPlayback; Evo has no infinity playback.
+async fn set_infinity_playback(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
