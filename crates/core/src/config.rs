@@ -76,6 +76,9 @@ pub struct Config {
     #[serde(default)]
     #[allow(dead_code)]
     pub music_sources: MusicSourcesConfig,
+    /// Root for album art cache and personal uploads (folder, metadata, web, personal).
+    #[serde(default = "default_albumart_root")]
+    pub albumart_root: PathBuf,
 }
 
 fn default_bind() -> String {
@@ -84,6 +87,10 @@ fn default_bind() -> String {
 
 fn default_plugin_dir() -> PathBuf {
     PathBuf::from("/usr/share/volumio-evo/plugins")
+}
+
+fn default_albumart_root() -> PathBuf {
+    PathBuf::from("/var/lib/volumio-evo/albumart")
 }
 
 fn default_mpd_host() -> String {
@@ -125,6 +132,13 @@ pub fn load() -> anyhow::Result<Config> {
         config.music_sources.music_root = PathBuf::from(env_root);
     } else if !from_file {
         config.music_sources.music_root = user_or_system_music_root_default();
+    }
+
+    if config.albumart_root.as_os_str().is_empty() {
+        config.albumart_root = default_albumart_root();
+    }
+    if let Ok(env_albumart) = std::env::var("VOLUMIO_EVO_ALBUMART_ROOT") {
+        config.albumart_root = PathBuf::from(env_albumart);
     }
 
     Ok(config)
