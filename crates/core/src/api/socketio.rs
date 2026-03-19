@@ -110,6 +110,8 @@ async fn on_connect(s: SocketRef) {
     s.on("importServicePlaylists", import_service_playlists);
     s.on("setDeviceName", set_device_name);
     s.on("getDeviceHWUUID", get_device_hw_uuid);
+    s.on("getUiSettings", get_ui_settings);
+    s.on("getShutdownOrStandbyMode", get_shutdown_or_standby_mode);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -440,6 +442,16 @@ async fn set_device_name(_s: SocketRef, TryData(_payload): TryData<serde_json::V
 /// Stub: same as getSystemInfo hwUuid (Node: commandRouter.getHwuuid -> pushDeviceHWUUID).
 async fn get_device_hw_uuid(s: SocketRef) {
     s.emit("pushDeviceHWUUID", &serde_json::json!("evo-stub")).ok();
+}
+
+/// Stub: empty UI settings (Node: appearance plugin getUiSettings -> pushUiSettings).
+async fn get_ui_settings(s: SocketRef) {
+    s.emit("pushUiSettings", &serde_json::json!({})).ok();
+}
+
+/// Stub: shutdown mode (Node: commandRouter.getShutdownOrStandbyMode -> pushShutdownOrStandbyMode).
+async fn get_shutdown_or_standby_mode(s: SocketRef) {
+    s.emit("pushShutdownOrStandbyMode", &serde_json::json!({})).ok();
 }
 
 #[derive(Debug, Deserialize)]
