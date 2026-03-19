@@ -129,6 +129,11 @@ async fn on_connect(s: SocketRef) {
     s.on("getExperienceAdvancedSettings", get_experience_advanced_settings);
     s.on("setExperienceAdvancedSettings", set_experience_advanced_settings);
     s.on("setOutputDevices", set_output_devices);
+    s.on("getDonePage", get_done_page);
+    s.on("getWizard", get_wizard);
+    s.on("getWizardSteps", get_wizard_steps);
+    s.on("getWizardUiConfig", get_wizard_ui_config);
+    s.on("deleteBackground", delete_background);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -547,6 +552,39 @@ async fn set_experience_advanced_settings(_s: SocketRef, TryData(_data): TryData
 
 /// No-op: Node calls alsa_controller saveAlsaOptions; Evo has no ALSA device config.
 async fn set_output_devices(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
+
+/// Stub: no wizard done page (Node: wizard getDonation/getDonationsArray/getDoneMessage -> pushDonePage).
+async fn get_done_page(s: SocketRef) {
+    s.emit(
+        "pushDonePage",
+        &serde_json::json!({
+            "congratulations": "",
+            "title": "",
+            "message": "",
+            "donation": {},
+            "donationAmount": []
+        }),
+    )
+    .ok();
+}
+
+/// Stub: wizard not open (Node: wizard showWizard -> pushWizard).
+async fn get_wizard(s: SocketRef) {
+    s.emit("pushWizard", &serde_json::json!({ "openWizard": false })).ok();
+}
+
+/// Stub: no wizard steps (Node: wizard getWizardSteps -> pushWizardSteps).
+async fn get_wizard_steps(s: SocketRef) {
+    s.emit("pushWizardSteps", &serde_json::json!([])).ok();
+}
+
+/// Stub: no wizard UI config (Node: wizard getWizardConfig -> pushWizardUiConfig).
+async fn get_wizard_ui_config(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushWizardUiConfig", &serde_json::json!({})).ok();
+}
+
+/// No-op: Node calls appearance deleteBackgrounds; Evo has no backgrounds.
+async fn delete_background(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
