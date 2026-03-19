@@ -27,7 +27,8 @@ wasmtime = { version = "26", optional = true, default-features = false, features
 anyhow = "1"
 thiserror = "1"
 mpd_client = "1.4"
-reqwest = { version = "0.12", features = ["json"] }
+# Use rustls instead of default (openssl) so armv7 cross-builds work without OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }
 urlencoding = "2"
 image = "0.25"
