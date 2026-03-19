@@ -124,6 +124,11 @@ async fn on_connect(s: SocketRef) {
     s.on("writeMultiroom", write_multiroom);
     s.on("getExtendedOutputDevices", get_extended_output_devices);
     s.on("getOutputDevices", get_output_devices);
+    s.on("getBackgrounds", get_backgrounds);
+    s.on("setBackgrounds", set_backgrounds);
+    s.on("getExperienceAdvancedSettings", get_experience_advanced_settings);
+    s.on("setExperienceAdvancedSettings", set_experience_advanced_settings);
+    s.on("setOutputDevices", set_output_devices);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -521,6 +526,27 @@ async fn get_extended_output_devices(s: SocketRef) {
 async fn get_output_devices(s: SocketRef) {
     s.emit("pushOutputDevices", &serde_json::json!([])).ok();
 }
+
+/// Stub: no backgrounds (Node: appearance getBackgrounds -> pushBackgrounds).
+async fn get_backgrounds(s: SocketRef) {
+    s.emit("pushBackgrounds", &serde_json::json!([])).ok();
+}
+
+/// Stub: accept set, emit pushBackgrounds [] (Node: appearance setBackgrounds -> pushBackgrounds).
+async fn set_backgrounds(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushBackgrounds", &serde_json::json!([])).ok();
+}
+
+/// Stub: empty experience advanced settings (Node: commandRouter.getExperienceAdvancedSettings -> pushExperienceAdvancedSettings).
+async fn get_experience_advanced_settings(s: SocketRef) {
+    s.emit("pushExperienceAdvancedSettings", &serde_json::json!({})).ok();
+}
+
+/// No-op: Node calls system setExperienceAdvancedSettings; Evo has no persistence.
+async fn set_experience_advanced_settings(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
+
+/// No-op: Node calls alsa_controller saveAlsaOptions; Evo has no ALSA device config.
+async fn set_output_devices(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
