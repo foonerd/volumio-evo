@@ -84,6 +84,8 @@ async fn on_connect(s: SocketRef) {
     s.on("addQueueUids", add_queue_uids);
     s.on("skipBackwards", skip_backwards);
     s.on("skipForward", skip_forward);
+    s.on("closeModals", close_modals);
+    s.on("getInputSources", get_input_sources);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -220,6 +222,24 @@ async fn skip_forward(_s: SocketRef, State(state): State<AppState>) {
     if let Err(e) = mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
         tracing::warn!("skipForward MPD error: {}", e);
     }
+}
+
+async fn close_modals(s: SocketRef) {
+    s.emit("closeAllModals", "").ok();
+}
+
+async fn get_input_sources(s: SocketRef) {
+    let sources: Vec<serde_json::Value> = MUSIC_SOURCE_NAMES
+        .iter()
+        .map(|(name, title)| {
+            serde_json::json!({
+                "name": title,
+                "uri": format!("music-library/{}", name),
+                "service": "mpd"
+            })
+        })
+        .collect();
+    s.emit("pushInputSources", &sources).ok();
 }
 
 #[derive(Debug, Deserialize)]
