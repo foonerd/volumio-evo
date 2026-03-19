@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+mod albumart;
 mod api;
 mod config;
 mod mpd;

@@ -2,17 +2,32 @@
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
 };
+use serde::Deserialize;
 use socketioxide::SocketIo;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::albumart;
 use super::v1;
+
+#[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)] // icon, source_icon, section_image reserved for plugin/fallback handling
+pub struct AlbumArtQuery {
+    pub web: Option<String>,
+    pub path: Option<String>,
+    pub metadata: Option<String>,
+    pub icon: Option<String>,
+    #[serde(rename = "sourceicon")]
+    pub source_icon: Option<String>,
+    #[serde(rename = "sectionimage")]
+    pub section_image: Option<String>,
+}
 
 /// Minimal 1x1 transparent PNG used when no default image exists under albumart_root.
 const FALLBACK_PNG: &[u8] = &[
@@ -53,20 +68,74 @@ fn image_response(data: Vec<u8>, content_type: &'static str) -> Response {
         .unwrap()
 }
 
-/// GET /albumart - serve default/placeholder from albumart_root or embedded fallback.
-async fn album_art(State(state): State<super::AppState>) -> impl IntoResponse {
+/// GET /albumart - resolve from path/web then default/placeholder.
+async fn album_art(
+    State(state): State<super::AppState>,
+    Query(q): Query<AlbumArtQuery>,
+) -> impl IntoResponse {
+    let music_root = &state.music_sources.music_root;
+    let metadata = q.metadata.as_deref() == Some("true");
+    if let Some((file_path, ct)) = albumart::resolve(
+        &state.albumart_root,
+        music_root,
+        q.path.as_deref(),
+        q.web.as_deref(),
+        metadata,
+    ) {
+        if let Ok(data) = std::fs::read(&file_path) {
+            return image_response(data, ct);
+        }
+    }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)
 }
 
-/// GET /albumartd - direct album art; same default/placeholder for now.
-async fn album_art_direct(State(state): State<super::AppState>) -> impl IntoResponse {
+/// GET /albumartd - direct album art; same resolution as /albumart.
+async fn album_art_direct(
+    State(state): State<super::AppState>,
+    Query(q): Query<AlbumArtQuery>,
+) -> impl IntoResponse {
+    let music_root = &state.music_sources.music_root;
+    let metadata = q.metadata.as_deref() == Some("true");
+    if let Some((file_path, ct)) = albumart::resolve(
+        &state.albumart_root,
+        music_root,
+        q.path.as_deref(),
+        q.web.as_deref(),
+        metadata,
+    ) {
+        if let Ok(data) = std::fs::read(&file_path) {
+            return image_response(data, ct);
+        }
+    }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)
 }
 
-/// GET /tinyart/* - tiny art variant; same default/placeholder for now.
-async fn album_art_tiny(State(state): State<super::AppState>) -> impl IntoResponse {
+/// GET /tinyart/*path - path is artist/album/resolution (used as web when query web is absent).
+async fn album_art_tiny(
+    State(state): State<super::AppState>,
+    Path((path_from_url,)): Path<(String,)>,
+    Query(q): Query<AlbumArtQuery>,
+) -> impl IntoResponse {
+    let music_root = &state.music_sources.music_root;
+    let metadata = q.metadata.as_deref() == Some("true");
+    let web_param = q
+        .web
+        .as_deref()
+        .or_else(|| Some(path_from_url.as_str()))
+        .filter(|s| !s.is_empty());
+    if let Some((file_path, ct)) = albumart::resolve(
+        &state.albumart_root,
+        music_root,
+        q.path.as_deref(),
+        web_param,
+        metadata,
+    ) {
+        if let Ok(data) = std::fs::read(&file_path) {
+            return image_response(data, ct);
+        }
+    }
     let (data, ct) = default_album_art_bytes(&state);
     image_response(data, ct)
 }

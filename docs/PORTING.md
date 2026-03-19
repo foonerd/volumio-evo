@@ -111,9 +111,9 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 |---------------|----------|----------------|
 | `GET /` | Yes | Returns "ok" (health; UI served elsewhere or same host) |
 | `GET /api/health` | Yes | Returns "ok" |
-| `GET /albumart` | Yes | Serves default from albumart_root (default.jpg/png) or embedded placeholder |
-| `GET /tinyart/*` | Yes | Same default/placeholder |
-| `GET /albumartd` | Yes | Same default/placeholder |
+| `GET /albumart` | Yes | Query path/web/metadata; resolve path → folder cache → metadata cache → folder covers → personal → default |
+| `GET /tinyart/*` | Yes | Same resolution; URL path used as web when query web absent |
+| `GET /albumartd` | Yes | Same resolution as /albumart |
 | `/api` (REST) | Yes | Mounted; v1 under `/api/v1` |
 | `/dev`, `/plugin-serve`, `/stream`, `/partnerlogo`, `/status` | No | Not implemented |
 | `POST /plugin-upload`, `/backgrounds-upload`, `/albumart-upload` | No | Not implemented |
@@ -163,7 +163,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
 | Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
-| Album art logic (local cache, exiftool, online) | No | Default/placeholder from albumart_root or embedded; full resolution TBD |
+| Album art resolution (path, cache, personal, default) | Yes | path → folder cache → metadata cache → folder covers → personal → default; exiftool/online/icon deferred |
 
 ---
 
@@ -176,7 +176,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/* present; serve default image from albumart_root (default.jpg/default.png) or embedded placeholder.
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata; resolution order: path on disk → folder cache → metadata cache → folder covers → personal → default image or embedded placeholder.
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
@@ -186,11 +186,11 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **HDMI standby, OAuth, pushNotificationUrls:** stubs or skip for minimal port.
 - **Playlist manager (create/delete/addToPlaylist/...), favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art logic:** default/placeholder implemented (from config albumart_root or embedded). Full resolution (local cache, exiftool, Volumio/Last.fm) not yet ported.
+- **Album art:** resolution (path → folder cache → metadata cache → folder covers → personal → default) is implemented. Exiftool, online (Volumio/Last.fm), icon/sectionimage/sourceicon fallbacks, and resize for albumartd/tinyart are deferred.
 
 ### 3.3 Optional / future
 
-- **Album art:** full resolution (path → folder cache → metadata/exiftool → personal → online → icon) and MPD readpicture; default/placeholder already served.
+- **Album art:** exiftool/metadata extraction, online (Volumio/Last.fm), icon/sectionimage/sourceicon from plugin dirs, resize for albumartd/tinyart; MPD readpicture if needed.
 
 ---
 
