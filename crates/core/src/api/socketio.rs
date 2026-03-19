@@ -72,6 +72,8 @@ async fn on_connect(s: SocketRef) {
     s.on("unmute", unmute);
     s.on("rescanDb", rescan_db);
     s.on("updateDb", update_db);
+    s.on("replaceAndPlay", replace_and_play);
+    s.on("goTo", go_to);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -246,6 +248,72 @@ async fn add_to_queue(
     let config = mpd_config(&state);
     if let Err(e) = mpd::add_to_queue_connected(&config, &payload.uri).await {
         tracing::warn!("addToQueue MPD error: {}", e);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplaceAndPlayPayload {
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    title: String, // Volumio UI sends it; used for playlist name when uri is playlists/Name
+}
+
+async fn replace_and_play(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<ReplaceAndPlayPayload>,
+) {
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    // Volumio: "playlists/Name" (no ://) -> load playlist and play; else clear + add uri + play.
+    let is_playlist = uri.starts_with("playlists/") && !uri.contains("://");
+    if is_playlist {
+        let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
+        if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
+            tracing::warn!("replaceAndPlay (playlist) MPD error: {}", e);
+        }
+    } else if let Err(e) = mpd::add_play_connected(&config, uri).await {
+        tracing::warn!("replaceAndPlay MPD error: {}", e);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GoToPayload {
+    #[serde(default)]
+    r#type: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default)]
+    artist: String,
+    #[serde(default)]
+    album: String,
+}
+
+async fn go_to(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<GoToPayload>,
+) {
+    let config = mpd_config(&state);
+    let uri = if payload.r#type == "artist" && !payload.value.is_empty() {
+        format!("artists://{}", payload.value)
+    } else if payload.r#type == "album" && !payload.artist.is_empty() && !payload.album.is_empty() {
+        format!(
+            "albums://{}/{}",
+            payload.artist,
+            payload.album
+        )
+    } else {
+        return;
+    };
+    match mpd::browse_connected(&config, &uri).await {
+        Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
+        Err(e) => tracing::warn!("goTo {} MPD error: {}", uri, e),
     }
 }
 

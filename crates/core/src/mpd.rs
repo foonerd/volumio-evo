@@ -488,8 +488,93 @@ pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseR
     })
 }
 
+/// List albums by artist (goTo type=artist). Uses MPD "list Album Artist <name>", returns folder items.
+async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<BrowseResponse> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("list")
+        .argument("Album")
+        .argument("Artist")
+        .argument(artist);
+    let frame = client.raw_command(raw).await?;
+    let mut albums: Vec<String> = frame
+        .fields()
+        .filter_map(|(k, v)| if *k == *"Album" { Some(v.to_string()) } else { None })
+        .collect();
+    albums.sort();
+    albums.dedup();
+    let items: Vec<BrowseItem> = albums
+        .into_iter()
+        .map(|album| BrowseItem {
+            item_type: "folder".to_string(),
+            title: album.clone(),
+            uri: format!("albums://{}/{}", artist, album),
+            service: "mpd".to_string(),
+            artist: Some(artist.to_string()),
+            album: Some(album),
+            duration: None,
+        })
+        .collect();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "artists://".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
+/// List songs in an album (goTo type=album). Uses MPD find Artist/Album, returns song items.
+async fn browse_album_songs_connected(
+    config: &MpdConfig,
+    artist: &str,
+    album: &str,
+) -> Result<BrowseResponse> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("find")
+        .argument("Artist")
+        .argument(artist)
+        .argument("Album")
+        .argument(album);
+    let frame = client.raw_command(raw).await?;
+    let items = parse_lsinfo_frame(frame, "music-library");
+    let prev = format!("artists://{}", artist);
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev { uri: prev },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
 /// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library" or "music-library/INTERNAL"), return browse response.
+/// Also handles virtual URIs: artists://<name> (albums by artist), albums://<artist>/<album> (songs in album).
 pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseResponse> {
+    if uri.starts_with("artists://") && uri != "artists://" {
+        let artist = uri.strip_prefix("artists://").unwrap_or("").trim();
+        if !artist.is_empty() {
+            return browse_artist_connected(config, artist).await;
+        }
+    }
+    if uri.starts_with("albums://") {
+        let rest = uri.strip_prefix("albums://").unwrap_or("");
+        if let Some((a, b)) = rest.split_once('/') {
+            let artist = a.trim();
+            let album = b.trim();
+            if !artist.is_empty() && !album.is_empty() {
+                return browse_album_songs_connected(config, artist, album).await;
+            }
+        }
+    }
+
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
 
