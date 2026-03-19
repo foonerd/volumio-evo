@@ -104,6 +104,7 @@ async fn on_connect(s: SocketRef) {
     s.on("getLibraryListing", get_library_listing);
     s.on("getLibraryFilters", get_library_filters);
     s.on("getPlaylistIndex", get_playlist_index);
+    s.on("getMultiRoomDevices", get_multi_room_devices);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -412,6 +413,11 @@ async fn get_library_filters(s: SocketRef, TryData(_uid): TryData<serde_json::Va
 /// Stub: empty index (Node: playlistFS.getIndex(sUid)).
 async fn get_playlist_index(s: SocketRef, TryData(_uid): TryData<serde_json::Value>) {
     s.emit("pushPlaylistIndex", &serde_json::json!([])).ok();
+}
+
+/// Stub: no multi-room devices (Node: volumiodiscovery.getDevices -> pushMultiRoomDevices).
+async fn get_multi_room_devices(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushMultiRoomDevices", &serde_json::json!([])).ok();
 }
 
 #[derive(Debug, Deserialize)]
