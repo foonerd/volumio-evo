@@ -193,11 +193,11 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Playlist manager:** implemented (Socket.IO: getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue; MPD load/save/rm/listplaylist/playlistadd/playlistdelete; browseLibrary supports uri `playlists` and `playlists/<name>`).
 - **Favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art:** full handling implemented: exiftool (embedded art when metadata=true), MPD readpicture (embedded art from file URI), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px).
+- **Album art:** full handling implemented: exiftool (embedded art when metadata=true; path configurable via config `exiftool_path` or env `VOLUMIO_EVO_EXIFTOOL_PATH`, default `/usr/bin/exiftool`), MPD readpicture (embedded art from file URI), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px).
 
 ### 3.3 Optional / future
 
-- **Album art:** exiftool path configurable (default /usr/bin/exiftool).
+- Reserved for future items.
 
 ---
 
