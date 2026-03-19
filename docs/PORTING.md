@@ -111,9 +111,9 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 |---------------|----------|----------------|
 | `GET /` | Yes | Returns "ok" (health; UI served elsewhere or same host) |
 | `GET /api/health` | Yes | Returns "ok" |
-| `GET /albumart` | Partial | Route exists; returns 404 (no placeholder image yet) |
-| `GET /tinyart/*` | Partial | Route exists; returns 404 |
-| `GET /albumartd` | Partial | Route exists; returns 404 |
+| `GET /albumart` | Yes | Serves default from albumart_root (default.jpg/png) or embedded placeholder |
+| `GET /tinyart/*` | Yes | Same default/placeholder |
+| `GET /albumartd` | Yes | Same default/placeholder |
 | `/api` (REST) | Yes | Mounted; v1 under `/api/v1` |
 | `/dev`, `/plugin-serve`, `/stream`, `/partnerlogo`, `/status` | No | Not implemented |
 | `POST /plugin-upload`, `/backgrounds-upload`, `/albumart-upload` | No | Not implemented |
@@ -162,7 +162,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
 | Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
-| Album art logic (local cache, exiftool, online, default image) | No | Routes only; 404 for now |
+| Album art logic (local cache, exiftool, online) | No | Default/placeholder from albumart_root or embedded; full resolution TBD |
 
 ---
 
@@ -175,7 +175,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary, addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/* present; return 404 (placeholder TBD).
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/* present; serve default image from albumart_root (default.jpg/default.png) or embedded placeholder.
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
@@ -185,13 +185,13 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **HDMI standby, OAuth, pushNotificationUrls:** stubs or skip for minimal port.
 - **Playlist manager (create/delete/addToPlaylist/...), favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art logic:** not ported (local cache, exiftool, Volumio/Last.fm). Routes return 404; decision pending: at least serve default/placeholder image.
+- **Album art logic:** default/placeholder implemented (from config albumart_root or embedded). Full resolution (local cache, exiftool, Volumio/Last.fm) not yet ported.
 
 ### 3.3 Optional / future
 
 - **Push state/queue:** MPD idle or polling -> broadcast pushState/pushQueue to Socket.IO clients.
 - **Queue reorder:** moveQueue, playNext (MPD move/priority).
-- **Album art:** default/placeholder image for /albumart, /albumartd, /tinyart/* when no art found; later: local + metadata or MPD readpicture if needed.
+- **Album art:** full resolution (path → folder cache → metadata/exiftool → personal → online → icon) and MPD readpicture; default/placeholder already served.
 
 ---
 
