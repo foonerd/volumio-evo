@@ -108,6 +108,8 @@ async fn on_connect(s: SocketRef) {
     s.on("serviceUpdateTracklist", service_update_tracklist);
     s.on("updateAllMetadata", update_all_metadata);
     s.on("importServicePlaylists", import_service_playlists);
+    s.on("setDeviceName", set_device_name);
+    s.on("getDeviceHWUUID", get_device_hw_uuid);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -431,6 +433,14 @@ async fn update_all_metadata(_s: SocketRef) {}
 
 /// No-op: Node calls playlistFS.importServicePlaylists; Evo has no service playlists to import.
 async fn import_service_playlists(_s: SocketRef) {}
+
+/// No-op: Node saves player_name via system plugin; Evo has no device-name persistence.
+async fn set_device_name(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
+
+/// Stub: same as getSystemInfo hwUuid (Node: commandRouter.getHwuuid -> pushDeviceHWUUID).
+async fn get_device_hw_uuid(s: SocketRef) {
+    s.emit("pushDeviceHWUUID", &serde_json::json!("evo-stub")).ok();
+}
 
 #[derive(Debug, Deserialize)]
 struct SetLanguagePayload {
