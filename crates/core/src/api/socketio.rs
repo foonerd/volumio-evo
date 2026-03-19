@@ -99,6 +99,8 @@ async fn on_connect(s: SocketRef) {
     s.on("getAvailableTimezones", get_available_timezones);
     s.on("getCurrentTimezone", get_current_timezone);
     s.on("setTimezone", set_timezone);
+    s.on("initSocket", init_socket);
+    s.on("volatilePlay", volatile_play);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -361,6 +363,22 @@ async fn get_current_timezone(s: SocketRef) {
 /// No-op: Node calls system plugin setTimezone; Evo has no timezone persistence.
 async fn set_timezone(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {
     // Accept any payload; do nothing.
+}
+
+/// No-op: Node calls volumiodiscovery plugin initSocket; Evo has no discovery.
+async fn init_socket(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {
+    // Accept any payload; do nothing.
+}
+
+/// Same as play: MPD play with optional position (Node: volumioVolatilePlay).
+async fn volatile_play(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    payload: TryData<PlayPayload>,
+) {
+    let position = payload.as_ref().ok().and_then(|p| p.value);
+    let config = mpd_config(&state);
+    let _ = mpd::run_command_connected(&config, "play", None, position, None, None).await;
 }
 
 #[derive(Debug, Deserialize)]
