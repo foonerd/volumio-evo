@@ -74,6 +74,9 @@ async fn on_connect(s: SocketRef) {
     s.on("updateDb", update_db);
     s.on("replaceAndPlay", replace_and_play);
     s.on("goTo", go_to);
+    s.on("replaceAndPlayCue", replace_and_play_cue);
+    s.on("addPlayCue", add_play_cue);
+    s.on("playItemsList", play_items_list);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -314,6 +317,106 @@ async fn go_to(
     match mpd::browse_connected(&config, &uri).await {
         Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
         Err(e) => tracing::warn!("goTo {} MPD error: {}", uri, e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplaceAndPlayCuePayload {
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    number: Option<u32>, // CUE track index; we don't support CUE sheets, treat as single uri
+    #[serde(default)]
+    #[allow(dead_code)]
+    service: Option<String>,
+}
+
+async fn replace_and_play_cue(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<ReplaceAndPlayCuePayload>,
+) {
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    // Volumio: clear queue then add CUE entry; we have no CUE support -> clear + add uri (no play).
+    if let Err(e) = mpd::clear_and_add_connected(&config, uri).await {
+        tracing::warn!("replaceAndPlayCue MPD error: {}", e);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AddPlayCuePayload {
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    number: Option<u32>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    service: Option<String>,
+}
+
+async fn add_play_cue(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<AddPlayCuePayload>,
+) {
+    let uri = payload.uri.trim();
+    if uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    // Volumio: add CUE entry to queue; we have no CUE support -> add single uri to queue.
+    if let Err(e) = mpd::add_to_queue_connected(&config, uri).await {
+        tracing::warn!("addPlayCue MPD error: {}", e);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ListItemUri {
+    #[serde(default)]
+    uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlayItemsListPayload {
+    #[serde(default)]
+    #[allow(dead_code)]
+    item: Option<ListItemUri>, // Volumio sends; we use list + index
+    #[serde(default)]
+    list: Vec<ListItemUri>,
+    #[serde(default)]
+    index: Option<u32>,
+}
+
+async fn play_items_list(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlayItemsListPayload>,
+) {
+    let list = &payload.list;
+    let index = match payload.index {
+        Some(i) => i as usize,
+        None => return,
+    };
+    if list.is_empty() {
+        return;
+    }
+    let uris: Vec<String> = list
+        .iter()
+        .map(|e| e.uri.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if uris.is_empty() || index >= uris.len() {
+        return;
+    }
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::play_items_list_connected(&config, &uris, index).await {
+        tracing::warn!("playItemsList MPD error: {}", e);
     }
 }
 

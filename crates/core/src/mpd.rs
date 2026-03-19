@@ -4,7 +4,7 @@ use anyhow::Result;
 use mpd_client::{
     commands::{
         Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
-        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, SongPosition,
+        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Song, SongPosition,
         Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
@@ -108,6 +108,38 @@ pub async fn add_play_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     let path = volumio_uri_to_mpd_path(uri);
     client.raw_command(RawCommand::new("add").argument(path)).await?;
     client.command(Play::current()).await?;
+    Ok(())
+}
+
+/// Clear queue and add single URI (no play). For replaceAndPlayCue.
+pub async fn clear_and_add_connected(config: &MpdConfig, uri: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(ClearQueue).await?;
+    let path = volumio_uri_to_mpd_path(uri);
+    client.raw_command(RawCommand::new("add").argument(path)).await?;
+    Ok(())
+}
+
+/// Clear queue, add URIs in order, start playing at play_index (0-based). For playItemsList.
+pub async fn play_items_list_connected(
+    config: &MpdConfig,
+    uris: &[String],
+    play_index: usize,
+) -> Result<()> {
+    if uris.is_empty() {
+        return Ok(());
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(ClearQueue).await?;
+    for uri in uris {
+        let path = volumio_uri_to_mpd_path(uri);
+        client.raw_command(RawCommand::new("add").argument(path)).await?;
+    }
+    client
+        .command(Play::song(Song::Position(SongPosition(play_index))))
+        .await?;
     Ok(())
 }
 
