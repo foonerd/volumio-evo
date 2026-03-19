@@ -91,6 +91,8 @@ async fn on_connect(s: SocketRef) {
     s.on("getSystemVersion", get_system_version);
     s.on("getSystemInfo", get_system_info);
     s.on("getMenuItems", get_menu_items);
+    s.on("getUiConfig", get_ui_config);
+    s.on("getDSPUiConfig", get_dsp_ui_config);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -296,6 +298,27 @@ async fn get_menu_items(s: SocketRef) {
         { "id": "mymusic", "name": "TRANSLATE.COMMON.SOURCES", "state": "volumio.plugin", "params": { "pluginName": "miscellanea/my_music" } }
     ]);
     s.emit("pushMenuItems", &menu).ok();
+}
+
+/// Empty plugin UI config stub (Node: getUIConfigOnPlugin per page). Payload: { page?: string }.
+fn empty_ui_config() -> serde_json::Value {
+    serde_json::json!({ "page": { "label": "" }, "sections": [] })
+}
+
+#[derive(Debug, Deserialize)]
+struct GetUiConfigPayload {
+    #[serde(default)]
+    #[allow(dead_code)]
+    page: String,
+}
+
+async fn get_ui_config(s: SocketRef, TryData(payload): TryData<GetUiConfigPayload>) {
+    let _ = payload; // Node uses data.page to route to plugin; Evo has no plugins, always stub
+    s.emit("pushUiConfig", &empty_ui_config()).ok();
+}
+
+async fn get_dsp_ui_config(s: SocketRef) {
+    s.emit("pushDSPUiConfig", &empty_ui_config()).ok();
 }
 
 #[derive(Debug, Deserialize)]
