@@ -119,6 +119,11 @@ async fn on_connect(s: SocketRef) {
     s.on("setSleep", set_sleep);
     s.on("getAlarms", get_alarms);
     s.on("saveAlarm", save_alarm);
+    s.on("getMultiroom", get_multiroom);
+    s.on("setMultiroom", set_multiroom);
+    s.on("writeMultiroom", write_multiroom);
+    s.on("getExtendedOutputDevices", get_extended_output_devices);
+    s.on("getOutputDevices", get_output_devices);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -492,6 +497,29 @@ async fn get_alarms(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
 /// Stub: accept save, emit pushSleep {} (Node: alarm-clock saveAlarm -> pushSleep).
 async fn save_alarm(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
     s.emit("pushSleep", &serde_json::json!({})).ok();
+}
+
+/// Stub: no multiroom state (Node: multiroom plugin getMultiroom -> pushMultiroom).
+async fn get_multiroom(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushMultiroom", &serde_json::json!({})).ok();
+}
+
+/// Stub: accept set, emit pushMultiroom {} (Node: multiroom setMultiroom -> pushMultiroom).
+async fn set_multiroom(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
+    s.emit("pushMultiroom", &serde_json::json!({})).ok();
+}
+
+/// No-op: Node calls multiroom writeMultiRoom; Evo has no multi-room.
+async fn write_multiroom(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
+
+/// Stub: no extended output devices (Node: alsa_controller getExtendedOutputDevices -> pushExtendedOutputDevices).
+async fn get_extended_output_devices(s: SocketRef) {
+    s.emit("pushExtendedOutputDevices", &serde_json::json!([])).ok();
+}
+
+/// Stub: no output devices list (Node: alsa_controller getAudioDevices -> pushOutputDevices).
+async fn get_output_devices(s: SocketRef) {
+    s.emit("pushOutputDevices", &serde_json::json!([])).ok();
 }
 
 #[derive(Debug, Deserialize)]
