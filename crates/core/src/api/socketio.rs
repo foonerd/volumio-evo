@@ -44,6 +44,8 @@ async fn on_connect(s: SocketRef) {
     s.on("setRepeat", set_repeat);
     s.on("clearQueue", clear_queue);
     s.on("getInstalledPlugins", get_installed_plugins);
+    s.on("moveQueue", move_queue);
+    s.on("playNext", play_next);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -304,6 +306,55 @@ async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
 async fn get_installed_plugins(s: SocketRef, State(state): State<AppState>) {
     let plugins = super::v1::list_installed_plugins(&state).await;
     s.emit("pushInstalledPlugins", &plugins).ok();
+}
+
+#[derive(Debug, Deserialize)]
+struct MoveQueuePayload {
+    from: u32,
+    to: u32,
+}
+
+async fn move_queue(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<MoveQueuePayload>,
+) {
+    let config = mpd_config(&state);
+    match mpd::move_queue_connected(&config, payload.from, payload.to).await {
+        Ok(()) => {
+            if let Ok(q) = mpd::get_queue_connected(&config).await {
+                s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
+            }
+        }
+        Err(e) => tracing::warn!("moveQueue MPD error: {}", e),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PlayNextPayload {
+    uri: String,
+}
+
+async fn play_next(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<PlayNextPayload>,
+) {
+    if payload.uri.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::play_next_connected(&config, &payload.uri).await {
+        Ok(()) => {
+            if let Ok(q) = mpd::get_queue_connected(&config).await {
+                s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
+            }
+            if let Ok(st) = mpd::get_state_connected(&config).await {
+                s.emit("pushState", &st).ok();
+            }
+        }
+        Err(e) => tracing::warn!("playNext MPD error: {}", e),
+    }
 }
 
 /// Poll MPD periodically and broadcast pushState/pushQueue to all Socket.IO clients in the default namespace.

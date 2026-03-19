@@ -3,8 +3,9 @@
 use anyhow::Result;
 use mpd_client::{
     commands::{
-        ClearQueue, CurrentSong, Next, Play, Previous, Queue, Seek as MpdSeekCmd,
-        SeekMode, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Status, Stop,
+        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Seek as MpdSeekCmd,
+        SeekMode, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, SongPosition, Status,
+        Stop,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
@@ -77,6 +78,24 @@ pub async fn remove_from_queue_connected(config: &MpdConfig, position: u32) -> R
     client
         .raw_command(RawCommand::new("delete").argument(position.to_string()))
         .await?;
+    Ok(())
+}
+
+/// Move queue item from position `from` to position `to` (0-based). Matches Volumio moveQueue.
+pub async fn move_queue_connected(config: &MpdConfig, from: u32, to: u32) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let cmd = Move::position(SongPosition(from as usize)).to_position(SongPosition(to as usize));
+    client.command(cmd).await?;
+    Ok(())
+}
+
+/// Add URI to play next (insert after current song). Matches Volumio playNext.
+pub async fn play_next_connected(config: &MpdConfig, uri: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let path = volumio_uri_to_mpd_path(uri);
+    client.command(Add::uri(path).after_current(0)).await?;
     Ok(())
 }
 
