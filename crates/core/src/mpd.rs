@@ -72,6 +72,25 @@ pub async fn add_to_queue_connected(config: &MpdConfig, uri: &str) -> Result<()>
     Ok(())
 }
 
+/// Add multiple URIs to queue (one MPD connection). For addQueueUids.
+pub async fn add_multiple_to_queue_connected(config: &MpdConfig, uris: &[String]) -> Result<()> {
+    if uris.is_empty() {
+        return Ok(());
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    for uri in uris {
+        let path = volumio_uri_to_mpd_path(uri.trim());
+        if path.is_empty() {
+            continue;
+        }
+        client
+            .raw_command(RawCommand::new("add").argument(path))
+            .await?;
+    }
+    Ok(())
+}
+
 /// Remove item at queue position (0-based). Volumio UI may send 1-based; caller can pass pos - 1.
 pub async fn remove_from_queue_connected(config: &MpdConfig, position: u32) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;

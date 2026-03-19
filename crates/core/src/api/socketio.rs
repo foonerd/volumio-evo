@@ -80,6 +80,8 @@ async fn on_connect(s: SocketRef) {
     s.on("search", search);
     s.on("superSearch", super_search);
     s.on("getMyCollectionStats", get_my_collection_stats);
+    s.on("removeQueueItem", remove_queue_item);
+    s.on("addQueueUids", add_queue_uids);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -149,6 +151,56 @@ async fn get_my_collection_stats(s: SocketRef, State(state): State<AppState>) {
             s.emit("pushMyCollectionStats", &stats).ok();
         }
         Err(e) => tracing::warn!("getMyCollectionStats MPD error: {}", e),
+    }
+}
+
+/// removeQueueItem: same as removeFromQueue, payload { value: position } (1-based from UI).
+async fn remove_queue_item(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<RemoveFromQueuePayload>,
+) {
+    let pos = payload.value.saturating_sub(1);
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::remove_from_queue_connected(&config, pos).await {
+        tracing::warn!("removeQueueItem MPD error: {}", e);
+    }
+}
+
+/// addQueueUids: payload is array of URI strings (or { uids: [...] }); add all to queue.
+async fn add_queue_uids(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<AddQueueUidsPayload>,
+) {
+    let uris: Vec<String> = payload
+        .into_uris()
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if uris.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::add_multiple_to_queue_connected(&config, &uris).await {
+        tracing::warn!("addQueueUids MPD error: {}", e);
+    }
+}
+
+/// Payload for addQueueUids: client may send raw array ["uri1", ...] or { uids: [...] }.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum AddQueueUidsPayload {
+    Raw(Vec<String>),
+    Wrapped { uids: Vec<String> },
+}
+impl AddQueueUidsPayload {
+    fn into_uris(self) -> Vec<String> {
+        match self {
+            AddQueueUidsPayload::Raw(v) => v,
+            AddQueueUidsPayload::Wrapped { uids } => uids,
+        }
     }
 }
 
