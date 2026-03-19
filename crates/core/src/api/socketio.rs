@@ -17,6 +17,14 @@ fn mpd_config(state: &AppState) -> MpdConfig {
     }
 }
 
+/// Emit pushBrowseLibrary and store in state for getLastPushedBrowseLibrary.
+async fn push_browse_and_store(s: &SocketRef, state: &AppState, resp: &BrowseResponse) {
+    s.emit("pushBrowseLibrary", resp).ok();
+    if let Ok(v) = serde_json::to_value(resp) {
+        state.set_last_browse(v).await;
+    }
+}
+
 /// Register default namespace and all UI event handlers.
 pub fn register_handlers(io: &socketioxide::SocketIo) {
     io.ns("/", on_connect);
@@ -57,6 +65,13 @@ async fn on_connect(s: SocketRef) {
     s.on("enqueue", enqueue);
     s.on("GetTrackInfo", get_track_info);
     s.on("callMethod", call_method);
+    s.on("pinger", pinger);
+    s.on("setConsume", set_consume);
+    s.on("getLastPushedBrowseLibrary", get_last_pushed_browse_library);
+    s.on("mute", mute);
+    s.on("unmute", unmute);
+    s.on("rescanDb", rescan_db);
+    s.on("updateDb", update_db);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -125,7 +140,7 @@ async fn browse_library(
                 }],
             },
         };
-        s.emit("pushBrowseLibrary", &resp).ok();
+        push_browse_and_store(&s, &state, &resp).await;
         return;
     }
 
@@ -156,7 +171,7 @@ async fn browse_library(
                         }],
                     },
                 };
-                s.emit("pushBrowseLibrary", &resp).ok();
+                push_browse_and_store(&s, &state, &resp).await;
             }
             Err(e) => tracing::warn!("browse playlists MPD error: {}", e),
         }
@@ -197,7 +212,7 @@ async fn browse_library(
                         }],
                     },
                 };
-                s.emit("pushBrowseLibrary", &resp).ok();
+                push_browse_and_store(&s, &state, &resp).await;
             }
             Err(e) => tracing::warn!("browse playlists/{} MPD error: {}", playlist_name, e),
         }
@@ -207,7 +222,7 @@ async fn browse_library(
     let config = mpd_config(&state);
     match mpd::browse_connected(&config, uri).await {
         Ok(resp) => {
-            s.emit("pushBrowseLibrary", &resp).ok();
+            push_browse_and_store(&s, &state, &resp).await;
         }
         Err(e) => {
             tracing::warn!("browse {} MPD error: {}", uri, e);
@@ -616,7 +631,7 @@ async fn delete_playlist(
                         }],
                     },
                 };
-                s.emit("pushBrowseLibrary", &resp).ok();
+                push_browse_and_store(&s, &state, &resp).await;
             }
         }
         Err(e) => tracing::warn!("deletePlaylist MPD error: {}", e),
@@ -710,7 +725,7 @@ async fn remove_from_playlist(
                         }],
                     },
                 };
-                s.emit("pushBrowseLibrary", &resp).ok();
+                push_browse_and_store(&s, &state, &resp).await;
             }
         }
         Err(e) => tracing::warn!("removeFromPlaylist MPD error: {}", e),
@@ -762,6 +777,69 @@ async fn call_method(
         && payload.method.as_deref() == Some("clearAlbumartCache")
     {
         state.send_clear_albumart_cache();
+    }
+}
+
+async fn pinger(s: SocketRef, Data(payload): Data<serde_json::Value>) {
+    s.emit("ponger", &payload).ok();
+}
+
+#[derive(Debug, Deserialize)]
+struct SetConsumePayload {
+    value: bool,
+}
+
+async fn set_consume(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<SetConsumePayload>,
+) {
+    let config = mpd_config(&state);
+    match mpd::set_consume_connected(&config, payload.value).await {
+        Ok(()) => {
+            s.emit("pushSetConsume", &serde_json::json!({ "value": payload.value }))
+                .ok();
+        }
+        Err(e) => tracing::warn!("setConsume MPD error: {}", e),
+    }
+}
+
+async fn get_last_pushed_browse_library(s: SocketRef, State(state): State<AppState>) {
+    if let Some(val) = state.get_last_browse().await {
+        s.emit("pushBrowseLibrary", &val).ok();
+    }
+}
+
+async fn mute(_s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    let _ = mpd::run_command_connected(&config, "volume", Some(0), None, None, None).await;
+}
+
+async fn unmute(_s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    // Restore to 80% if no pre-mute volume stored
+    let _ = mpd::run_command_connected(&config, "volume", Some(80), None, None, None).await;
+}
+
+async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::rescan_connected(&config, None).await {
+        tracing::warn!("rescanDb MPD error: {}", e);
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct UpdateDbPayload {
+    #[serde(default)]
+    uri: String,
+}
+
+async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): Data<UpdateDbPayload>) {
+    let config = mpd_config(&state);
+    let path = payload.uri.trim();
+    let path_opt = if path.is_empty() { None } else { Some(path) };
+    if let Err(e) = mpd::update_connected(&config, path_opt).await {
+        tracing::warn!("updateDb MPD error: {}", e);
     }
 }
 

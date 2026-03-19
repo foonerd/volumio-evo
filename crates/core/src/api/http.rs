@@ -271,6 +271,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         albumart_clear_tx: tx,
+        last_browse: Arc::new(tokio::sync::RwLock::new(None)),
     });
 
     let (socket_layer, io) = SocketIo::builder()

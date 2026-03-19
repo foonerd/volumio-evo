@@ -3,9 +3,9 @@
 use anyhow::Result;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Seek as MpdSeekCmd,
-        SeekMode, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, SongPosition, Status,
-        Stop,
+        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
+        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, SongPosition,
+        Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
@@ -304,6 +304,36 @@ pub async fn list_playlists_connected(config: &MpdConfig) -> Result<Vec<String>>
         .map(|(_, v)| v.to_string())
         .collect();
     Ok(names)
+}
+
+/// Set MPD consume mode (remove from queue when played).
+pub async fn set_consume_connected(config: &MpdConfig, value: bool) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(SetConsume(value)).await?;
+    Ok(())
+}
+
+/// Rescan MPD database (optional path/uri). Returns job id.
+pub async fn rescan_connected(config: &MpdConfig, path: Option<&str>) -> Result<u64> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let id = match path {
+        None => client.command(Rescan::new()).await?,
+        Some(p) => client.command(Rescan::new().uri(p)).await?,
+    };
+    Ok(id)
+}
+
+/// Update MPD database (optional path/uri). Returns job id.
+pub async fn update_connected(config: &MpdConfig, path: Option<&str>) -> Result<u64> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let id = match path {
+        None => client.command(Update::new()).await?,
+        Some(p) => client.command(Update::new().uri(p)).await?,
+    };
+    Ok(id)
 }
 
 /// Read embedded picture from a file via MPD readpicture. URI is MPD path (e.g. "local/Artist/Album/file.flac").
