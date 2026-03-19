@@ -151,7 +151,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | closeAllModals (on connect), closeModals | Yes | closeAllModals on connect; closeModals -> emit closeAllModals to client. |
 | getState | Yes | MPD state -> pushState |
 | getQueue | Yes | MPD queue -> pushQueue |
-| browseLibrary, getInputSources | Yes | browseLibrary: Evo layout + MPD lsinfo -> pushBrowseLibrary; getInputSources -> pushInputSources (local, usb, nas, smb). |
+| browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: Evo layout + MPD lsinfo -> pushBrowseLibrary; getInputSources -> pushInputSources; getBrowseSources -> pushBrowseSources (same music sources: local, usb, nas, smb). |
 | addToQueue, addPlay, addQueueUids | Yes | MPD add + optional play; addQueueUids adds multiple URIs (payload: array or { uids }). |
 | removeFromQueue, removeQueueItem | Yes | MPD delete (position); both use payload { value } (1-based from UI). |
 | volume, play, pause, toggle, stop, next, prev, seek, skipBackwards, skipForward | Yes | MPD commands; skipBackwards/skipForward seek ±10s within current track. |
@@ -173,6 +173,8 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | playItemsList | Yes | Clear queue, add list of uris, play at index (payload: list, index). |
 | search, superSearch | Yes | MPD find (any); payload value or query -> pushBrowseLibrary. Same behaviour for both. |
 | getMyCollectionStats | Yes | MPD stats -> pushMyCollectionStats (artists, albums, songs, playtime). |
+| getDeviceInfo | Yes | pushDeviceInfo({ uuid, name }) — stub: uuid "evo-stub", name "Volumio Evo". |
+| getSystemVersion, getSystemInfo | Yes | pushSystemVersion / pushSystemInfo — stub (systemversion 4.0, variant volumio-evo, hardware generic; getSystemInfo adds hostname, hwUuid). |
 | All other Socket.IO events | No | Not implemented (favourites, multiroom, network, plugins lifecycle, wizard, etc.) |
 
 ### Other

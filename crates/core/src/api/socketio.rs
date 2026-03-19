@@ -86,6 +86,10 @@ async fn on_connect(s: SocketRef) {
     s.on("skipForward", skip_forward);
     s.on("closeModals", close_modals);
     s.on("getInputSources", get_input_sources);
+    s.on("getDeviceInfo", get_device_info);
+    s.on("getBrowseSources", get_browse_sources);
+    s.on("getSystemVersion", get_system_version);
+    s.on("getSystemInfo", get_system_info);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -229,7 +233,13 @@ async fn close_modals(s: SocketRef) {
 }
 
 async fn get_input_sources(s: SocketRef) {
-    let sources: Vec<serde_json::Value> = MUSIC_SOURCE_NAMES
+    let sources = browse_sources_json();
+    s.emit("pushInputSources", &sources).ok();
+}
+
+/// Same shape as getInputSources: list of { name, uri, service } for visible browse sources.
+fn browse_sources_json() -> Vec<serde_json::Value> {
+    MUSIC_SOURCE_NAMES
         .iter()
         .map(|(name, title)| {
             serde_json::json!({
@@ -238,8 +248,44 @@ async fn get_input_sources(s: SocketRef) {
                 "service": "mpd"
             })
         })
-        .collect();
-    s.emit("pushInputSources", &sources).ok();
+        .collect()
+}
+
+async fn get_device_info(s: SocketRef) {
+    let data = serde_json::json!({
+        "uuid": "evo-stub",
+        "name": "Volumio Evo"
+    });
+    s.emit("pushDeviceInfo", &data).ok();
+}
+
+async fn get_browse_sources(s: SocketRef) {
+    let sources = browse_sources_json();
+    s.emit("pushBrowseSources", &sources).ok();
+}
+
+async fn get_system_version(s: SocketRef) {
+    let data = serde_json::json!({
+        "systemversion": "4.0",
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null
+    });
+    s.emit("pushSystemVersion", &data).ok();
+}
+
+async fn get_system_info(s: SocketRef) {
+    let data = serde_json::json!({
+        "systemversion": "4.0",
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null,
+        "hostname": "volumio-evo",
+        "hwUuid": "evo-stub"
+    });
+    s.emit("pushSystemInfo", &data).ok();
 }
 
 #[derive(Debug, Deserialize)]
