@@ -159,6 +159,8 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | getInstalledPlugins | Yes | List .wasm -> pushInstalledPlugins |
 | moveQueue, playNext | Yes | MPD move / add after current; pushQueue (and pushState for playNext) |
 | getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue | Yes | MPD stored playlists (listplaylist, load, save, rm, playlistadd, playlistdelete); pushPlaylistContent, pushListPlaylist, pushPlayPlaylist, pushSaveQueueToPlaylist, pushCreatePlaylist, pushAddToPlaylist, pushEnqueue, pushBrowseLibrary for playlists |
+| GetTrackInfo | Yes | Echo payload -> pushGetTrackInfo |
+| callMethod (miscellanea/albumart clearAlbumartCache) | Yes | Triggers broadcast of callMethod to all clients (so UI can refresh); also broadcast after POST /albumart-upload |
 | All other Socket.IO events | No | Not implemented (favourites, multiroom, network, plugins lifecycle, wizard, etc.) |
 
 ### Other
@@ -166,7 +168,7 @@ Quick reference: what exists in Evo today (implemented or stubbed). Details and 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
 | Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
-| Album art resolution (path, cache, personal, exiftool, online, icon, resize) | Yes | path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online → icon/sectionimage/sourceicon → default; albumartd 500px, tinyart 250px |
+| Album art resolution (path, cache, personal, MPD readpicture, exiftool, online, icon, resize) | Yes | path → folder/metadata cache → folder covers → personal → MPD readpicture (path param) → exiftool (metadata=true) → web cache → online → icon/sectionimage/sourceicon → default; albumartd 500px, tinyart 250px |
 
 ---
 
@@ -179,7 +181,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Health:** `GET /`, `GET /api/health` -> "ok".
 - **REST v1 (core):** getState, getQueue, commands (play, pause, toggle, stop, next, prev, volume, seek, repeat, random, clearQueue, addToQueue, addPlay), replaceAndPlay (POST), browse, listplaylists, search, superSearch, collectionstats, getzones (stub), ping, getSystemVersion, getSystemInfo (stubs), getInstalledPlugins (list .wasm).
 - **Socket.IO (core):** getState, getQueue, browseLibrary (including uri `playlists` and `playlists/<name>` for stored playlists), addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; playlist manager: getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue; closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary, pushInstalledPlugins, pushPlaylistContent, pushListPlaylist, pushPlayPlaylist, pushSaveQueueToPlaylist, pushCreatePlaylist, pushAddToPlaylist, pushEnqueue. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
-- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px). POST /albumart-upload (multipart → personal).
+- **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → MPD readpicture → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px). POST /albumart-upload (multipart → personal); after upload, broadcast callMethod(clearAlbumartCache) to all Socket.IO clients.
 - **Status:** GET /status returns VOLUMIO_SYSTEM_STATUS or "ready".
 - **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
 
@@ -191,11 +193,11 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Playlist manager:** implemented (Socket.IO: getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue; MPD load/save/rm/listplaylist/playlistadd/playlistdelete; browseLibrary supports uri `playlists` and `playlists/<name>`).
 - **Favourites, web radio, backup/restore:** not ported; add when UI or product requires.
 - **System (network, wireless, updater, factory reset, My Volumio, wizard, appearance, timezone, etc.):** not ported; stubs where needed for UI (e.g. getSystemVersion/getSystemInfo).
-- **Album art:** full handling implemented: exiftool (embedded art when metadata=true), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px). MPD readpicture not implemented.
+- **Album art:** full handling implemented: exiftool (embedded art when metadata=true), MPD readpicture (embedded art from file URI), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px).
 
 ### 3.3 Optional / future
 
-- **Album art:** MPD readpicture if needed; exiftool path configurable (default /usr/bin/exiftool).
+- **Album art:** exiftool path configurable (default /usr/bin/exiftool).
 
 ---
 

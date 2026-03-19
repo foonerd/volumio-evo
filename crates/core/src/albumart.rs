@@ -561,7 +561,7 @@ pub fn resolve(
 }
 
 /// Resolve album art with online providers. Tries local/personal/web cache first (sync), then
-/// exiftool extraction (if metadata=true), then Cover Art Archive → Last.fm → iTunes → Volumio meta.
+/// MPD readpicture (if path + mpd_config), then exiftool (if metadata=true), then online.
 pub async fn resolve_async(
     albumart_root: &Path,
     music_root: &Path,
@@ -570,13 +570,37 @@ pub async fn resolve_async(
     metadata: bool,
     providers: &AlbumArtProvidersConfig,
     exiftool_path: &Path,
+    mpd_config: Option<&crate::mpd::MpdConfig>,
 ) -> Option<(PathBuf, &'static str)> {
     // 1) Sync local + personal + existing web cache
     if let Some(r) = resolve(albumart_root, music_root, path_param, web_param, metadata) {
         return Some(r);
     }
 
-    // 2) Exiftool: extract embedded art to metadata cache when metadata=true and we have path
+    // 2) MPD readpicture: embedded art from file (when path_param is a file URI)
+    if let (Some(path), Some(config)) = (path_param, mpd_config) {
+        let mpd_path = path.strip_prefix("music-library/").unwrap_or(path);
+        if let Ok(Some((bytes, mime))) = crate::mpd::readpicture_connected(config, mpd_path).await
+        {
+            if let Some(folder) = path_to_folder(music_root, path) {
+                if let Ok(rel) = folder.strip_prefix(music_root) {
+                    let cache_dir = albumart_root.join("metadata").join(rel);
+                    let (ext, ct) = match mime.as_deref() {
+                        Some(m) if m.contains("png") => ("png", "image/png"),
+                        _ => ("jpeg", "image/jpeg"),
+                    };
+                    let cache_path = cache_dir.join(format!("readpicture.{}", ext));
+                    if std::fs::create_dir_all(&cache_dir).is_ok()
+                        && std::fs::write(&cache_path, &bytes).is_ok()
+                    {
+                        return Some((cache_path, ct));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3) Exiftool: extract embedded art to metadata cache when metadata=true and we have path
     if metadata {
         if let Some(path) = path_param {
             if let Some(folder) = path_to_folder(music_root, path) {
@@ -603,7 +627,7 @@ pub async fn resolve_async(
         .as_deref()
         .unwrap_or(DEFAULT_USER_AGENT);
 
-    // 2) Cover Art Archive (album only)
+    // 4) Cover Art Archive (album only)
     if let Some(ref album_name) = album {
         if let Some(bytes) = try_cover_art_archive(client, &artist, album_name, user_agent).await {
             if let Some(r) = save_web_cache(albumart_root, &artist, Some(album_name), &bytes) {
@@ -612,7 +636,7 @@ pub async fn resolve_async(
         }
     }
 
-    // 3) Last.fm (album or artist)
+    // 5) Last.fm (album or artist)
     if let Some(ref key) = providers.lastfm_api_key {
         if let Some(bytes) = try_lastfm(client, &artist, album.as_deref(), key).await {
             if let Some(r) = save_web_cache(albumart_root, &artist, album.as_deref(), &bytes) {
@@ -621,7 +645,7 @@ pub async fn resolve_async(
         }
     }
 
-    // 4) iTunes (album only)
+    // 6) iTunes (album only)
     if let Some(ref album_name) = album {
         if let Some(bytes) = try_itunes(client, &artist, album_name).await {
             if let Some(r) = save_web_cache(albumart_root, &artist, Some(album_name), &bytes) {
@@ -630,7 +654,7 @@ pub async fn resolve_async(
         }
     }
 
-    // 5) Volumio meta (artist only when no album)
+    // 7) Volumio meta (artist only when no album)
     if album.is_none() {
         if let Some(bytes) = try_volumio_meta_artist(client, &artist).await {
             if let Some(r) = save_web_cache(albumart_root, &artist, None, &bytes) {

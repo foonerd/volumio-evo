@@ -24,11 +24,11 @@ async fn main() -> anyhow::Result<()> {
         config.mpd_port
     );
 
-    let state = Arc::new(config);
-    let (app, io) = api::router(state.clone());
+    let config = Arc::new(config);
+    let (app, io, state) = api::router(config);
     tokio::spawn(api::push_state_queue_loop(state.clone(), io));
-    let listener = tokio::net::TcpListener::bind(&state.bind).await?;
-    tracing::info!("listening on {}", state.bind);
+    let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
+    tracing::info!("listening on {}", state.config.bind);
 
     axum::serve(listener, app).await?;
     Ok(())

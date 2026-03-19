@@ -11,6 +11,7 @@ use mpd_client::{
     responses::PlayState,
     Client,
 };
+use std::io;
 use serde::Serialize;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -303,6 +304,21 @@ pub async fn list_playlists_connected(config: &MpdConfig) -> Result<Vec<String>>
         .map(|(_, v)| v.to_string())
         .collect();
     Ok(names)
+}
+
+/// Read embedded picture from a file via MPD readpicture. URI is MPD path (e.g. "local/Artist/Album/file.flac").
+/// Returns (picture bytes, optional mime type) or None if no art.
+pub async fn readpicture_connected(
+    config: &MpdConfig,
+    mpd_path: &str,
+) -> Result<Option<(Vec<u8>, Option<String>)>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    match client.album_art(mpd_path).await {
+        Ok(Some((bytes, mime))) => Ok(Some((bytes.to_vec(), mime))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(io::Error::new(io::ErrorKind::Other, e.to_string()).into()),
+    }
 }
 
 /// List content of a stored playlist (listplaylist "name"). Returns URIs (music-library/...).

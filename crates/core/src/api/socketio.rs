@@ -1,20 +1,19 @@
 //! Socket.IO adapter: same event names as Node backend so the existing UI works.
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
-use crate::config::{Config, MUSIC_SOURCE_NAMES};
+use crate::config::MUSIC_SOURCE_NAMES;
 use crate::mpd::{
     self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig,
 };
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
-use std::sync::Arc;
 
-pub type AppState = Arc<Config>;
+use super::AppState;
 
 fn mpd_config(state: &AppState) -> MpdConfig {
     MpdConfig {
-        host: state.mpd_host.clone(),
-        port: state.mpd_port,
+        host: state.config.mpd_host.clone(),
+        port: state.config.mpd_port,
     }
 }
 
@@ -56,6 +55,8 @@ async fn on_connect(s: SocketRef) {
     s.on("addToPlaylist", add_to_playlist);
     s.on("removeFromPlaylist", remove_from_playlist);
     s.on("enqueue", enqueue);
+    s.on("GetTrackInfo", get_track_info);
+    s.on("callMethod", call_method);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -734,6 +735,33 @@ async fn enqueue(
             }
         }
         Err(e) => tracing::warn!("enqueue MPD error: {}", e),
+    }
+}
+
+/// GetTrackInfo: pass-through so UI can refresh track info; emit same data as pushGetTrackInfo.
+async fn get_track_info(s: SocketRef, Data(payload): Data<serde_json::Value>) {
+    s.emit("pushGetTrackInfo", &payload).ok();
+}
+
+#[derive(Debug, Deserialize)]
+struct CallMethodPayload {
+    endpoint: Option<String>,
+    method: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    data: serde_json::Value,
+}
+
+/// callMethod: handle miscellanea/albumart clearAlbumartCache (trigger broadcast so clients refresh).
+async fn call_method(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<CallMethodPayload>,
+) {
+    if payload.endpoint.as_deref() == Some("miscellanea/albumart")
+        && payload.method.as_deref() == Some("clearAlbumartCache")
+    {
+        state.send_clear_albumart_cache();
     }
 }
 

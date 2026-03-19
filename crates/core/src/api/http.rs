@@ -10,11 +10,15 @@ use axum::{
 };
 use serde::Deserialize;
 use socketioxide::SocketIo;
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::albumart;
+use crate::config::Config;
+use crate::mpd::MpdConfig;
 use super::v1;
+use super::{AppState, RouterState};
 
 const ALBUMART_UPLOAD_MAX_BYTES: usize = 1_000_000; // 1MB, match Volumio
 
@@ -51,8 +55,8 @@ fn albumart_plugin_dirs(plugin_dir: &std::path::Path) -> Vec<std::path::PathBuf>
 }
 
 /// Try to serve icon/sectionimage/sourceicon from plugin dirs before default. Returns (body, content_type).
-fn try_icon_fallback(state: &super::AppState, q: &AlbumArtQuery) -> Option<(Vec<u8>, &'static str)> {
-    let dirs = albumart_plugin_dirs(&state.plugin_dir);
+fn try_icon_fallback(state: &AppState, q: &AlbumArtQuery) -> Option<(Vec<u8>, &'static str)> {
+    let dirs = albumart_plugin_dirs(&state.config.plugin_dir);
     if let Some(ref icon) = q.icon {
         let name = format!("{}.svg", icon);
         for base in &dirs {
@@ -117,8 +121,8 @@ fn resize_image_to_jpeg(data: &[u8], max_dim: u32) -> Option<Vec<u8>> {
 }
 
 /// Try to load default image from albumart_root (default.jpg then default.png); else return embedded placeholder.
-fn default_album_art_bytes(state: &super::AppState) -> (Vec<u8>, &'static str) {
-    let root = &state.albumart_root;
+fn default_album_art_bytes(state: &AppState) -> (Vec<u8>, &'static str) {
+    let root = &state.config.albumart_root;
     for name in ["default.jpg", "default.png", "default.jpeg"] {
         let path = root.join(name);
         if path.exists() {
@@ -146,19 +150,25 @@ fn image_response(data: Vec<u8>, content_type: &'static str) -> Response {
 
 /// GET /albumart - resolve from path/web/online providers then icon fallbacks then default/placeholder.
 async fn album_art(
-    State(state): State<super::AppState>,
+    State(state): State<AppState>,
     Query(q): Query<AlbumArtQuery>,
 ) -> impl IntoResponse {
-    let music_root = &state.music_sources.music_root;
+    let c = &state.config;
+    let music_root = &c.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
+    let mpd_cfg = MpdConfig {
+        host: c.mpd_host.clone(),
+        port: c.mpd_port,
+    };
     if let Some((file_path, ct)) = albumart::resolve_async(
-        &state.albumart_root,
+        &c.albumart_root,
         music_root,
         q.path.as_deref(),
         q.web.as_deref(),
         metadata,
-        &state.albumart_providers,
-        &state.exiftool_path,
+        &c.albumart_providers,
+        &c.exiftool_path,
+        Some(&mpd_cfg),
     )
     .await
     {
@@ -175,19 +185,25 @@ async fn album_art(
 
 /// GET /albumartd - direct album art; same resolution as /albumart, resized to max 500px.
 async fn album_art_direct(
-    State(state): State<super::AppState>,
+    State(state): State<AppState>,
     Query(q): Query<AlbumArtQuery>,
 ) -> impl IntoResponse {
-    let music_root = &state.music_sources.music_root;
+    let c = &state.config;
+    let music_root = &c.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
+    let mpd_cfg = MpdConfig {
+        host: c.mpd_host.clone(),
+        port: c.mpd_port,
+    };
     if let Some((file_path, _ct)) = albumart::resolve_async(
-        &state.albumart_root,
+        &c.albumart_root,
         music_root,
         q.path.as_deref(),
         q.web.as_deref(),
         metadata,
-        &state.albumart_providers,
-        &state.exiftool_path,
+        &c.albumart_providers,
+        &c.exiftool_path,
+        Some(&mpd_cfg),
     )
     .await
     {
@@ -207,25 +223,31 @@ async fn album_art_direct(
 
 /// GET /tinyart/*path - path is artist/album/resolution; resized to max 250px.
 async fn album_art_tiny(
-    State(state): State<super::AppState>,
+    State(state): State<AppState>,
     Path((path_from_url,)): Path<(String,)>,
     Query(q): Query<AlbumArtQuery>,
 ) -> impl IntoResponse {
-    let music_root = &state.music_sources.music_root;
+    let c = &state.config;
+    let music_root = &c.music_sources.music_root;
     let metadata = q.metadata.as_deref() == Some("true");
     let web_param = q
         .web
         .as_deref()
         .or_else(|| Some(path_from_url.as_str()))
         .filter(|s| !s.is_empty());
+    let mpd_cfg = MpdConfig {
+        host: c.mpd_host.clone(),
+        port: c.mpd_port,
+    };
     if let Some((file_path, _ct)) = albumart::resolve_async(
-        &state.albumart_root,
+        &c.albumart_root,
         music_root,
         q.path.as_deref(),
         web_param,
         metadata,
-        &state.albumart_providers,
-        &state.exiftool_path,
+        &c.albumart_providers,
+        &c.exiftool_path,
+        Some(&mpd_cfg),
     )
     .await
     {
@@ -243,13 +265,33 @@ async fn album_art_tiny(
     image_response(data, ct)
 }
 
-/// Returns the router and the SocketIo handle so the caller can broadcast (e.g. pushState/pushQueue).
-pub fn router(state: super::AppState) -> (Router, SocketIo) {
+/// Returns the router, SocketIo handle, and app state (for push_state_queue_loop).
+pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let router_state = Arc::new(RouterState {
+        config: state.clone(),
+        albumart_clear_tx: tx,
+    });
+
     let (socket_layer, io) = SocketIo::builder()
-        .with_state(state.clone())
+        .with_state(router_state.clone())
         .max_payload(1_000_000)
         .build_layer();
     super::socketio::register_handlers(&io);
+
+    let io_for_broadcast = io.clone();
+    tokio::spawn(async move {
+        while rx.recv().await.is_some() {
+            let payload = serde_json::json!({
+                "endpoint": "miscellanea/albumart",
+                "method": "clearAlbumartCache",
+                "data": ""
+            });
+            if io_for_broadcast.emit("callMethod", &payload).await.is_err() {
+                break;
+            }
+        }
+    });
 
     let v1_routes = Router::new()
         .route("/getState", get(v1::get_state))
@@ -266,7 +308,7 @@ pub fn router(state: super::AppState) -> (Router, SocketIo) {
         .route("/collectionstats", get(v1::collection_stats))
         .route("/getzones", get(v1::get_zones))
         .route("/replaceAndPlay", post(v1::replace_and_play))
-        .with_state(state.clone());
+        .with_state(router_state.clone());
 
     let app = Router::new()
         .route("/", get(health))
@@ -280,9 +322,9 @@ pub fn router(state: super::AppState) -> (Router, SocketIo) {
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        .with_state(state.clone());
+        .with_state(router_state.clone());
 
-    (app, io)
+    (app, io, router_state)
 }
 
 async fn health() -> &'static str {
@@ -304,7 +346,7 @@ fn sanitize_albumart_component(s: &str) -> String {
 
 /// POST /albumart-upload - multipart: artist, album (optional), file. Saves to albumart_root/personal/album/artist/album/ or personal/artist/artist/.
 async fn album_art_upload(
-    State(state): State<super::AppState>,
+    State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     let mut artist: Option<String> = None;
@@ -376,7 +418,7 @@ async fn album_art_upload(
         }
     };
 
-    let root = &state.albumart_root;
+    let root = &state.config.albumart_root;
     let artist_esc = sanitize_albumart_component(&artist);
     let dir = if let Some(ref album_name) = album {
         let album_esc = sanitize_albumart_component(album_name);
@@ -405,6 +447,8 @@ async fn album_art_upload(
         )
             .into_response();
     }
+
+    state.send_clear_albumart_cache();
 
     let return_path = if let Some(ref a) = album {
         format!(

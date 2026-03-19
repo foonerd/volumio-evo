@@ -8,18 +8,15 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
-use crate::config::{Config, MUSIC_SOURCE_NAMES};
+use crate::config::MUSIC_SOURCE_NAMES;
 use crate::mpd::{self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig, VolumioState};
 
-/// Shared app state (config only; MPD is per-request connect).
-pub type AppState = Arc<Config>;
+use super::AppState;
 
 pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
     MpdConfig {
-        host: state.mpd_host.clone(),
-        port: state.mpd_port,
+        host: state.config.mpd_host.clone(),
+        port: state.config.mpd_port,
     }
 }
 
@@ -168,7 +165,7 @@ pub struct PluginInfo {
 
 /// List WASM plugins in plugin_dir (.wasm files; name = filename stem).
 pub async fn list_installed_plugins(state: &AppState) -> Vec<PluginInfo> {
-    let mut read_dir = match tokio::fs::read_dir(&state.plugin_dir).await {
+    let mut read_dir = match tokio::fs::read_dir(&state.config.plugin_dir).await {
         Ok(rd) => rd,
         Err(_) => return vec![],
     };
