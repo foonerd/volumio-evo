@@ -96,6 +96,9 @@ async fn on_connect(s: SocketRef) {
     s.on("getAvailableLanguages", get_available_languages);
     s.on("getDeviceName", get_device_name);
     s.on("setLanguage", set_language);
+    s.on("getAvailableTimezones", get_available_timezones);
+    s.on("getCurrentTimezone", get_current_timezone);
+    s.on("setTimezone", set_timezone);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -341,6 +344,23 @@ async fn get_device_name(s: SocketRef) {
 /// No-op: Node calls appearance plugin setLanguage; Evo has no persistence for language.
 async fn set_language(_s: SocketRef, TryData(_payload): TryData<SetLanguagePayload>) {
     // Accept payload so client doesn't error; do nothing.
+}
+
+/// Stub: UTC only (Node uses system plugin getAvailableTimezones).
+async fn get_available_timezones(s: SocketRef) {
+    let data = serde_json::json!([{ "value": "UTC", "label": "UTC" }]);
+    s.emit("pushAvailableTimezones", &data).ok();
+}
+
+/// Stub: current timezone UTC (Node uses system plugin getCurrentTimezone).
+async fn get_current_timezone(s: SocketRef) {
+    let data = serde_json::json!({ "value": "UTC", "label": "UTC" });
+    s.emit("pushCurrentTimezone", &data).ok();
+}
+
+/// No-op: Node calls system plugin setTimezone; Evo has no timezone persistence.
+async fn set_timezone(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {
+    // Accept any payload; do nothing.
 }
 
 #[derive(Debug, Deserialize)]
