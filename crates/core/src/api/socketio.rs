@@ -77,6 +77,8 @@ async fn on_connect(s: SocketRef) {
     s.on("replaceAndPlayCue", replace_and_play_cue);
     s.on("addPlayCue", add_play_cue);
     s.on("playItemsList", play_items_list);
+    s.on("search", search);
+    s.on("superSearch", super_search);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -102,6 +104,41 @@ async fn get_queue(s: SocketRef, State(state): State<AppState>) {
             tracing::warn!("getQueue MPD error: {}", e);
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchPayload {
+    #[serde(default)]
+    value: String,
+    #[serde(default)]
+    query: String,
+}
+
+async fn search(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<SearchPayload>,
+) {
+    let q = payload.query.trim();
+    let v = payload.value.trim();
+    let query = if !q.is_empty() { q } else { v };
+    if query.is_empty() {
+        return;
+    }
+    let config = mpd_config(&state);
+    match mpd::search_connected(&config, query).await {
+        Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
+        Err(e) => tracing::warn!("search MPD error: {}", e),
+    }
+}
+
+async fn super_search(
+    s: SocketRef,
+    state: State<AppState>,
+    Data(payload): Data<SearchPayload>,
+) {
+    // Same as search in Evo (MPD find any); Volumio may differ for superSearch.
+    search(s, state, Data(payload)).await
 }
 
 #[derive(Debug, Deserialize)]
