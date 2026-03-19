@@ -90,6 +90,7 @@ async fn on_connect(s: SocketRef) {
     s.on("getBrowseSources", get_browse_sources);
     s.on("getSystemVersion", get_system_version);
     s.on("getSystemInfo", get_system_info);
+    s.on("getMenuItems", get_menu_items);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -286,6 +287,15 @@ async fn get_system_info(s: SocketRef) {
         "hwUuid": "evo-stub"
     });
     s.emit("pushSystemInfo", &data).ok();
+}
+
+/// Minimal main menu for Evo (Node uses mainmenu.json + i18n). Emit same shape: array of { id, name?, state?, params? }.
+async fn get_menu_items(s: SocketRef) {
+    let menu = serde_json::json!([
+        { "id": "browse", "name": "TRANSLATE.MAIN_MENU.MUSIC", "state": "volumio.browse" },
+        { "id": "mymusic", "name": "TRANSLATE.COMMON.SOURCES", "state": "volumio.plugin", "params": { "pluginName": "miscellanea/my_music" } }
+    ]);
+    s.emit("pushMenuItems", &menu).ok();
 }
 
 #[derive(Debug, Deserialize)]
