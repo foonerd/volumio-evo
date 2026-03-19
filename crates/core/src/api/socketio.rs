@@ -101,6 +101,9 @@ async fn on_connect(s: SocketRef) {
     s.on("setTimezone", set_timezone);
     s.on("initSocket", init_socket);
     s.on("volatilePlay", volatile_play);
+    s.on("getLibraryListing", get_library_listing);
+    s.on("getLibraryFilters", get_library_filters);
+    s.on("getPlaylistIndex", get_playlist_index);
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -379,6 +382,36 @@ async fn volatile_play(
     let position = payload.as_ref().ok().and_then(|p| p.value);
     let config = mpd_config(&state);
     let _ = mpd::run_command_connected(&config, "play", None, position, None, None).await;
+}
+
+#[derive(Debug, Deserialize)]
+struct GetLibraryListingPayload {
+    #[serde(default)]
+    #[allow(dead_code)]
+    uid: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    options: Option<serde_json::Value>,
+}
+
+/// Stub: no Volumio music-library index (Node: musicLibrary.getListing -> library object).
+async fn get_library_listing(s: SocketRef, TryData(_p): TryData<GetLibraryListingPayload>) {
+    let stub = serde_json::json!({
+        "name": "",
+        "type": "root",
+        "children": []
+    });
+    s.emit("pushLibraryListing", &stub).ok();
+}
+
+/// Stub: empty children (Node: musicLibrary.getIndex(sUid).children).
+async fn get_library_filters(s: SocketRef, TryData(_uid): TryData<serde_json::Value>) {
+    s.emit("pushLibraryFilters", &serde_json::json!([])).ok();
+}
+
+/// Stub: empty index (Node: playlistFS.getIndex(sUid)).
+async fn get_playlist_index(s: SocketRef, TryData(_uid): TryData<serde_json::Value>) {
+    s.emit("pushPlaylistIndex", &serde_json::json!([])).ok();
 }
 
 #[derive(Debug, Deserialize)]
