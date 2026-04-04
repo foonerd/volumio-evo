@@ -130,6 +130,19 @@ pub async fn add_play_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     Ok(())
 }
 
+/// Append URI to queue and play the new track (Volumio Web UI `addPlay` → `commandRouter.addPlay`).
+pub async fn add_play_append_connected(config: &MpdConfig, uri: &str) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let path = volumio_uri_to_mpd_path(uri);
+    let n = client.command(Queue::all()).await?.len();
+    client.raw_command(RawCommand::new("add").argument(path)).await?;
+    client
+        .command(Play::song(Song::Position(SongPosition(n))))
+        .await?;
+    Ok(())
+}
+
 /// Clear queue and add single URI (no play). For replaceAndPlayCue.
 pub async fn clear_and_add_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;

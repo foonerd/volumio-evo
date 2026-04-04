@@ -112,7 +112,7 @@ pub async fn commands(
                     .into_response()
             }
         };
-        return match mpd::add_play_connected(&config, uri).await {
+        return match mpd::add_play_append_connected(&config, uri).await {
             Ok(()) => Json(serde_json::json!({"response": "addPlay Success"})).into_response(),
             Err(e) => {
                 tracing::warn!("addPlay MPD error: {}", e);

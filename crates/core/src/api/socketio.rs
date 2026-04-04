@@ -51,6 +51,7 @@ async fn on_connect(s: SocketRef) {
     s.on("setRepeat", set_repeat);
     s.on("clearQueue", clear_queue);
     s.on("getInstalledPlugins", get_installed_plugins);
+    s.on("getAvailablePlugins", get_available_plugins);
     s.on("moveQueue", move_queue);
     s.on("playNext", play_next);
     // Playlist manager
@@ -926,7 +927,7 @@ async fn add_play(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_play_connected(&config, &payload.uri).await {
+    if let Err(e) = mpd::add_play_append_connected(&config, &payload.uri).await {
         tracing::warn!("addPlay MPD error: {}", e);
     }
 }
@@ -1070,6 +1071,19 @@ async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
 async fn get_installed_plugins(s: SocketRef, State(state): State<AppState>) {
     let plugins = super::v1::list_installed_plugins(&state).await;
     s.emit("pushInstalledPlugins", &plugins).ok();
+}
+
+/// No plugin store in Evo. Stock Volumio UI requires at least one category so
+/// `selectedCategory = categories[0]` and `selectedCategory.plugins` are valid.
+async fn get_available_plugins(s: SocketRef) {
+    let payload = serde_json::json!({
+        "categories": [{
+            "name": "evo",
+            "prettyName": "",
+            "plugins": []
+        }]
+    });
+    s.emit("pushAvailablePlugins", &payload).ok();
 }
 
 #[derive(Debug, Deserialize)]

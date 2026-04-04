@@ -347,3 +347,4 @@ Features that are **fundamentally not portable** from Node/Volumio to Evo as-is.
 3. **When deciding scope:** Use Part 3 for high-level status and Part 4 for outstanding work by phase (networking, plugins breakdown, system, etc.).
 4. **What we will never port as-is:** Use Part 5 ("Cannot be ported") for architecture and service limits (Node plugins, cloud, updater, etc.).
 5. **When updating:** Add or refine inventory from volumio3-backend first; then update Part 2, Part 3, and Part 4 so the phased list stays accurate.
+6. **UI-only gaps (optional fork / upstream):** See [UI_GAP.md](UI_GAP.md) for tracked changes in Volumio2-UI (where, why, Evo workaround today).
