@@ -9,7 +9,40 @@ Use this on a **fresh** Raspberry Pi OS, Debian Trixie, or Ubuntu 24.04 (Desktop
 Before starting, get from the developer:
 
 1. **The `volumio-evo` binary** for your machine (e.g. for Raspberry Pi 64-bit, or for PC/amd64). The developer can build it using [BUILD_GUIDE.md](BUILD_GUIDE.md).
-2. **(Optional but recommended)** A **built Volumio UI** (e.g. a zip or folder they can serve), so you can test the full interface. Without it, you can only check that the backend answers (e.g. "ok" and API endpoints).
+2. **(Optional but recommended)** A **built Volumio UI** (a folder of static files, often zipped). Evo does **not** ship the web interface; you run the UI with a **separate** small web server and point it at the Evo backend. See **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)** below. Without the UI, you can still verify the backend with `curl` and browser URLs (e.g. `/api/health`).
+
+---
+
+## How to start the Volumio UI (optional)
+
+**What it is:** The Volumio web app is plain HTML/JS/CSS after a build (the `dist/` output from the [Volumio2-UI](https://github.com/volumio/Volumio2-UI) project, or a zip the developer gives you that contains that folder).
+
+**Why two servers:** Evo listens on port **3000** for the API and Socket.IO only. The UI must be opened from **another** URL (another port or another machine), e.g. `http://192.168.1.10:8080`, so the browser loads the app; the app then connects to Evo at `http://<device-ip>:3000`.
+
+**Steps for the tester:**
+
+1. **Unpack** the UI folder (e.g. `dist/`). You should see `index.html` and an `app/` subfolder (names may vary slightly by build).
+
+2. **Tell the UI where Evo is.** Create or edit the file **`app/local-config.json`** inside that folder (same level as other files under `app/`). It must contain the full URL of the Evo backend, **including port 3000**:
+   ```json
+   {
+     "localhost": "http://192.168.1.50:3000"
+   }
+   ```
+   Replace `192.168.1.50` with the IP address of the machine where `volumio-evo` is running (use `127.0.0.1` only if you open the UI in a browser **on that same machine**).
+
+3. **Serve the folder** with any static web server, from the directory that contains `index.html`:
+   ```bash
+   cd /path/to/unpacked-ui-folder
+   python3 -m http.server 8080
+   ```
+   Or install `nginx` / use another tool; the important part is that you open **`http://<your-pc-ip>:8080`** (or `http://127.0.0.1:8080` on the same PC) in a browser—not port 3000.
+
+4. **Open the browser** at that URL. The UI loads from the static server; it connects to Evo on port 3000 using `local-config.json`.
+
+**Note:** The classic Volumio UI first tries `GET /api/host` on the **same host** as the page. Evo does not implement that route yet, so the UI falls back to **`/app/local-config.json`**—which is why that file must exist and point to Evo.
+
+**If you build the UI yourself (developers):** Clone [Volumio2-UI](https://github.com/volumio/Volumio2-UI), follow its README (`npm install`, `bower install`, then e.g. `npm run build:volumio` for theme `volumio`, or `npm run build:volumio3` for `volumio3`). Put `local-config.json` into `dist/app/` before zipping. For live development, `gulp serve --theme="volumio"` with `src/app/local-config.json` pointing at the Evo device works too.
 
 ---
 
@@ -224,11 +257,8 @@ You should get: `ok`, `ok`, and `"pong"`. If you do, the backend is working.
 
 **Full experience (with Volumio UI):**
 
-- The developer must give you a **built Volumio UI** (e.g. from the Volumio2-UI project) and instructions on how to serve it (e.g. with a simple web server).
-- In the UI (or its config), the "backend" or "API" address must be set to:  
-  `http://<IP-OF-THE-DEVICE>:3000`  
-  (same machine if you're on the device, or the device's IP if you're on another PC/phone.)
-- Then you use the UI to: browse music, play/pause, change volume, check playlists, etc., and report any wrong or missing behaviour.
+- Follow **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)** above: serve the built UI on a **different port** (e.g. 8080), set **`app/local-config.json`** so `"localhost"` is `http://<IP-OF-THE-DEVICE>:3000`, then open the UI in the browser on that port.
+- Then use the UI to browse music, play/pause, change volume, check playlists, etc., and report any wrong or missing behaviour.
 
 **Simple checklist for the tester:**
 
