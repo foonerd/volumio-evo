@@ -28,7 +28,9 @@ if [[ -f "${SCRIPT_REPO_DIR}/Cargo.toml" && -d "${SCRIPT_REPO_DIR}/layer" ]]; th
 else
   DEFAULT_EVO_REPO_DIR="${BASE_DIR}/volumio-evo"
 fi
-EVO_REPO_URL="${EVO_REPO_URL:-https://github.com/volumio/volumio-evo.git}"
+# Default must be anonymously git-cloneable (no GitHub login). github.com/volumio/volumio-evo
+# is not public yet; override when it is: EVO_REPO_URL=https://github.com/volumio/volumio-evo.git
+EVO_REPO_URL="${EVO_REPO_URL:-https://github.com/foonerd/volumio-evo.git}"
 UI_REPO_URL="${UI_REPO_URL:-https://github.com/volumio/Volumio2-UI.git}"
 UI_REPO_BRANCH="${UI_REPO_BRANCH:-}"
 EVO_REPO_DIR="${EVO_REPO_DIR:-${DEFAULT_EVO_REPO_DIR}}"
@@ -56,7 +58,7 @@ Do not run npm, npx, or bower yourself; this script invokes them internally.
 
 Optional environment overrides:
   BASE_DIR=/opt/volumio
-  EVO_REPO_URL=https://github.com/volumio/volumio-evo.git
+  EVO_REPO_URL=https://github.com/foonerd/volumio-evo.git
   UI_REPO_URL=https://github.com/volumio/Volumio2-UI.git
   EVO_REPO_DIR=/path/to/local/volumio-evo
   UI_REPO_DIR=/opt/volumio/Volumio2-UI
@@ -105,13 +107,15 @@ clone_or_update_repo() {
     if [[ -n "${branch}" ]]; then
       GIT_TERMINAL_PROMPT=0 git clone --branch "${branch}" --depth 1 "${url}" "${dir}" || {
         echo "ERROR: cannot clone ${url}"
-        echo "Provide local path with *_REPO_DIR or use repository URL with access."
+        echo "Private or missing repo: use a public URL (EVO_REPO_URL=...) or clone with SSH/credentials."
+        echo "Or place a full checkout at EVO_REPO_DIR and re-run."
         return 1
       }
     else
       GIT_TERMINAL_PROMPT=0 git clone "${url}" "${dir}" || {
         echo "ERROR: cannot clone ${url}"
-        echo "Provide local path with *_REPO_DIR or use repository URL with access."
+        echo "Private or missing repo: use a public URL (EVO_REPO_URL=...) or clone with SSH/credentials."
+        echo "Or place a full checkout at EVO_REPO_DIR and re-run."
         return 1
       }
     fi
@@ -158,7 +162,7 @@ build_and_install_evo() {
   else
     if [[ ! -x "${EVO_BINARY_PATH}" ]]; then
       echo "ERROR: volumio-evo source unavailable and binary not found at ${EVO_BINARY_PATH}"
-      echo "Provide EVO_REPO_DIR with source, or set EVO_BINARY_PATH to a valid binary."
+      echo "Clone failed or EVO_REPO_DIR missing: set EVO_REPO_URL to a public git URL, or copy a full checkout to EVO_REPO_DIR, or set EVO_BINARY_PATH."
       exit 1
     fi
     install_evo_binary "${EVO_BINARY_PATH}"

@@ -35,11 +35,11 @@ rustup update stable
 ## Clone the repository
 
 ```bash
-git clone https://github.com/volumio/volumio-evo.git
+git clone https://github.com/foonerd/volumio-evo.git
 cd volumio-evo
 ```
 
-(Replace the URL with your fork or upstream if different.)
+The bootstrap script uses the same public clone URL by default. When `github.com/volumio/volumio-evo` is published and anonymously cloneable, use that URL instead.
 
 ---
 
