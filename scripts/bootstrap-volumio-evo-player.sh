@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # CANONICAL FULL-STACK INSTALL (on device): this script only.
-# Re-run this script; it installs rustup, builds the Evo backend, copies static UI from
-# layer/web/, configures MPD/systemd/nginx. Set EVO_REPO_UPDATE=0 only for offline or pinned
-# volumio-evo checkouts.
+# Re-run this script; it installs rustup (for source builds), copies the Evo backend from
+# layer/binaries/<arch> when available else cargo build, copies static UI from layer/web/,
+# configures MPD/systemd/nginx. Set EVO_REPO_UPDATE=0 only for offline or pinned checkouts.
 #
 # One-shot tester install for Debian / Raspberry Pi OS Lite. Run as root.
 #
@@ -48,6 +48,8 @@ UI_DIST_SOURCE="${UI_DIST_SOURCE:-}"
 EVO_UI_INSTALLED_ALL_LAYOUTS=0
 MUSIC_ROOT="${MUSIC_ROOT:-/var/lib/volumio-evo/music}"
 EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
+# 1: if layer/binaries/<rust-triple>/volumio-evo exists for this machine, install it (skip cargo).
+EVO_USE_LAYER_BINARY="${EVO_USE_LAYER_BINARY:-1}"
 # Default 1: re-running bootstrap refreshes git checkouts (no separate manual git pull).
 EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
 EVO_SOURCE_AVAILABLE=0
@@ -77,6 +79,7 @@ Optional environment overrides:
   UI_ROOT_CLASSIC=/srv/volumio-ui-classic
   MUSIC_ROOT=/var/lib/volumio-evo/music
   EVO_BINARY_PATH=/usr/local/bin/volumio-evo
+  EVO_USE_LAYER_BINARY=1   # 0 = always cargo build from source when EVO_REPO_DIR has Cargo.toml
 
   Re-apply nginx after editing [ui] active_layout:
     sudo ./scripts/bootstrap-volumio-evo-player.sh --apply-ui-only
@@ -309,20 +312,40 @@ install_evo_binary() {
   install -m 0755 "${src}" "${dst}"
 }
 
+# Map `uname -m` to Rust target triple (Linux GNU) for layer/binaries/<triple>/volumio-evo.
+host_rust_triple() {
+  local m
+  m="$(uname -m)"
+  case "${m}" in
+    aarch64) echo "aarch64-unknown-linux-gnu" ;;
+    armv7l | armv6l | armv5tel) echo "armv7-unknown-linux-gnueabihf" ;;
+    x86_64 | amd64) echo "x86_64-unknown-linux-gnu" ;;
+    *) echo "" ;;
+  esac
+}
+
 build_and_install_evo() {
   export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
   export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
   export PATH="${CARGO_HOME}/bin:${PATH}"
 
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" ]]; then
-    echo "Building volumio-evo backend..."
-    if ! command -v cargo >/dev/null 2>&1; then
-      echo "ERROR: cargo not in PATH after ensure_rustup_toolchain (${CARGO_HOME}/bin)."
-      exit 1
+    local triple lb
+    triple="$(host_rust_triple)"
+    lb="${EVO_REPO_DIR}/layer/binaries/${triple}/volumio-evo"
+    if [[ "${EVO_USE_LAYER_BINARY:-1}" == "1" && -n "${triple}" && -x "${lb}" ]]; then
+      echo "Installing volumio-evo from ${lb} (set EVO_USE_LAYER_BINARY=0 to build with cargo)."
+      install_evo_binary "${lb}"
+    else
+      echo "Building volumio-evo backend with cargo..."
+      if ! command -v cargo >/dev/null 2>&1; then
+        echo "ERROR: cargo not in PATH after ensure_rustup_toolchain (${CARGO_HOME}/bin)."
+        exit 1
+      fi
+      cargo -V
+      (cd "${EVO_REPO_DIR}" && cargo build --release -p volumio-evo-core)
+      install_evo_binary "${EVO_REPO_DIR}/target/release/volumio-evo"
     fi
-    cargo -V
-    (cd "${EVO_REPO_DIR}" && cargo build --release -p volumio-evo-core)
-    install_evo_binary "${EVO_REPO_DIR}/target/release/volumio-evo"
   else
     if [[ ! -x "${EVO_BINARY_PATH}" ]]; then
       echo "ERROR: volumio-evo source unavailable and binary not found at ${EVO_BINARY_PATH}"

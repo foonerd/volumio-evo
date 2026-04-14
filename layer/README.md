@@ -5,6 +5,7 @@ Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie
 ## Contents
 
 - **systemd/** - `volumio-evo.service` for the backend process.
+- **binaries/** - Prebuilt **`volumio-evo`** per Linux target triple (`binaries/README.md`). Bootstrap installs the matching binary when present (avoids `cargo build` on device).
 - **config/** - Example config (`volumio-evo.toml.example`). Copy to `/etc/volumio-evo/config.toml` and adjust.
 - **web/** - Vendored static UI trees for **classic** / **contemporary** / **manifest** (see `web/README.md`). Used by the bootstrap script when present.
 - **volumio2-ui-overlay/** - Optional reference patches for **host-side** Volumio2-UI builds (not used by bootstrap; see `volumio2-ui-overlay/README.txt`).

@@ -193,6 +193,8 @@ cargo build --release -p volumio-evo-core --target armv7-unknown-linux-gnueabihf
 | amd64 cross | `target/x86_64-unknown-linux-gnu/release/volumio-evo` |
 | armhf cross | `target/armv7-unknown-linux-gnueabihf/release/volumio-evo` |
 
+**Shipping in-repo:** After cross-build, copy each `target/<triple>/release/volumio-evo` to **`layer/binaries/<triple>/volumio-evo`**, then run **`sha256sum …/volumio-evo … > layer/binaries/SHA256SUMS`** (see **`layer/binaries/README.md`**). Bootstrap installs the matching triple from **`layer/binaries/`** on the device when present (no `cargo` on target).
+
 Use this binary in [TESTER_GUIDE.md](TESTER_GUIDE.md) Step 4.1 as the file to copy to `/usr/local/bin/volumio-evo` on the target device.
 
 ---
