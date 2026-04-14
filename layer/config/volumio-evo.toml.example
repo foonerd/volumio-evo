@@ -23,3 +23,9 @@ albumart_root = "/var/lib/volumio-evo/albumart"
 # Base path for local, usb, nas, smb. MPD music_directory must match.
 # Override at install: Environment=VOLUMIO_EVO_MUSIC_ROOT=/var/lib/volumio-evo/music
 music_root = "/var/lib/volumio-evo/music"
+
+# Stock Volumio UI layout names (see volumio3-backend volumioUisList.json).
+# Evo records this for API/getUiSettings; nginx must serve the matching built dist.
+# Override: Environment=VOLUMIO_EVO_ACTIVE_LAYOUT=classic
+[ui]
+active_layout = "contemporary"

@@ -313,6 +313,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         .route("/superSearch", get(v1::super_search))
         .route("/collectionstats", get(v1::collection_stats))
         .route("/getzones", get(v1::get_zones))
+        .route("/getActiveUi", get(v1::get_active_ui))
         .route("/replaceAndPlay", post(v1::replace_and_play))
         .with_state(router_state.clone());
 

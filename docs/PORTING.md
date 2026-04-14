@@ -4,6 +4,14 @@ This document (1) lists **all current Volumio (volumio3-backend) functionality**
 
 Reference codebase: **volumio3-backend** (Node/Express). Volumio4, if present elsewhere, can be added to the inventory later.
 
+### UI layout (Manifest / Contemporary / Classic)
+
+On stock Volumio, **`volumio/volumioUisList.json`** defines **`uiName`** + **`uiPath`** for each layout; **`miscellanea/appearance`** persists the user’s choice and the system serves that static tree.
+
+**Evo (Rust):** **`[ui] active_layout`** in **`/etc/volumio-evo/config.toml`** (or env **`VOLUMIO_EVO_ACTIVE_LAYOUT`**) holds the same logical name: **`manifest`**, **`contemporary`**, or **`classic`**. It is exposed in **`pushUiSettings`** (`active_layout`) and **`GET /api/v1/getActiveUi`**. A copy of the stock list (paths are reference-only on full OS) lives at **`layer/config/volumioUisList.reference.json`**.
+
+**Not done yet in Evo:** Node’s **`setActiveUI`** / **`reloadUi()`** / nginx root switching. Until that is implemented or scripted, changing **`active_layout`** documents intent; operators must **point nginx (or bootstrap) at the correct built `dist`** for that layout.
+
 ---
 
 ## Part 1: Volumio backend inventory

@@ -507,12 +507,14 @@ async fn get_device_hw_uuid(s: SocketRef) {
 /// UI settings for the stock Angular UI (Node: appearance plugin getUiSettings).
 /// `language` is required: `ui-settings.service.js` only calls `$translate.use()` when this is set;
 /// otherwise the UI shows raw keys (`COMMON.TAB_BROWSE`, …).
-async fn get_ui_settings(s: SocketRef) {
+/// `active_layout` mirrors stock `volumioUisList.json` `uiName` (manifest / contemporary / classic).
+async fn get_ui_settings(s: SocketRef, State(state): State<AppState>) {
     s.emit(
         "pushUiSettings",
         &serde_json::json!({
             "language": "en",
-            "theme": "volumio3"
+            "theme": "volumio3",
+            "active_layout": state.config.ui.active_layout
         }),
     )
     .ok();

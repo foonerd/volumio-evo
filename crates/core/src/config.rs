@@ -56,6 +56,27 @@ pub const MUSIC_SOURCE_NAMES: &[(&str, &str)] = &[
     ("smb", "SMB"),
 ];
 
+/// User interface layout (stock `volumioUisList.json` uses the same `uiName` strings).
+/// Static files (nginx) must match; Evo only records intent here until multi-root install is automated.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UiConfig {
+    /// `manifest` | `contemporary` | `classic`
+    #[serde(default = "default_ui_active_layout")]
+    pub active_layout: String,
+}
+
+fn default_ui_active_layout() -> String {
+    "contemporary".to_string()
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            active_layout: default_ui_active_layout(),
+        }
+    }
+}
+
 /// Optional API keys for online album-art providers. Used when fetching art
 /// for large libraries (e.g. 10k+ tracks) to stay within rate limits or enable access.
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -97,6 +118,9 @@ pub struct Config {
     /// Path to exiftool for extracting embedded album art (metadata=true). Env: VOLUMIO_EVO_EXIFTOOL_PATH.
     #[serde(default = "default_exiftool_path")]
     pub exiftool_path: PathBuf,
+    /// Which stock UI layout is active (manifest / contemporary / classic).
+    #[serde(default)]
+    pub ui: UiConfig,
 }
 
 fn default_exiftool_path() -> PathBuf {
@@ -181,5 +205,29 @@ pub fn load() -> anyhow::Result<Config> {
         }
     }
 
+    if let Ok(v) = std::env::var("VOLUMIO_EVO_ACTIVE_LAYOUT") {
+        if !v.is_empty() {
+            config.ui.active_layout = v;
+        }
+    }
+    normalize_ui_active_layout(&mut config.ui);
+
     Ok(config)
+}
+
+const UI_LAYOUT_NAMES: &[&str] = &["manifest", "contemporary", "classic"];
+
+fn normalize_ui_active_layout(ui: &mut UiConfig) {
+    let s = ui.active_layout.trim().to_lowercase();
+    if UI_LAYOUT_NAMES.contains(&s.as_str()) {
+        ui.active_layout = s;
+        return;
+    }
+    tracing::warn!(
+        "ui.active_layout {:?} is not one of {:?}; using {:?}",
+        ui.active_layout,
+        UI_LAYOUT_NAMES,
+        default_ui_active_layout()
+    );
+    ui.active_layout = default_ui_active_layout();
 }

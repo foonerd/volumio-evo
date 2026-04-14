@@ -301,6 +301,13 @@ pub async fn get_zones() -> impl IntoResponse {
     Json(serde_json::json!({ "zones": [] }))
 }
 
+/// GET /api/v1/getActiveUi — which stock UI layout is configured (`volumioUisList.json` `uiName` values).
+pub async fn get_active_ui(State(state): State<AppState>) -> impl IntoResponse {
+    Json(serde_json::json!({
+        "active_layout": state.config.ui.active_layout,
+    }))
+}
+
 /// POST /api/v1/replaceAndPlay - JSON body { uri }, clear queue + add + play
 #[derive(Debug, Deserialize)]
 pub struct ReplaceAndPlayBody {
