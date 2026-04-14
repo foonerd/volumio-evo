@@ -12,6 +12,7 @@ Rust backend + WASM plugins on a stock minimal OS. No Node, no debootstrap.
 See [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), and [docs/PORTING.md](docs/PORTING.md) for API port status.
 
 - **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — step-by-step from a plain OS (Raspberry Pi OS, Debian Trixie, Ubuntu 24.04) to a working setup and validation (no source needed; use a pre-built binary).
+- **One-command full player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — installs dependencies, clones/builds Evo + UI, configures services, and exposes a tester-ready player on port 80.
 - **Build the binary:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — build `volumio-evo` for each architecture (native, arm64, amd64, armhf) so you can provide it to testers.
 
 ## Build

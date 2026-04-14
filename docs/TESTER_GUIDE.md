@@ -4,6 +4,25 @@ Use this on a **fresh** Raspberry Pi OS, Debian Trixie, or Ubuntu 24.04 (Desktop
 
 ---
 
+## Fast path for testers: open UI and play
+
+On a fresh machine, run one command on the device:
+
+```bash
+cd /path/to/volumio-evo-repo
+sudo bash ./scripts/bootstrap-volumio-evo-player.sh
+```
+
+Then the tester only does:
+
+1. Open `http://<device-ip>/playback`
+2. Select a track in the UI
+3. Press Play and confirm audio from speaker
+
+This script installs dependencies, clones/updates required repos, builds backend and UI, configures MPD/systemd/nginx, writes `local-config.json`, and serves the UI on port `80`.
+
+---
+
 ## What you need from the developer
 
 Before starting, get from the developer:
