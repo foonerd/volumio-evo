@@ -99,6 +99,32 @@
   button {
     font-size: 24px;
   }
+
+  /// `player-buttons` applies a footer-specific vertical offset (`top: -35px` at md+) to
+  /// the play/pause ring. The same component is used in this fixed header; that offset
+  /// pulls transport + logo upward and clips them (classic + contemporary top bars).
+  .volumio3-header-toolbar__player #playerButtons {
+    height: $headerHeight;
+    min-height: $headerHeight;
+
+    @include breakpoint(md) {
+      height: $headerHeight;
+    }
+    @include breakpoint(lg) {
+      height: $headerHeight;
+    }
+
+    .playPauseBtnGreyWrapper {
+      top: 50%;
+      transform: translateY(-50%);
+    }
+  }
+
+  #logo img {
+    max-height: $headerHeight;
+    width: auto;
+    object-fit: contain;
+  }
 }
 
 /// Brand appears in the fixed header; hide duplicate logo in the sidebar.
