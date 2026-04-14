@@ -111,6 +111,13 @@ ensure_rustup_toolchain() {
     return 0
   fi
   echo "Installing Rust via rustup (apt rustc is too old for this project)..."
+  # rustup refuses to install if /usr/bin/rustc exists (Debian rust/cargo packages).
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get remove -y rustc cargo rust-gdb rust-doc 2>/dev/null || true
+  fi
+  # Non-apt leftovers or mixed installs: allow rustup to proceed without interactive "yes".
+  export RUSTUP_INIT_SKIP_PATH_CHECK=yes
+
   mkdir -p "$(dirname "${RUSTUP_HOME}")" "$(dirname "${CARGO_HOME}")"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable
