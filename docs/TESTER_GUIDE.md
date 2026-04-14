@@ -14,14 +14,17 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-
 
 ## Run bootstrap (only command that matters)
 
-As **root**, from a directory that contains **`scripts/bootstrap-volumio-evo-player.sh`** (clone, tarball, or copy onto the machine; the script will clone/update **`volumio-evo`** under **`BASE_DIR`**, default `/opt/volumio`). The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`index.html`** in each, **or** set **`UI_DIST_SOURCE`** to a single prebuilt **`dist/`** (see script **`--help`**).
+As **root**, run the script (path to the script only matters for finding it; the checkout lives at **`EVO_REPO_DIR`**, default **`/opt/volumio/volumio-evo`**). The script **always tries to clone or git pull** that repo — it does **not** skip cloning just because a binary already exists under **`/usr/local/bin`**.
+
+The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`index.html`** in each, **or** set **`UI_DIST_SOURCE`** to a single prebuilt **`dist/`** (see **`--help`**). Air-gapped installs can use **`EVO_ALLOW_BINARY_FALLBACK=1`** (not recommended for a full UI).
 
 ```bash
-cd /path/that/contains/the/script
-sudo bash ./scripts/bootstrap-volumio-evo-player.sh
+sudo /path/to/bootstrap-volumio-evo-player.sh
 ```
 
-**Updates:** run the **same command again**. By default the script **git pull**s the **volumio-evo** checkout when **`EVO_REPO_UPDATE=1`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
+**Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary only), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
+
+**Updates:** run the **same command again**. By default the script **git pull**s **`EVO_REPO_DIR`** when **`EVO_REPO_UPDATE=1`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
 
 Then:
 
