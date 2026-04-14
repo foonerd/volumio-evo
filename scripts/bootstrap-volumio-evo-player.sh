@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# CANONICAL FULL-STACK BUILD + TEST (on device): this script only.
+# Do not treat manual git pull, cargo build, npm/gulp, or hand-edited MPD/nginx as an
+# alternate "official" verification path — re-run this script; it performs clones/pulls,
+# rustup, UI build, and service setup. Set EVO_REPO_UPDATE=0 / UI_REPO_UPDATE=0 only for
+# offline or pinned checkouts.
+#
 # One-shot tester install for Debian / Raspberry Pi OS (including Raspberry Pi OS Lite).
 # This is the supported way to turn a stock "lite" image into a default Volumio Evo player
 # rig; do not replicate the steps by hand for normal test builds.
@@ -47,6 +53,9 @@ UI_DIST_SOURCE="${UI_DIST_SOURCE:-}"
 UI_BUILD="${UI_BUILD:-auto}"
 MUSIC_ROOT="${MUSIC_ROOT:-/var/lib/volumio-evo/music}"
 EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
+# Default 1: re-running bootstrap refreshes git checkouts (no separate manual git pull).
+EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
+UI_REPO_UPDATE="${UI_REPO_UPDATE:-1}"
 EVO_SOURCE_AVAILABLE=0
 
 usage() {
@@ -54,7 +63,9 @@ usage() {
 Usage (this is the only command testers should run):
   sudo ./scripts/bootstrap-volumio-evo-player.sh
 
-Do not run npm, npx, or bower yourself; this script invokes them internally.
+Full-stack build and test on the device are defined by this script only — not manual
+git pull, cargo, or npm steps. Do not run npm, npx, or bower yourself; this script invokes
+them internally.
 
 Optional environment overrides:
   BASE_DIR=/opt/volumio
@@ -62,7 +73,7 @@ Optional environment overrides:
   UI_REPO_URL=https://github.com/volumio/Volumio2-UI.git
   EVO_REPO_DIR=/path/to/local/volumio-evo
   UI_REPO_DIR=/opt/volumio/Volumio2-UI
-  EVO_REPO_UPDATE=0
+  EVO_REPO_UPDATE=1   # default: git pull when repo already exists; set 0 to skip (offline)
   UI_REPO_UPDATE=1
   UI_THEME=volumio3
   UI_DIST_SOURCE=/path/to/prebuilt/Volumio2-UI-dist
@@ -572,7 +583,7 @@ main() {
   if [[ -f "${EVO_REPO_DIR}/Cargo.toml" && -d "${EVO_REPO_DIR}/layer" ]]; then
     echo "Using local volumio-evo source: ${EVO_REPO_DIR}"
     EVO_SOURCE_AVAILABLE=1
-    if [[ -d "${EVO_REPO_DIR}/.git" && "${EVO_REPO_UPDATE:-0}" == "1" ]]; then
+    if [[ -d "${EVO_REPO_DIR}/.git" && "${EVO_REPO_UPDATE:-1}" == "1" ]]; then
       clone_or_update_repo "${EVO_REPO_URL}" "${EVO_REPO_DIR}" "" "1" || \
         echo "WARN: failed to update local volumio-evo source, continuing with current checkout."
     fi

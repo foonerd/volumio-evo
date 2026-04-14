@@ -1,6 +1,10 @@
 # Building Volumio Evo
 
-Step-by-step instructions to build the `volumio-evo` binary for each supported architecture. Use this guide to produce the binary you provide to testers (see [TESTER_GUIDE.md](TESTER_GUIDE.md)).
+**On-device integration test (full stack: Rust + UI + nginx + MPD):** run **`scripts/bootstrap-volumio-evo-player.sh` only** — not manual `git pull`, `cargo build`, or npm/gulp as a substitute. This document is for **cross-compiling** or **host-side** `cargo` when you need a binary artifact; it does not replace bootstrap for verification on a Raspberry Pi or Debian test machine.
+
+---
+
+Step-by-step instructions to build the `volumio-evo` binary for each supported architecture. Use this guide when you need a prebuilt binary or host development — see [TESTER_GUIDE.md](TESTER_GUIDE.md) for the canonical device workflow.
 
 ---
 
