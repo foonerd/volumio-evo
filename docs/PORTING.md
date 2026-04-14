@@ -14,6 +14,12 @@ On stock Volumio, **`volumio/volumioUisList.json`** defines **`uiName`** + **`ui
 
 **Backend URL / IP changes:** The stock UI calls **`GET /api/host`** for the Socket.IO base URL. Evo implements this (live IPv4 discovery; prefers the address that matches the HTTP **`Host`** header when it is a local interface). Nginx proxies **`/api/host`** to Evo; **`app/local-config.json`** is only a fallback when that request fails.
 
+**Socket.IO protocol (naming is confusing):** In **`socketioxide`**, the Cargo feature **`v4`** does **not** mean “only Socket.IO JS v4 clients.” It enables the **older** wire stack: **Engine.IO v3**, which is what **socket.io-client 1.x / 2.x** (stock **Volumio2-UI**) uses. The **default** `socketioxide` build (without that feature) speaks **protocol v5** / Engine.IO v4 and targets **socket.io-client 3.x+** only.
+
+**Evo already “downgrades” the server for the stock UI:** **`crates/core/Cargo.toml`** enables **`socketioxide`** with **`features = ["state", "v4"]`** (which pulls in **`engineioxide/v3`**). Do **not** remove **`v4`** unless you also ship a UI built with **socket.io-client ≥ 3**.
+
+If the UI still spins: check the browser console (**`connect_error`**), that **`GET /api/host`** returns a reachable **`http://<ip>:3000`**, and that nothing blocks port **3000** from the client. The default bootstrap does **not** proxy **`/socket.io`** through nginx; the socket goes to Evo on **3000** directly.
+
 **Not done yet in Evo (parity with stock Node UI):** in-browser **`setActiveUI`** / **`reloadUi()`** wired to Evo’s **`active_layout`** (today the value is API/config-driven; the stock UI may still expect Node behaviour).
 
 ---

@@ -439,7 +439,9 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         .nest("/api/v1", v1_routes)
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        // `permissive()` uses `Allow-Origin: *`, which browsers reject for credentialed
+        // cross-origin requests (Socket.IO polling with cookies / `withCredentials`).
+        .layer(CorsLayer::very_permissive())
         .with_state(router_state.clone());
 
     (app, io, router_state)

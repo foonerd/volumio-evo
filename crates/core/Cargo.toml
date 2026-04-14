@@ -16,6 +16,7 @@ wasm = ["dep:wasmtime", "wasmtime/cranelift"]
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["json", "multipart"] }
+# Feature `v4` = Engine.IO v3 path in socketioxide (socket.io-client 1.x/2.x). Without it, only client 3+.
 socketioxide = { version = "0.18", features = ["state", "v4"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 serde = { version = "1", features = ["derive"] }
