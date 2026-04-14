@@ -8,13 +8,15 @@ Step-by-step instructions to build the `volumio-evo` binary for each supported a
 
 ### Rust toolchain
 
-Install Rust (if not already installed):
+**Do not use Debian/Raspberry Pi OS `apt install rustc cargo` for this project** — the packaged compiler is often too old; dependencies need a current **stable** (see `rust-toolchain.toml` in the repo root). **`scripts/bootstrap-volumio-evo-player.sh`** installs **rustup** under `/usr/local/rustup` and `/usr/local/cargo` and builds with that toolchain.
+
+For a manual dev machine install:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Choose the default installation. Then ensure the stable toolchain is installed:
+Then:
 
 ```bash
 rustup update stable

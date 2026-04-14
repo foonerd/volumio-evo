@@ -94,8 +94,31 @@ install_packages() {
   apt-get install -y \
     git curl ca-certificates nginx mpd python3 jq acl \
     build-essential pkg-config libssl-dev \
-    rustc cargo rsync
+    rsync
   # UI build uses Node 20 via nvm in build_ui(); avoid apt nodejs (too old) conflicting with nvm.
+  # Rust: apt rustc/cargo on Debian/Raspberry Pi OS is often behind our MSRV; use rustup stable.
+  ensure_rustup_toolchain
+}
+
+# Installs rustup to /usr/local/{rustup,cargo} so cargo/rustc are new enough (see rust-toolchain.toml).
+ensure_rustup_toolchain() {
+  export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
+  export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+  local cargo_bin="${CARGO_HOME}/bin/cargo"
+  if [[ -x "${cargo_bin}" ]]; then
+    echo "Using existing rustup cargo at ${cargo_bin}"
+    "${cargo_bin}" --version
+    return 0
+  fi
+  echo "Installing Rust via rustup (apt rustc is too old for this project)..."
+  mkdir -p "$(dirname "${RUSTUP_HOME}")" "$(dirname "${CARGO_HOME}")"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --no-modify-path --profile minimal --default-toolchain stable
+  if [[ ! -x "${cargo_bin}" ]]; then
+    echo "ERROR: rustup install failed; ${cargo_bin} missing."
+    exit 1
+  fi
+  "${cargo_bin}" --version
 }
 
 clone_or_update_repo() {
@@ -154,9 +177,17 @@ install_evo_binary() {
 }
 
 build_and_install_evo() {
+  export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
+  export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+  export PATH="${CARGO_HOME}/bin:${PATH}"
+
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" ]]; then
     echo "Building volumio-evo backend..."
-    cargo -V >/dev/null
+    if ! command -v cargo >/dev/null 2>&1; then
+      echo "ERROR: cargo not in PATH after ensure_rustup_toolchain (${CARGO_HOME}/bin)."
+      exit 1
+    fi
+    cargo -V
     (cd "${EVO_REPO_DIR}" && cargo build --release -p volumio-evo-core)
     install_evo_binary "${EVO_REPO_DIR}/target/release/volumio-evo"
   else

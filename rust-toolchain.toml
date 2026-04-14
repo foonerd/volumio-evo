@@ -1,2 +1,5 @@
+# Used by rustup: apt rustc on Debian/Raspberry Pi OS is often too old for our deps
+# (e.g. socketioxide / icu / image). Bootstrap installs rustup + this channel.
 [toolchain]
 channel = "stable"
+profile = "minimal"
