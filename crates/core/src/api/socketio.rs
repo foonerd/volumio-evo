@@ -483,8 +483,16 @@ async fn get_playlist_index(s: SocketRef, TryData(_uid): TryData<serde_json::Val
 }
 
 /// Stub: no multi-room devices (Node: volumiodiscovery.getDevices -> pushMultiRoomDevices).
+/// Payload must match stock shape: `{ misc, list }` — the UI does `data.list.forEach(...)`.
 async fn get_multi_room_devices(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushMultiRoomDevices", &serde_json::json!([])).ok();
+    s.emit(
+        "pushMultiRoomDevices",
+        &serde_json::json!({
+            "misc": { "debug": false },
+            "list": []
+        }),
+    )
+    .ok();
 }
 
 /// No-op: Node calls music_service plugin rebuildTracklist; Evo has single MPD source.

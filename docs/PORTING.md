@@ -213,7 +213,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | initSocket | Yes | No-op (Node: volumiodiscovery plugin). |
 | volatilePlay | Yes | Same as play: MPD play with optional position (payload.value). |
 | getLibraryListing, getLibraryFilters, getPlaylistIndex | Yes (stub) | pushLibraryListing: minimal `{ name, type, children: [] }`; pushLibraryFilters / pushPlaylistIndex: `[]` (Node uses musicLibrary / playlistFS index; Evo has no library DB). |
-| getMultiRoomDevices | Yes (stub) | pushMultiRoomDevices: `[]` (Node: volumiodiscovery.getDevices; Evo has no multi-room). |
+| getMultiRoomDevices | Yes (stub) | pushMultiRoomDevices: `{ misc, list: [] }` (Node: volumiodiscovery.getDevices; UI reads `data.list`). |
 | serviceUpdateTracklist, updateAllMetadata, importServicePlaylists | Yes (no-op) | No-op (Node: plugin rebuildTracklist / updateAllMetadata / importServicePlaylists; Evo single MPD, no library DB). |
 | setDeviceName, getDeviceHWUUID | Yes | setDeviceName no-op; getDeviceHWUUID -> pushDeviceHWUUID stub "evo-stub". |
 | getUiSettings, getShutdownOrStandbyMode | Yes (stub) | pushUiSettings: `{}`; pushShutdownOrStandbyMode: `{}` (Node: appearance plugin / commandRouter). |
