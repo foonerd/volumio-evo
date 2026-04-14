@@ -1,30 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CANONICAL FULL-STACK BUILD + TEST (on device): this script only.
-# Do not treat manual git pull, cargo build, npm/gulp, or hand-edited MPD/nginx as an
-# alternate "official" verification path — re-run this script; it performs clones/pulls,
-# rustup, UI build, and service setup. Set EVO_REPO_UPDATE=0 / UI_REPO_UPDATE=0 only for
-# offline or pinned checkouts.
+# CANONICAL FULL-STACK INSTALL (on device): this script only.
+# Re-run this script; it installs rustup, builds the Evo backend, copies static UI from
+# layer/web/, configures MPD/systemd/nginx. Set EVO_REPO_UPDATE=0 only for offline or pinned
+# volumio-evo checkouts.
 #
-# One-shot tester install for Debian / Raspberry Pi OS (including Raspberry Pi OS Lite).
-# This is the supported way to turn a stock "lite" image into a default Volumio Evo player
-# rig; do not replicate the steps by hand for normal test builds.
+# One-shot tester install for Debian / Raspberry Pi OS Lite. Run as root.
 #
-# Run ONLY this script as root. It installs packages, clones repos, normalizes Volumio2-UI
-# for Node 20 + arm64 when the git default still lists legacy deps (phantom / node-sass),
-# then runs npm/bower/gulp internally — no manual npm steps.
+# UI: vendored trees under layer/web/{classic,contemporary,manifest} (stock-style static
+# assets). Optional: UI_DIST_SOURCE=path to one dist/ with index.html (copied to all three
+# layout roots for development). No git clone of Volumio2-UI and no npm/gulp on device.
 #
-# UI dist: for typical Evo installs this script is the only supported path to a fresh
-# Volumio2-UI dist (npm run build:<theme> → dist/). Alternatively set UI_DIST_SOURCE to a
-# prebuilt tree, or UI_BUILD=never when dist/ already exists — see build_ui().
-# Product-specific Volumio2-UI files (volumio3 theme, etc.) live under this repo:
-#   layer/volumio2-ui-overlay/   → rsynced onto the UI checkout after normalize (see apply_volumio2_ui_overlay).
-#
-# - apt: nginx, mpd, toolchain, jq, python3, …
-# - git: volumio-evo + Volumio2-UI
-# - UI: normalize() → wipe node_modules + lockfile → npm install → bower → gulp build → /srv
-# - systemd + nginx on port 80
+# - apt: nginx, mpd, toolchain, python3, …
+# - git: volumio-evo only (when not using a local checkout)
+# - systemd + nginx on port 80; GET /api/host proxied to Evo for dynamic Socket.IO base URL
 
 BASE_DIR="${BASE_DIR:-/opt/volumio}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,25 +27,29 @@ fi
 # Default must be anonymously git-cloneable (no GitHub login). github.com/volumio/volumio-evo
 # is not public yet; override when it is: EVO_REPO_URL=https://github.com/volumio/volumio-evo.git
 EVO_REPO_URL="${EVO_REPO_URL:-https://github.com/foonerd/volumio-evo.git}"
-UI_REPO_URL="${UI_REPO_URL:-https://github.com/volumio/Volumio2-UI.git}"
-UI_REPO_BRANCH="${UI_REPO_BRANCH:-}"
 EVO_REPO_DIR="${EVO_REPO_DIR:-${DEFAULT_EVO_REPO_DIR}}"
-UI_REPO_DIR="${UI_REPO_DIR:-${BASE_DIR}/Volumio2-UI}"
-# Default theme for Evo + stock Volumio2-UI package.json scripts (build:volumio3).
-UI_THEME="${UI_THEME:-volumio3}"
 DEVICE_IP="${DEVICE_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
 if [[ -z "${DEVICE_IP}" ]]; then
   DEVICE_IP="127.0.0.1"
 fi
-BACKEND_URL="${BACKEND_URL:-http://${DEVICE_IP}:3000}"
+# Must match Evo HTTP bind port in /etc/volumio-evo/config.toml (default 3000).
+EVO_HTTP_PORT="${EVO_HTTP_PORT:-3000}"
+BACKEND_URL="${BACKEND_URL:-http://${DEVICE_IP}:${EVO_HTTP_PORT}}"
+# Default static roots per stock layout (volumioUisList.reference.json). Final UI_DIST_DIR is set
+# from /etc/volumio-evo/config.toml [ui] active_layout unless UI_DIST_OVERRIDE is set.
+UI_ROOT_MANIFEST="${UI_ROOT_MANIFEST:-/srv/volumio-ui-manifest}"
+UI_ROOT_CONTEMPORARY="${UI_ROOT_CONTEMPORARY:-/srv/volumio-ui}"
+UI_ROOT_CLASSIC="${UI_ROOT_CLASSIC:-/srv/volumio-ui-classic}"
 UI_DIST_DIR="${UI_DIST_DIR:-/srv/volumio-ui}"
+UI_DIST_OVERRIDE="${UI_DIST_OVERRIDE:-}"
+# Optional: single prebuilt dist/ (index.html); copied to all three layout roots. Prefer layer/web.
 UI_DIST_SOURCE="${UI_DIST_SOURCE:-}"
-UI_BUILD="${UI_BUILD:-auto}"
+# Set when UI trees installed (all three roots need nginx ACLs).
+EVO_UI_INSTALLED_ALL_LAYOUTS=0
 MUSIC_ROOT="${MUSIC_ROOT:-/var/lib/volumio-evo/music}"
 EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 # Default 1: re-running bootstrap refreshes git checkouts (no separate manual git pull).
 EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
-UI_REPO_UPDATE="${UI_REPO_UPDATE:-1}"
 EVO_SOURCE_AVAILABLE=0
 
 usage() {
@@ -63,32 +57,32 @@ usage() {
 Usage (this is the only command testers should run):
   sudo ./scripts/bootstrap-volumio-evo-player.sh
 
-Full-stack build and test on the device are defined by this script only — not manual
-git pull, cargo, or npm steps. Do not run npm, npx, or bower yourself; this script invokes
-them internally.
+Installs the Rust backend and static UI from volumio-evo layer/web/ (no Volumio2-UI clone,
+no npm/gulp on device).
+
+Requires: layer/web/classic|contemporary|manifest each with index.html,
+or UI_DIST_SOURCE=/path/to/dist with index.html (one tree copied to all three layout roots).
 
 Optional environment overrides:
   BASE_DIR=/opt/volumio
   EVO_REPO_URL=https://github.com/foonerd/volumio-evo.git
-  UI_REPO_URL=https://github.com/volumio/Volumio2-UI.git
   EVO_REPO_DIR=/path/to/local/volumio-evo
-  UI_REPO_DIR=/opt/volumio/Volumio2-UI
-  EVO_REPO_UPDATE=1   # default: git pull when repo already exists; set 0 to skip (offline)
-  UI_REPO_UPDATE=1
-  UI_THEME=volumio3
-  UI_DIST_SOURCE=/path/to/prebuilt/Volumio2-UI-dist
-  UI_BUILD=auto|always|never
+  EVO_REPO_UPDATE=1   # git pull when repo exists; 0 = offline
+  UI_DIST_SOURCE=/path/to/single/dist
   BACKEND_URL=http://<device-ip>:3000
-  UI_DIST_DIR=/srv/volumio-ui
+  EVO_HTTP_PORT=3000
+  UI_DIST_OVERRIDE=   # skip [ui] active_layout for nginx root
+  UI_ROOT_MANIFEST=/srv/volumio-ui-manifest
+  UI_ROOT_CONTEMPORARY=/srv/volumio-ui
+  UI_ROOT_CLASSIC=/srv/volumio-ui-classic
   MUSIC_ROOT=/var/lib/volumio-evo/music
   EVO_BINARY_PATH=/usr/local/bin/volumio-evo
 
+  Re-apply nginx after editing [ui] active_layout:
+    sudo ./scripts/bootstrap-volumio-evo-player.sh --apply-ui-only
+
 Example:
-  sudo BASE_DIR=/opt/volumio UI_THEME=volumio3 ./scripts/bootstrap-volumio-evo-player.sh
-
-  UI_THEME=volumio   # classic theme if you need build:volumio instead of volumio3
-
-  UI_REPO_BRANCH=my-branch   # optional: git branch for Volumio2-UI clone/pull (omit = remote default)
+  sudo BASE_DIR=/opt/volumio ./scripts/bootstrap-volumio-evo-player.sh
 EOF
 }
 
@@ -99,15 +93,136 @@ need_root() {
   fi
 }
 
+# Read [ui] active_layout from /etc/volumio-evo/config.toml (manifest | contemporary | classic).
+read_ui_active_layout_from_config() {
+  local cfg="/etc/volumio-evo/config.toml"
+  local fallback="contemporary"
+  if [[ ! -f "${cfg}" ]]; then
+    echo "${fallback}"
+    return
+  fi
+  local parsed=""
+  parsed="$(
+    python3 - "${cfg}" <<'PY' 2>/dev/null || true
+import pathlib, sys
+
+cfg = pathlib.Path(sys.argv[1])
+try:
+    import tomllib
+    data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+ui = data.get("ui") or {}
+al = ui.get("active_layout", "contemporary")
+if not isinstance(al, str):
+    print("contemporary")
+else:
+    print(al.strip().lower())
+PY
+  )"
+  if [[ -n "${parsed}" ]]; then
+    echo "${parsed}"
+    return
+  fi
+  local line
+  line="$(grep -E '^[[:space:]]*active_layout[[:space:]]*=' "${cfg}" 2>/dev/null | head -1 || true)"
+  if [[ -z "${line}" ]]; then
+    echo "${fallback}"
+    return
+  fi
+  line="${line#*=}"
+  line="$(echo "${line}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+  echo "${line:-${fallback}}" | tr '[:upper:]' '[:lower:]'
+}
+
+# Set UI_DIST_DIR from [ui] active_layout unless UI_DIST_OVERRIDE is set.
+apply_ui_dist_dir_from_config() {
+  if [[ -n "${UI_DIST_OVERRIDE}" ]]; then
+    UI_DIST_DIR="${UI_DIST_OVERRIDE}"
+    echo "UI: UI_DIST_OVERRIDE -> nginx root ${UI_DIST_DIR}"
+    return 0
+  fi
+  local layout
+  layout="$(read_ui_active_layout_from_config)"
+  case "${layout}" in
+    manifest)
+      UI_DIST_DIR="${UI_ROOT_MANIFEST}"
+      ;;
+    contemporary)
+      UI_DIST_DIR="${UI_ROOT_CONTEMPORARY}"
+      ;;
+    classic)
+      UI_DIST_DIR="${UI_ROOT_CLASSIC}"
+      ;;
+    *)
+      echo "WARN: unknown active_layout '${layout}', using contemporary root"
+      UI_DIST_DIR="${UI_ROOT_CONTEMPORARY}"
+      ;;
+  esac
+  echo "UI: active_layout=${layout} -> nginx root ${UI_DIST_DIR}"
+}
+
+ensure_config_has_ui_section() {
+  local cfg="/etc/volumio-evo/config.toml"
+  [[ -f "${cfg}" ]] || return 0
+  if grep -qE '^[[:space:]]*\[ui\][[:space:]]*$' "${cfg}"; then
+    if ! grep -qE '^[[:space:]]*active_layout[[:space:]]*=' "${cfg}"; then
+      sed -i '/^[[:space:]]*\[ui\][[:space:]]*$/a active_layout = "contemporary"' "${cfg}"
+    fi
+  else
+    cat >> "${cfg}" <<'EOF'
+
+[ui]
+active_layout = "contemporary"
+EOF
+  fi
+}
+
+layer_web_trees_complete() {
+  local repo="$1"
+  local lw="${repo}/layer/web"
+  [[ -f "${lw}/classic/index.html" && -f "${lw}/contemporary/index.html" && -f "${lw}/manifest/index.html" ]]
+}
+
+write_ui_local_config() {
+  local root="$1"
+  mkdir -p "${root}/app"
+  cat > "${root}/app/local-config.json" <<EOF
+{
+  "localhost": "${BACKEND_URL}"
+}
+EOF
+}
+
+strip_optional_socketio_inject() {
+  local idx="$1"
+  [[ -f "${idx}" ]] || return 0
+  sed -i 's|<script src="/scripts/socket.io-4.js"></script>||g' "${idx}" 2>/dev/null || true
+  rm -f "$(dirname "${idx}")/scripts/socket.io-4.js" 2>/dev/null || true
+}
+
+install_ui_from_layer_web() {
+  local lw="${EVO_REPO_DIR}/layer/web"
+  echo "Installing UI from ${lw} (classic / contemporary / manifest) ..."
+  rsync -a --delete "${lw}/classic/" "${UI_ROOT_CLASSIC}/"
+  rsync -a --delete "${lw}/contemporary/" "${UI_ROOT_CONTEMPORARY}/"
+  rsync -a --delete "${lw}/manifest/" "${UI_ROOT_MANIFEST}/"
+  local d
+  for d in "${UI_ROOT_CLASSIC}" "${UI_ROOT_CONTEMPORARY}" "${UI_ROOT_MANIFEST}"; do
+    write_ui_local_config "${d}"
+    strip_optional_socketio_inject "${d}/index.html"
+  done
+  EVO_UI_INSTALLED_ALL_LAYOUTS=1
+}
+
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y \
-    git curl ca-certificates nginx mpd python3 jq acl \
+    git curl ca-certificates nginx mpd python3 acl \
     build-essential pkg-config libssl-dev \
     rsync
-  # UI build uses Node 20 via nvm in build_ui(); avoid apt nodejs (too old) conflicting with nvm.
-  # Rust: apt rustc/cargo on Debian/Raspberry Pi OS is often behind our MSRV; use rustup stable.
+  # Rust: apt rustc/cargo is often too old; use rustup stable.
   ensure_rustup_toolchain
 }
 
@@ -223,7 +338,9 @@ build_and_install_evo() {
     cp -a "${EVO_REPO_DIR}/crates/core/assets/bundled-plugins/." /usr/share/volumio-evo/plugins/
   fi
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
-    cp "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" /etc/volumio-evo/config.toml
+    if [[ ! -f /etc/volumio-evo/config.toml ]]; then
+      cp "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" /etc/volumio-evo/config.toml
+    fi
   elif [[ ! -f /etc/volumio-evo/config.toml ]]; then
     cat > /etc/volumio-evo/config.toml <<EOF
 bind = "0.0.0.0:3000"
@@ -236,6 +353,8 @@ albumart_root = "/var/lib/volumio-evo/albumart"
 music_root = "${MUSIC_ROOT}"
 EOF
   fi
+
+  ensure_config_has_ui_section
 
   if grep -q '^[[:space:]]*music_root' /etc/volumio-evo/config.toml; then
     sed -i 's|^[[:space:]]*music_root.*|music_root = "'"${MUSIC_ROOT}"'"|' /etc/volumio-evo/config.toml
@@ -271,236 +390,37 @@ EOF
   systemctl restart volumio-evo
 }
 
-# Align an older Volumio2-UI git tree with what Evo expects on Node 20 / linux-arm64 (no separate npm steps for the user).
-# Stock upstream may still list karma-phantomjs / node-sass; npm install then fails on Raspberry Pi. This runs inside bootstrap only.
-normalize_volumio2_ui_checkout() {
-  local root="${UI_REPO_DIR}"
-  local pj="${root}/package.json"
-  [[ -f "${pj}" ]] || return 0
-  command -v jq >/dev/null 2>&1 || {
-    echo "ERROR: jq is required (install_packages should have installed it)."
-    exit 1
-  }
-  command -v python3 >/dev/null 2>&1 || {
-    echo "ERROR: python3 is required."
-    exit 1
-  }
-
-  echo "Normalizing Volumio2-UI sources for Node 20 + arm64 (in-place; part of this script only)..."
-  local tmp
-  tmp="$(mktemp)"
-  jq '
-    .devDependencies = (.devDependencies // {})
-    | .devDependencies["gulp-sass"] = "^5.1.0"
-    | .devDependencies["sass"] = "^1.77.0"
-    | .devDependencies["bower"] = (.devDependencies.bower // "^1.8.14")
-    | .devDependencies["karma-chrome-launcher"] = "^3.2.0"
-    | del(.devDependencies["karma-phantomjs-launcher"])
-    | del(.devDependencies["node-sass"])
-    | .engines.node = "20.0.0"
-    | .overrides = (.overrides // {})
-    | .overrides["graceful-fs"] = "^4.2.11"
-  ' "${pj}" > "${tmp}" && mv "${tmp}" "${pj}"
-
-  if [[ -f "${root}/karma.conf.js" ]]; then
-    sed -i \
-      -e "s/karma-phantomjs-launcher/karma-chrome-launcher/g" \
-      -e "s/'PhantomJS'/'ChromeHeadless'/g" \
-      -e 's/"PhantomJS"/"ChromeHeadless"/g' \
-      "${root}/karma.conf.js" 2>/dev/null || true
-  fi
-
-  python3 - "${root}" <<'PY'
-import pathlib, re, sys
-
-root = pathlib.Path(sys.argv[1])
-
-def write(p: pathlib.Path, text: str) -> None:
-    p.write_text(text, encoding="utf-8")
-
-gs = root / "gulp" / "styles.js"
-if gs.is_file():
-    t = gs.read_text(encoding="utf-8")
-    if "require('gulp-sass')(require('sass'))" not in t and "gulp-load-plugins" in t:
-        t = re.sub(
-            r"(var \$ = require\('gulp-load-plugins'\)\(\);\s*\n)",
-            r"\1var gulpSass = require('gulp-sass')(require('sass'));\n\n",
-            t,
-            count=1,
-        )
-        t = re.sub(
-            r"var sassOptions = \{\s*style:\s*'expanded'\s*\};",
-            "var sassOptions = {\n    outputStyle: 'expanded',\n    quietDeps: true\n  };",
-            t,
-            count=1,
-        )
-        t = t.replace(".pipe($.sass(sassOptions))", ".pipe(gulpSass(sassOptions))")
-        write(gs, t)
-
-gj = root / "gulp" / "scripts.js"
-if gj.is_file():
-    t = gj.read_text(encoding="utf-8")
-    if "requiredNodeVersion + '.*'" in t:
-        new_if = (
-            "if (compareVersions(process.versions.node, requiredNodeVersion) < 0) {\n"
-            "  console.log('\\x1b[31m%s\\x1b[0m', 'WARNING!',  'Unsupported nodejs version: ' + process.versions.node + ' found, required at least: ' + requiredNodeVersion);\n"
-            "  console.log('Install NVM and type: nvm install 20 && nvm use 20');\n"
-            "}\n"
-        )
-        # Use a callable replacement so \\x1b in the string is not parsed as a re template (Python 3.13+).
-        t2, n = re.subn(
-            r"if \(compareVersions\(process\.versions\.node, requiredNodeVersion\) !== 0 && "
-            r"compareVersions\(process\.versions\.node, requiredNodeVersion \+ '\.\*'\) !== 0\) \{[\s\S]*?\n\}\n",
-            lambda _m: new_if,
-            t,
-            count=1,
-        )
-        if n:
-            write(gj, t2)
-
-sm = root / "src" / "app" / "themes" / "volumio3" / "components" / "side-menu" / "volumio3-side-menu.scss"
-if sm.is_file():
-    t = sm.read_text(encoding="utf-8")
-    fixes = (
-        ("max-height: calc(100vh - #{$theme-player-height-smartphone};", "max-height: calc(100vh - #{$theme-player-height-smartphone});"),
-        ("max-height: calc(100vh - #{$theme-player-height-tablet};", "max-height: calc(100vh - #{$theme-player-height-tablet});"),
-        ("max-height: calc(100vh - #{$theme-player-height-desktop};", "max-height: calc(100vh - #{$theme-player-height-desktop});"),
-    )
-    changed = False
-    for a, b in fixes:
-        if a in t:
-            t = t.replace(a, b)
-            changed = True
-    if changed:
-        write(sm, t)
-PY
-
-}
-
-# Evo-owned Volumio2-UI deltas: mirror paths under Volumio2-UI repo root (see layer/volumio2-ui-overlay/README.txt).
-apply_volumio2_ui_overlay() {
-  local overlay="${EVO_REPO_DIR}/layer/volumio2-ui-overlay"
-  if [[ ! -d "${overlay}/src" ]]; then
+install_ui() {
+  EVO_UI_INSTALLED_ALL_LAYOUTS=0
+  if [[ -n "${UI_DIST_SOURCE}" && -f "${UI_DIST_SOURCE}/index.html" ]]; then
+    echo "Installing UI from UI_DIST_SOURCE=${UI_DIST_SOURCE} (same tree -> all layout roots) ..."
+    local d
+    for d in "${UI_ROOT_CLASSIC}" "${UI_ROOT_CONTEMPORARY}" "${UI_ROOT_MANIFEST}"; do
+      mkdir -p "${d}"
+      rsync -a --delete "${UI_DIST_SOURCE}/" "${d}/"
+      write_ui_local_config "${d}"
+      strip_optional_socketio_inject "${d}/index.html"
+    done
+    EVO_UI_INSTALLED_ALL_LAYOUTS=1
     return 0
   fi
-  echo "Applying Evo volumio2-ui overlay from ${overlay} ..."
-  rsync -a "${overlay}/" "${UI_REPO_DIR}/"
+
+  if layer_web_trees_complete "${EVO_REPO_DIR}"; then
+    install_ui_from_layer_web
+    return 0
+  fi
+
+  echo "ERROR: No static UI. Add layer/web/classic, contemporary, and manifest (each with index.html),"
+  echo "or set UI_DIST_SOURCE to a directory containing index.html."
+  exit 1
 }
 
-build_ui() {
-  local dist_src=""
-  local candidates=()
-  if [[ -n "${UI_DIST_SOURCE}" ]]; then
-    candidates+=("${UI_DIST_SOURCE}")
-  fi
-  candidates+=(
-    "/home/volumio/ui/Volumio2-UI-dist"
-    "/opt/volumio/Volumio2-UI-dist"
-    "${UI_REPO_DIR}/dist"
-  )
-
-  for c in "${candidates[@]}"; do
-    if [[ -f "${c}/index.html" ]]; then
-      dist_src="${c}"
-      break
-    fi
-  done
-
-  if [[ "${UI_BUILD}" == "never" && -z "${dist_src}" ]]; then
-    echo "ERROR: UI_BUILD=never but no prebuilt dist found."
-    echo "Set UI_DIST_SOURCE to a folder containing index.html."
-    exit 1
-  fi
-
-  if [[ "${UI_BUILD}" == "always" || ( "${UI_BUILD}" == "auto" && -z "${dist_src}" ) ]]; then
-    upgrade_ui_socketio_client
-    echo "Building Volumio2-UI (${UI_THEME})..."
-
-    # Volumio2-UI expects Node 20 (gulp 3 + npm overrides + Dart sass); use nvm so apt node is not required.
-    export NVM_DIR="${NVM_DIR:-/usr/local/nvm}"
-    if [[ ! -s "${NVM_DIR}/nvm.sh" ]]; then
-      echo "Installing nvm..."
-      mkdir -p "${NVM_DIR}"
-      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | \
-        PROFILE=/dev/null bash
-    fi
-    # shellcheck source=/dev/null
-    . "${NVM_DIR}/nvm.sh"
-    nvm install 20
-    nvm use 20
-
-    normalize_volumio2_ui_checkout
-    apply_volumio2_ui_overlay
-
-    # Wipe deps and lockfile: stale node-sass / phantom trees cause ENOTEMPTY and arm64 postinstall failures.
-    chmod -R u+w "${UI_REPO_DIR}/node_modules" 2>/dev/null || true
-    rm -rf "${UI_REPO_DIR}/node_modules"
-    rm -f "${UI_REPO_DIR}/package-lock.json"
-
-    # Non-interactive for any tool that might prompt (e.g. npx).
-    export NPM_CONFIG_YES=true
-
-    # --ignore-scripts: skip any leftover native postinstall (e.g. phantomjs-prebuilt) on arm64; gulp build does not need them.
-    (cd "${UI_REPO_DIR}" && npm install --no-audit --no-fund --ignore-scripts)
-    if [[ -x "${UI_REPO_DIR}/node_modules/.bin/bower" ]]; then
-      (cd "${UI_REPO_DIR}" && ./node_modules/.bin/bower install --allow-root --config.interactive=false)
-    else
-      (cd "${UI_REPO_DIR}" && npx --yes bower@1.8.14 install --allow-root --config.interactive=false)
-    fi
-    (cd "${UI_REPO_DIR}" && npm run "build:${UI_THEME}")
-    dist_src="${UI_REPO_DIR}/dist"
-  else
-    echo "Using prebuilt UI dist: ${dist_src}"
-  fi
-
-  mkdir -p "${UI_DIST_DIR}"
-  rsync -a --delete "${dist_src}/" "${UI_DIST_DIR}/"
-
-  mkdir -p "${UI_DIST_DIR}/app"
-  cat > "${UI_DIST_DIR}/app/local-config.json" <<EOF
-{
-  "localhost": "${BACKEND_URL}"
-}
-EOF
-
-  # Remove leftover v4 injection from previous bootstrap runs.
-  local idx="${UI_DIST_DIR}/index.html"
-  sed -i 's|<script src="/scripts/socket.io-4.js"></script>||g' "${idx}" 2>/dev/null || true
-  rm -f "${UI_DIST_DIR}/scripts/socket.io-4.js"
-}
-
-upgrade_ui_socketio_client() {
-  # Replace socket.io-client 2.3.1 (protocol v3) with v4 (protocol v5)
-  # in the UI source BEFORE building, so the vendor bundle includes v4 natively.
-  local sio_dir="${UI_REPO_DIR}/src/app/lib/socket"
-  local sio_v4="${sio_dir}/socket.io-4.7.5.js"
-
-  if [[ ! -d "${sio_dir}" ]]; then
-    echo "WARN: ${sio_dir} not found, skipping socket.io upgrade."
-    return
-  fi
-
-  if [[ ! -f "${sio_v4}" ]]; then
-    echo "Downloading socket.io v4 client into UI source..."
-    curl -fsSL "https://cdn.socket.io/4.7.5/socket.io.min.js" -o "${sio_v4}" || {
-      echo "ERROR: failed to download socket.io v4 client."
-      exit 1
-    }
-  fi
-
-  # Update index.html to reference v4 instead of v2
-  local idx="${UI_REPO_DIR}/src/index.html"
-  if [[ -f "${idx}" ]]; then
-    sed -i 's|socket\.io-2\.3\.1\.js|socket.io-4.7.5.js|g' "${idx}"
-    sed -i 's|socket\.io-1\.[0-9.]*\.js|socket.io-4.7.5.js|g' "${idx}"
-    echo "Updated UI source index.html to use socket.io v4 client."
-  fi
-}
-
-ensure_nginx_access() {
+ensure_nginx_access_for_dir() {
+  local dir="$1"
+  [[ -d "${dir}" ]] || return 0
   if id -u www-data >/dev/null 2>&1 && command -v setfacl >/dev/null 2>&1; then
-    setfacl -R -m u:www-data:rX "${UI_DIST_DIR}" || true
-    local path="${UI_DIST_DIR}"
+    setfacl -R -m u:www-data:rX "${dir}" || true
+    local path="${dir}"
     while true; do
       setfacl -m u:www-data:x "${path}" || true
       if [[ "${path}" == "/" ]]; then
@@ -509,7 +429,16 @@ ensure_nginx_access() {
       path="$(dirname "${path}")"
     done
   else
-    chmod -R a+rX "${UI_DIST_DIR}" || true
+    chmod -R a+rX "${dir}" || true
+  fi
+}
+
+ensure_nginx_access() {
+  ensure_nginx_access_for_dir "${UI_DIST_DIR}"
+  if [[ "${EVO_UI_INSTALLED_ALL_LAYOUTS:-0}" == "1" ]]; then
+    ensure_nginx_access_for_dir "${UI_ROOT_MANIFEST}"
+    ensure_nginx_access_for_dir "${UI_ROOT_CONTEMPORARY}"
+    ensure_nginx_access_for_dir "${UI_ROOT_CLASSIC}"
   fi
 }
 
@@ -529,9 +458,14 @@ server {
     root ${UI_DIST_DIR};
     index index.html;
 
-    # Force stock UI to use app/local-config.json fallback.
+    # Stock UI GET /api/host — dynamic backend URL (Socket.IO) when IP/interface changes.
     location = /api/host {
-        return 404;
+        proxy_pass http://127.0.0.1:${EVO_HTTP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
     # Prevent browser from caching backend config (stale IP breaks Socket.IO).
@@ -555,8 +489,8 @@ EOF
 
 validate_stack() {
   echo "Validating backend..."
-  curl -fsS "http://127.0.0.1:3000/api/health" >/dev/null
-  curl -fsS "http://127.0.0.1:3000/api/v1/ping" >/dev/null
+  curl -fsS "http://127.0.0.1:${EVO_HTTP_PORT}/api/health" >/dev/null
+  curl -fsS "http://127.0.0.1:${EVO_HTTP_PORT}/api/v1/ping" >/dev/null
 
   local ip
   ip="$(hostname -I | awk '{print $1}')"
@@ -575,6 +509,15 @@ validate_stack() {
 main() {
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
+    exit 0
+  fi
+
+  if [[ "${1:-}" == "--apply-ui-only" ]]; then
+    need_root
+    apply_ui_dist_dir_from_config
+    ensure_nginx_access
+    configure_nginx
+    echo "nginx root: ${UI_DIST_DIR}"
     exit 0
   fi
 
@@ -598,19 +541,10 @@ main() {
       EVO_SOURCE_AVAILABLE=0
     fi
   fi
-
-  if [[ -f "${UI_REPO_DIR}/package.json" ]]; then
-    echo "Using local Volumio2-UI source: ${UI_REPO_DIR}"
-    if [[ -d "${UI_REPO_DIR}/.git" && "${UI_REPO_UPDATE:-1}" == "1" ]]; then
-      clone_or_update_repo "${UI_REPO_URL}" "${UI_REPO_DIR}" "${UI_REPO_BRANCH}" "1" || \
-        echo "WARN: failed to update local Volumio2-UI source, continuing with current checkout."
-    fi
-  else
-    clone_or_update_repo "${UI_REPO_URL}" "${UI_REPO_DIR}" "${UI_REPO_BRANCH}" "1"
-  fi
   configure_mpd
   build_and_install_evo
-  build_ui
+  apply_ui_dist_dir_from_config
+  install_ui
   ensure_nginx_access
   configure_nginx
   validate_stack

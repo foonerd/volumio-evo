@@ -3,12 +3,12 @@
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use socketioxide::SocketIo;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -270,6 +270,116 @@ async fn album_art_tiny(
     image_response(data, ct)
 }
 
+/// Port from `bind` (e.g. `0.0.0.0:3000` → 3000).
+fn http_listen_port(bind: &str) -> u16 {
+    bind.rsplit(':')
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000)
+}
+
+fn trim_host_port(h: &str) -> String {
+    let h = h.trim();
+    if h.starts_with('[') {
+        if let Some(end) = h.find(']') {
+            return h[1..end].to_string();
+        }
+    }
+    if h.matches(':').count() == 1 {
+        if let Some((host, port)) = h.rsplit_once(':') {
+            if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+                return host.to_string();
+            }
+        }
+    }
+    h.to_string()
+}
+
+/// Non-loopback, non-APIPA IPv4s. Sorted: ethernet-style first, then Wi‑Fi, then others.
+fn collect_ipv4_candidates() -> Vec<(String, std::net::Ipv4Addr)> {
+    use if_addrs::{get_if_addrs, IfAddr};
+    let mut v: Vec<(String, std::net::Ipv4Addr)> = Vec::new();
+    let Ok(ifaces) = get_if_addrs() else {
+        return v;
+    };
+    for iface in ifaces {
+        if iface.name == "lo" {
+            continue;
+        }
+        let IfAddr::V4(v4) = iface.addr else {
+            continue;
+        };
+        let ip = v4.ip;
+        if ip.is_loopback() {
+            continue;
+        }
+        let o = ip.octets();
+        if o[0] == 169 && o[1] == 254 {
+            continue;
+        }
+        v.push((iface.name, ip));
+    }
+    v.sort_by(|a, b| {
+        let score = |name: &str| -> u8 {
+            if name.starts_with("eth") || name == "end0" {
+                0
+            } else if name.starts_with("wl") || name.starts_with("wlan") {
+                1
+            } else {
+                2
+            }
+        };
+        (score(&a.0), a.1).cmp(&(score(&b.0), b.1))
+    });
+    v
+}
+
+#[derive(Serialize)]
+struct ApiHostResponse {
+    host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host2: Option<String>,
+}
+
+/// GET /api/host — matches volumio3-backend: JSON base URL(s) for Socket.IO + REST.
+/// Uses live interface addresses (not a static file) so WiFi/LAN changes apply after reload.
+/// If the HTTP `Host` header is a local IPv4, that address is preferred (same subnet as the client).
+async fn api_host(State(state): State<AppState>, headers: HeaderMap) -> Json<ApiHostResponse> {
+    use std::net::Ipv4Addr;
+    let port = http_listen_port(&state.config.bind);
+    let candidates = collect_ipv4_candidates();
+    let host_hdr = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|s| trim_host_port(s));
+
+    let mut preferred: Option<Ipv4Addr> = None;
+    if let Some(ref h) = host_hdr {
+        if let Ok(ip) = h.parse::<Ipv4Addr>() {
+            if candidates.iter().any(|(_, cand)| *cand == ip) {
+                preferred = Some(ip);
+            }
+        }
+    }
+
+    let primary = preferred
+        .or_else(|| candidates.first().map(|(_, ip)| *ip))
+        .unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
+
+    let host = format!("http://{}:{}", primary, port);
+    let host2 = if candidates.len() > 1 {
+        candidates
+            .iter()
+            .map(|(_, ip)| *ip)
+            .find(|ip| *ip != primary)
+            .map(|ip| format!("http://{}:{}", ip, port))
+    } else {
+        None
+    };
+
+    Json(ApiHostResponse { host, host2 })
+}
+
 /// Returns the router, SocketIo handle, and app state (for push_state_queue_loop).
 pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -320,6 +430,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
     let app = Router::new()
         .route("/", get(health))
         .route("/api/health", get(health))
+        .route("/api/host", get(api_host))
         .route("/status", get(status))
         .route("/albumart", get(album_art))
         .route("/albumartd", get(album_art_direct))

@@ -10,7 +10,11 @@ On stock Volumio, **`volumio/volumioUisList.json`** defines **`uiName`** + **`ui
 
 **Evo (Rust):** **`[ui] active_layout`** in **`/etc/volumio-evo/config.toml`** (or env **`VOLUMIO_EVO_ACTIVE_LAYOUT`**) holds the same logical name: **`manifest`**, **`contemporary`**, or **`classic`**. It is exposed in **`pushUiSettings`** (`active_layout`) and **`GET /api/v1/getActiveUi`**. A copy of the stock list (paths are reference-only on full OS) lives at **`layer/config/volumioUisList.reference.json`**.
 
-**Not done yet in Evo:** Node’s **`setActiveUI`** / **`reloadUi()`** / nginx root switching. Until that is implemented or scripted, changing **`active_layout`** documents intent; operators must **point nginx (or bootstrap) at the correct built `dist`** for that layout.
+**Bootstrap / nginx:** **`scripts/bootstrap-volumio-evo-player.sh`** reads **`[ui] active_layout`**, sets nginx **`root`** to the matching **`UI_ROOT_*`** (defaults under **`/srv/...`**). It installs static UI from **`layer/web/`** (three trees) or **`UI_DIST_SOURCE`** (one tree copied to all roots). No npm/gulp on device. Switching layout is a config edit plus **`sudo … --apply-ui-only`** (or a full re-bootstrap). Override the served tree with **`UI_DIST_OVERRIDE`**.
+
+**Backend URL / IP changes:** The stock UI calls **`GET /api/host`** for the Socket.IO base URL. Evo implements this (live IPv4 discovery; prefers the address that matches the HTTP **`Host`** header when it is a local interface). Nginx proxies **`/api/host`** to Evo; **`app/local-config.json`** is only a fallback when that request fails.
+
+**Not done yet in Evo (parity with stock Node UI):** in-browser **`setActiveUI`** / **`reloadUi()`** wired to Evo’s **`active_layout`** (today the value is API/config-driven; the stock UI may still expect Node behaviour).
 
 ---
 

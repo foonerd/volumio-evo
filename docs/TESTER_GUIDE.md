@@ -4,9 +4,9 @@ Use this on a **fresh** Raspberry Pi OS (including **Raspberry Pi OS Lite**), De
 
 ## Policy (read this)
 
-**Full-stack build and test on the device are defined only by `scripts/bootstrap-volumio-evo-player.sh`.**
+**Full-stack install and test on the device are defined only by `scripts/bootstrap-volumio-evo-player.sh`.**
 
-Do **not** use a parallel workflow of manual `git pull`, `cargo build`, `npm install`, `gulp`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or rebuild: it clones or pulls repos (see defaults below), installs rustup, builds the backend and UI, and configures services.
+Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or rebuild: it clones or pulls **volumio-evo**, installs rustup, builds the Rust backend, copies static UI from **`layer/web/`**, and configures services. There is **no** npm/gulp or Volumio2-UI clone on device.
 
 [BUILD_GUIDE.md](BUILD_GUIDE.md) is for cross-compiling or host-side binaries — **not** a substitute for on-device verification with bootstrap.
 
@@ -14,16 +14,14 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, `npm ins
 
 ## Run bootstrap (only command that matters)
 
-As **root**, from a directory that contains **`scripts/bootstrap-volumio-evo-player.sh`** (how that directory gets onto the machine is up to your team — clone, tarball, or copy; the script itself will clone/update **`volumio-evo`** and **Volumio2-UI** under **`BASE_DIR`**, default `/opt/volumio`):
+As **root**, from a directory that contains **`scripts/bootstrap-volumio-evo-player.sh`** (clone, tarball, or copy onto the machine; the script will clone/update **`volumio-evo`** under **`BASE_DIR`**, default `/opt/volumio`). The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`index.html`** in each, **or** set **`UI_DIST_SOURCE`** to a single prebuilt **`dist/`** (see script **`--help`**).
 
 ```bash
 cd /path/that/contains/the/script
 sudo bash ./scripts/bootstrap-volumio-evo-player.sh
 ```
 
-Optional: `sudo UI_THEME=volumio3 ./scripts/bootstrap-volumio-evo-player.sh` (default theme is already `volumio3`).
-
-**Updates:** run the **same command again**. By default the script **git pull**s existing checkouts (`EVO_REPO_UPDATE=1`, `UI_REPO_UPDATE=1`). Set them to `0` only for offline or pinned trees.
+**Updates:** run the **same command again**. By default the script **git pull**s the **volumio-evo** checkout when **`EVO_REPO_UPDATE=1`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
 
 Then:
 
@@ -31,7 +29,7 @@ Then:
 2. Select a track in the UI
 3. Press Play and confirm audio from the speaker
 
-The script installs packages, clones **read-only upstream** [Volumio2-UI](https://github.com/volumio/Volumio2-UI), applies **Evo overlay** from the cloned **`volumio-evo`** tree, builds backend (Rust) and UI, configures MPD/systemd/nginx, and serves the web app on port **80**.
+The script installs packages, builds the backend (Rust), installs UI assets, configures MPD/systemd/nginx, and serves the web app on port **80**. **`GET /api/host`** is proxied to Evo so the UI gets a current Socket.IO base URL when the IP changes.
 
 ---
 
@@ -41,7 +39,7 @@ The script installs packages, clones **read-only upstream** [Volumio2-UI](https:
 2. **Root** (`sudo`).
 3. **Optional:** `EVO_BINARY_PATH` if you are not building from source — normally the script builds from the cloned repo.
 
-You do **not** run separate UI build steps: bootstrap builds Volumio2-UI (with Evo overlay) and nginx serves it.
+You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or **`UI_DIST_SOURCE`**) and nginx serves it.
 
 ---
 
@@ -54,7 +52,7 @@ You do **not** run separate UI build steps: bootstrap builds Volumio2-UI (with E
 
 **Full UI (after bootstrap):**
 
-- Open **`http://<device-ip>/`** — nginx serves the built UI on port **80**; the script wires **`local-config.json`** to the Evo API on port 3000.
+- Open **`http://<device-ip>/`** — nginx serves the static UI on port **80**. The stock UI uses **`GET /api/host`** first for the API/Socket.IO base URL; **`app/local-config.json`** is only a fallback.
 
 **Checklist:**
 
@@ -76,8 +74,8 @@ You do **not** run separate UI build steps: bootstrap builds Volumio2-UI (with E
 - **Backend fails to start**  
   `journalctl -u volumio-evo -n 50 --no-pager` — send the last lines to the developer.
 
-- **Git / Rust / UI build errors**  
-  Do not “fix” by running random `git pull` or `cargo`/`npm` yourself and declaring success. Capture the **full bootstrap log** and the script version (commit) from the **`volumio-evo`** checkout the script used.
+- **Git / Rust / missing UI**  
+  Do not “fix” by running random `git pull` or `cargo` yourself and declaring success. Capture the **full bootstrap log** and the script version (commit) from the **`volumio-evo`** checkout the script used. Ensure **`layer/web`** is populated or set **`UI_DIST_SOURCE`**.
 
 ---
 

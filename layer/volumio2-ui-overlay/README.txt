@@ -1,18 +1,14 @@
-Evo-owned deltas on top of upstream Volumio2-UI (volumio3 theme).
+Optional reference: Evo-owned deltas on top of upstream Volumio2-UI (volumio3 theme).
 
-On-device full UI build + test: only scripts/bootstrap-volumio-evo-player.sh applies
-this overlay and builds — not a hand-maintained Volumio2-UI checkout.
+Bootstrap does NOT use this folder. Player installs copy static UI from layer/web/ only.
 
-Directory tree mirrors paths under the Volumio2-UI repo root (e.g. src/app/...).
-bootstrap-volumio-evo-player.sh rsyncs this folder onto the UI checkout after
-normalize_volumio2_ui_checkout() and before npm install / gulp build.
+Use this tree when you build Volumio2-UI yourself (developer machine or CI): rsync this folder
+onto a Volumio2-UI checkout after normalizing package.json for Node 20 / Dart Sass, then
+npm install / gulp — same paths as documented historically.
 
-gulp/styles.js may override upstream to pass Dart Sass silenceDeprecations until
-Volumio2-UI migrates off @import / legacy APIs (large upstream change).
+gulp/styles.js may override upstream to pass Dart Sass silenceDeprecations until upstream migrates.
 
-header/volumio3-header.scss: footer play-button offsets must not apply in the top
-toolbar (classic/contemporary); see playPauseBtnGreyWrapper override.
+header/volumio3-header.scss: footer play-button offsets must not apply in the top toolbar
+(classic/contemporary); see playPauseBtnGreyWrapper override.
 
-Do not rely on ad-hoc local edits only in a separate Volumio2-UI clone: either
-maintain a git fork whose branch matches this overlay, or commit changes here
-so the Rust player repo is the single source of truth for shipped UI assets.
+Keep changes here if you maintain a parallel UI build pipeline; layer/web/ is what ships on device.
