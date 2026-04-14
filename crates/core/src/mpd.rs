@@ -1,6 +1,9 @@
 //! MPD client: connect and run commands. Used by the v1 API to mirror Volumio backend behaviour.
 
+use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
+use std::path::Path;
+use urlencoding::decode;
 use mpd_client::{
     commands::{
         Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
@@ -30,10 +33,10 @@ impl MpdConfig {
 }
 
 /// Connect to MPD, run get_state, then close. Avoids closure lifetime issues.
-pub async fn get_state_connected(config: &MpdConfig) -> Result<VolumioState> {
+pub async fn get_state_connected(config: &MpdConfig, music_root: &Path) -> Result<VolumioState> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
-    get_state(&mut client).await
+    get_state(&mut client, music_root).await
 }
 
 /// Connect to MPD, run get_queue, then close.
@@ -240,7 +243,7 @@ fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>)
 }
 
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
-fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, uri_prefix: &str) -> Vec<BrowseItem> {
+fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, _uri_prefix: &str) -> Vec<BrowseItem> {
     let mut items = Vec::new();
     let mut current_file: Option<FileEntry> = None;
 
@@ -256,11 +259,7 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, uri_prefix: 
                 if name.starts_with('.') {
                     continue;
                 }
-                let item_uri = if uri_prefix.is_empty() {
-                    format!("music-library/{}", value)
-                } else {
-                    format!("{}/{}", uri_prefix, value)
-                };
+                let item_uri = format!("music-library/{}", value);
                 items.push(BrowseItem {
                     item_type: "folder".to_string(),
                     title: name,
@@ -278,11 +277,7 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, uri_prefix: 
                     .next()
                     .unwrap_or(value)
                     .to_string();
-                let item_uri = if uri_prefix.is_empty() {
-                    format!("music-library/{}", value)
-                } else {
-                    format!("{}/{}", uri_prefix, value)
-                };
+                let item_uri = format!("music-library/{}", value);
                 current_file = Some(FileEntry {
                     uri: item_uri,
                     title: name,
@@ -552,6 +547,263 @@ pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseR
     })
 }
 
+/// Root `music-library` listing: like classic Volumio — virtual library entries, then filesystem sources (local/usb/nas/smb).
+pub fn music_library_root_response() -> BrowseResponse {
+    let mut items: Vec<BrowseItem> = vec![
+        BrowseItem {
+            item_type: "folder".to_string(),
+            title: "Favourites".to_string(),
+            uri: "favourites".to_string(),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        },
+        BrowseItem {
+            item_type: "folder".to_string(),
+            title: "Playlists".to_string(),
+            uri: "playlists".to_string(),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        },
+        BrowseItem {
+            item_type: "folder".to_string(),
+            title: "Artists".to_string(),
+            uri: "artists://".to_string(),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        },
+        BrowseItem {
+            item_type: "folder".to_string(),
+            title: "Albums".to_string(),
+            uri: "albums://".to_string(),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        },
+        BrowseItem {
+            item_type: "folder".to_string(),
+            title: "Genres".to_string(),
+            uri: "genres://".to_string(),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        },
+    ];
+    for (name, title) in MUSIC_SOURCE_NAMES {
+        items.push(BrowseItem {
+            item_type: "folder".to_string(),
+            title: (*title).to_string(),
+            uri: format!("music-library/{}", name),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        });
+    }
+    BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: String::new(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    }
+}
+
+/// Legacy favourites are not backed by MPD; return empty list so the UI matches navigation shape.
+pub fn browse_favourites_stub() -> BrowseResponse {
+    BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "music-library".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items: vec![],
+            }],
+        },
+    }
+}
+
+/// Collect unique values for one `list <tag>` MPD command.
+async fn list_tag_values(config: &MpdConfig, tag: &str) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("list").argument(tag);
+    let frame = client.raw_command(raw).await?;
+    let mut vals: Vec<String> = frame
+        .fields()
+        .filter_map(|(k, v)| {
+            if k == tag {
+                Some(v.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    vals.sort();
+    vals.dedup();
+    Ok(vals)
+}
+
+/// All artists (`artists://` root).
+async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseResponse> {
+    let artists = list_tag_values(config, "Artist").await?;
+    let items: Vec<BrowseItem> = artists
+        .into_iter()
+        .map(|a| BrowseItem {
+            item_type: "folder".to_string(),
+            title: a.clone(),
+            uri: format!(
+                "artists://{}",
+                urlencoding::encode(a.as_str())
+            ),
+            service: "mpd".to_string(),
+            artist: Some(a),
+            album: None,
+            duration: None,
+        })
+        .collect();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "music-library".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
+/// All distinct albums (`albums://` root). Click opens tracks tagged with that album (any artist).
+async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
+    let albums = list_tag_values(config, "Album").await?;
+    let items: Vec<BrowseItem> = albums
+        .into_iter()
+        .map(|album| BrowseItem {
+            item_type: "folder".to_string(),
+            title: album.clone(),
+            uri: format!("albums://{}", urlencoding::encode(album.as_str())),
+            service: "mpd".to_string(),
+            artist: None,
+            album: Some(album),
+            duration: None,
+        })
+        .collect();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "music-library".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
+/// Songs when browsing by album title only (flat album list).
+async fn browse_album_only_songs_connected(config: &MpdConfig, album: &str) -> Result<BrowseResponse> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("find")
+        .argument("Album")
+        .argument(album);
+    let frame = client.raw_command(raw).await?;
+    let items = parse_lsinfo_frame(frame, "music-library");
+    let prev = "albums://".to_string();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev { uri: prev },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
+/// All genres (`genres://` root).
+async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseResponse> {
+    let genres = list_tag_values(config, "Genre").await?;
+    let items: Vec<BrowseItem> = genres
+        .into_iter()
+        .map(|g| BrowseItem {
+            item_type: "folder".to_string(),
+            title: g.clone(),
+            uri: format!("genres://{}", urlencoding::encode(g.as_str())),
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+        })
+        .collect();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "music-library".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
+/// Artists under a genre (`genres://Rock` → list Artist Genre "Rock"`).
+async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<BrowseResponse> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("list")
+        .argument("Artist")
+        .argument("Genre")
+        .argument(genre);
+    let frame = client.raw_command(raw).await?;
+    let mut artists: Vec<String> = frame
+        .fields()
+        .filter_map(|(k, v)| if k == "Artist" { Some(v.to_string()) } else { None })
+        .collect();
+    artists.sort();
+    artists.dedup();
+    let items: Vec<BrowseItem> = artists
+        .into_iter()
+        .map(|a| BrowseItem {
+            item_type: "folder".to_string(),
+            title: a.clone(),
+            uri: format!("artists://{}", urlencoding::encode(a.as_str())),
+            service: "mpd".to_string(),
+            artist: Some(a),
+            album: None,
+            duration: None,
+        })
+        .collect();
+    Ok(BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: "genres://".to_string(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items,
+            }],
+        },
+    })
+}
+
 /// List albums by artist (goTo type=artist). Uses MPD "list Album Artist <name>", returns folder items.
 async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
@@ -563,20 +815,22 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
     let frame = client.raw_command(raw).await?;
     let mut albums: Vec<String> = frame
         .fields()
-        .filter_map(|(k, v)| if *k == *"Album" { Some(v.to_string()) } else { None })
+        .filter_map(|(k, v)| if k == "Album" { Some(v.to_string()) } else { None })
         .collect();
     albums.sort();
     albums.dedup();
     let items: Vec<BrowseItem> = albums
         .into_iter()
-        .map(|album| BrowseItem {
-            item_type: "folder".to_string(),
-            title: album.clone(),
-            uri: format!("albums://{}/{}", artist, album),
-            service: "mpd".to_string(),
-            artist: Some(artist.to_string()),
-            album: Some(album),
-            duration: None,
+        .map(|album| {
+            BrowseItem {
+                item_type: "folder".to_string(),
+                title: album.clone(),
+                uri: format!("albums://{}/{}", artist, album),
+                service: "mpd".to_string(),
+                artist: Some(artist.to_string()),
+                album: Some(album),
+                duration: None,
+            }
         })
         .collect();
     Ok(BrowseResponse {
@@ -619,24 +873,51 @@ async fn browse_album_songs_connected(
     })
 }
 
-/// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library" or "music-library/INTERNAL"), return browse response.
-/// Also handles virtual URIs: artists://<name> (albums by artist), albums://<artist>/<album> (songs in album).
+/// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library/local/..."), return browse response.
+/// Handles virtual URIs: `artists://`, `albums://`, `genres://` (tag-based library, like classic Volumio).
 pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseResponse> {
-    if uri.starts_with("artists://") && uri != "artists://" {
-        let artist = uri.strip_prefix("artists://").unwrap_or("").trim();
-        if !artist.is_empty() {
-            return browse_artist_connected(config, artist).await;
-        }
+    if uri == "favourites" {
+        return Ok(browse_favourites_stub());
     }
+
+    if uri.starts_with("genres://") {
+        let rest = uri.strip_prefix("genres://").unwrap_or("");
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if rest_dec.is_empty() {
+            return browse_all_genres_connected(config).await;
+        }
+        return browse_genre_connected(config, &rest_dec).await;
+    }
+
+    if uri.starts_with("artists://") {
+        let rest = uri.strip_prefix("artists://").unwrap_or("");
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if rest_dec.is_empty() {
+            return browse_all_artists_connected(config).await;
+        }
+        return browse_artist_connected(config, &rest_dec).await;
+    }
+
     if uri.starts_with("albums://") {
         let rest = uri.strip_prefix("albums://").unwrap_or("");
-        if let Some((a, b)) = rest.split_once('/') {
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if rest_dec.is_empty() {
+            return browse_all_albums_connected(config).await;
+        }
+        if let Some((a, b)) = rest_dec.split_once('/') {
             let artist = a.trim();
             let album = b.trim();
             if !artist.is_empty() && !album.is_empty() {
                 return browse_album_songs_connected(config, artist, album).await;
             }
         }
+        return browse_album_only_songs_connected(config, &rest_dec).await;
     }
 
     let stream = TcpStream::connect(config.addr()).await?;
@@ -684,7 +965,9 @@ pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseRes
 pub struct VolumioState {
     pub status: Option<String>,
     pub position: Option<u32>,
+    /// Elapsed position in **milliseconds** (Node `parseState`: `elapsed * 1000`).
     pub seek: Option<u64>,
+    /// Track length in **seconds** (Node `parseState`: `time` field part after `:`).
     pub duration: Option<u64>,
     pub volume: Option<u8>,
     pub repeat: Option<bool>,
@@ -692,39 +975,114 @@ pub struct VolumioState {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// Volumio browse URI (`music-library/...`).
     pub uri: Option<String>,
     pub track_type: Option<String>,
     pub service: Option<String>,
+    /// Cover URL for playback view (`GET /albumart?...`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub albumart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub samplerate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bitdepth: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bitrate: Option<String>,
 }
 
-pub async fn get_state(client: &mut Client) -> Result<VolumioState> {
+/// Map MPD `file` URL to Volumio `music-library/...` for album-art + browse parity.
+fn volumio_uri_from_mpd_url(url: &str, music_root: &Path) -> String {
+    let u = url.trim();
+    if u.starts_with("music-library/") {
+        return u.to_string();
+    }
+    if let Some(rest) = u.strip_prefix("file://") {
+        let p = Path::new(rest);
+        if let Ok(rel) = p.strip_prefix(music_root) {
+            let s = rel.to_string_lossy().replace('\\', "/");
+            return format!("music-library/{}", s.trim_start_matches('/'));
+        }
+    }
+    format!("music-library/{}", u.trim_start_matches('/'))
+}
+
+/// Parse MPD `audio` field (`44100:24:2`, `dsd64:1:2`, …) like `volumio3-backend` `parseState`.
+fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
+    let parts: Vec<&str> = audio.split(':').collect();
+    if parts.len() < 2 {
+        return (None, None);
+    }
+    let sr = parts[0];
+    let bd = parts[1];
+    match sr {
+        "dsd64" => return (Some("2.82 MHz".to_string()), Some("1 bit".to_string())),
+        "dsd128" => return (Some("5.64 MHz".to_string()), Some("1 bit".to_string())),
+        "dsd256" => return (Some("11.28 MHz".to_string()), Some("1 bit".to_string())),
+        "dsd512" => return (Some("22.58 MHz".to_string()), Some("1 bit".to_string())),
+        _ => {}
+    }
+    if let Ok(hz) = sr.parse::<f64>() {
+        let khz = (hz / 1000.0 * 10.0).round() / 10.0;
+        let sr_str = format!("{} kHz", khz);
+        let bd_str = if bd == "f" {
+            "32 bit".to_string()
+        } else if bd == "dsd" {
+            "1 bit".to_string()
+        } else {
+            bd.parse::<u32>()
+                .map(|b| format!("{} bit", b))
+                .unwrap_or_else(|_| format!("{} bit", bd))
+        };
+        return (Some(sr_str), Some(bd_str));
+    }
+    (None, None)
+}
+
+pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<VolumioState> {
     let status = client.command(Status).await?;
 
     let seek_ms = status
         .elapsed
         .map(|d| d.as_millis() as u64);
-    let duration_ms = status
-        .duration
-        .map(|d| d.as_millis() as u64);
+    let duration_secs = status.duration.map(|d| d.as_secs());
     let position = status
         .current_song
         .map(|(pos, _)| pos.0 as u32);
 
-    let (title, artist, album, uri, track_type) = if position.is_some() {
+    let audio_line = client
+        .raw_command(RawCommand::new("status"))
+        .await
+        .ok()
+        .and_then(|f| f.find("audio").map(std::string::ToString::to_string));
+    let (samplerate, bitdepth) = audio_line
+        .as_deref()
+        .map(parse_mpd_audio)
+        .unwrap_or((None, None));
+
+    let bitrate = status
+        .bitrate
+        .map(|b| format!("{} Kbps", b));
+
+    let (title, artist, album, uri, track_type, albumart) = if position.is_some() {
         match client.command(CurrentSong).await? {
             Some(song_in_queue) => {
                 let s = &song_in_queue.song;
                 let title = s.title().map(String::from);
                 let artist = s.artists().first().map(String::from);
                 let album = s.album().map(String::from);
-                let uri = Some(s.url.clone());
+                let volumio_uri = volumio_uri_from_mpd_url(&s.url, music_root);
+                let uri = Some(volumio_uri.clone());
                 let track_type = s.url.split('.').last().map(String::from);
-                (title, artist, album, uri, track_type)
+                let albumart = Some(format!(
+                    "/albumart?metadata=true&path={}",
+                    urlencoding::encode(&volumio_uri)
+                ));
+                (title, artist, album, uri, track_type, albumart)
             }
-            None => (None, None, None, None, None),
+            None => (None, None, None, None, None, None),
         }
     } else {
-        (None, None, None, None, None)
+        (None, None, None, None, None, None)
     };
 
     let status_str = match status.state {
@@ -737,7 +1095,7 @@ pub async fn get_state(client: &mut Client) -> Result<VolumioState> {
         status: status_str,
         position,
         seek: seek_ms,
-        duration: duration_ms,
+        duration: duration_secs,
         volume: Some(status.volume),
         repeat: Some(status.repeat),
         random: Some(status.random),
@@ -747,6 +1105,10 @@ pub async fn get_state(client: &mut Client) -> Result<VolumioState> {
         uri,
         track_type,
         service: Some("mpd".to_string()),
+        albumart,
+        samplerate,
+        bitdepth,
+        bitrate,
     })
 }
 
@@ -829,7 +1191,8 @@ pub async fn run_command(
         }
         "seek" => {
             if let Some(pos) = position {
-                let d = Duration::from_millis(pos as u64);
+                // Volumio2-UI `player.service.js` emits seek as whole seconds (see `set seek`).
+                let d = Duration::from_secs(pos as u64);
                 client.command(MpdSeekCmd(SeekMode::Absolute(d))).await?;
             }
         }

@@ -1,34 +1,43 @@
 # Volumio 4 (Evo) – Tester guide: from a plain OS to a working setup
 
-Use this on a **fresh** Raspberry Pi OS, Debian Trixie, or Ubuntu 24.04 (Desktop or Server). Steps are copy-paste where possible.
+Use this on a **fresh** Raspberry Pi OS (including **Raspberry Pi OS Lite**), Debian Trixie, or Ubuntu 24.04 (Desktop or Server).
+
+**Supported path:** On a stock, unmodified image, the **only** supported way to turn the machine into a default **Volumio Evo (Rust) player** test rig is to run our **`scripts/bootstrap-volumio-evo-player.sh`**. Do not hand-edit MPD, nginx, or install the UI yourself for a normal test cycle—that duplicates what the script does and drifts from what we ship.
+
+The script installs packages, clones **read-only upstream** [Volumio2-UI](https://github.com/volumio/Volumio2-UI) plus **Evo-owned overlay** from this repo, builds backend (Rust) and UI, configures MPD/systemd/nginx, and serves the web app on port **80**. Testers use **published** `volumio-evo` sources (or a release tarball) that include this script—not ad-hoc forks of the UI repo.
 
 ---
 
 ## Fast path for testers: open UI and play
 
-On a fresh machine, run one command on the device:
+On the device, from your **published / checked-out `volumio-evo` tree**:
 
 ```bash
 cd /path/to/volumio-evo-repo
 sudo bash ./scripts/bootstrap-volumio-evo-player.sh
 ```
 
-Then the tester only does:
+Then:
 
 1. Open `http://<device-ip>/playback`
 2. Select a track in the UI
-3. Press Play and confirm audio from speaker
-
-This script installs dependencies, clones/updates required repos, builds backend and UI, configures MPD/systemd/nginx, writes `local-config.json`, and serves the UI on port `80`.
+3. Press Play and confirm audio from the speaker
 
 ---
 
-## What you need from the developer
+## What you need before you run bootstrap
 
-Before starting, get from the developer:
+1. **A copy of `volumio-evo`** at a known revision (git clone of a **tag or branch** your team published for testing, or an unpacked release tree). The script must live under that tree (or set `EVO_REPO_DIR` if the checkout is elsewhere).
+2. **Network access** on the device so the script can clone or update upstream repos (unless you point `EVO_REPO_DIR` / `UI_REPO_DIR` at offline mirrors).
+3. **Optional:** a prebuilt `volumio-evo` binary and `EVO_BINARY_PATH` if you are not building from source—see [BUILD_GUIDE.md](BUILD_GUIDE.md) for how developers produce binaries.
 
-1. **The `volumio-evo` binary** for your machine (e.g. for Raspberry Pi 64-bit, or for PC/amd64). The developer can build it using [BUILD_GUIDE.md](BUILD_GUIDE.md).
-2. **(Optional but recommended)** A **built Volumio UI** (a folder of static files, often zipped). Evo does **not** ship the web interface; you run the UI with a **separate** small web server and point it at the Evo backend. See **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)** below. Without the UI, you can still verify the backend with `curl` and browser URLs (e.g. `/api/health`).
+You do **not** need a separate UI zip for the default path: bootstrap builds Volumio2-UI (with Evo overlay) and nginx serves it.
+
+---
+
+## Serving only the UI without bootstrap (optional)
+
+If someone installed **only** the Evo backend binary (no bootstrap), the web app is not installed automatically. In that case you can serve a **prebuilt `dist/`** yourself and point it at the API—see **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)** below. That path is **not** the default tester workflow.
 
 ---
 
@@ -61,9 +70,13 @@ Before starting, get from the developer:
 
 **Note:** The classic Volumio UI first tries `GET /api/host` on the **same host** as the page. Evo does not implement that route yet, so the UI falls back to **`/app/local-config.json`**—which is why that file must exist and point to Evo.
 
-**If you build the UI yourself (developers):** Clone [Volumio2-UI](https://github.com/volumio/Volumio2-UI), follow its README (`npm install`, `bower install`, then e.g. `npm run build:volumio` for theme `volumio`, or `npm run build:volumio3` for `volumio3`). Put `local-config.json` into `dist/app/` before zipping. For live development, `gulp serve --theme="volumio"` with `src/app/local-config.json` pointing at the Evo device works too.
+**If you build the UI yourself (developers):** Clone [Volumio2-UI](https://github.com/volumio/Volumio2-UI), follow its README (`npm install`, `bower install`, then e.g. `npm run build:volumio` for theme `volumio`, or `npm run build:volumio3` for `volumio3`). Put `local-config.json` into `dist/app/` before zipping. For live development, `gulp serve --theme="volumio"` with `src/app/local-config.json` pointing at the Evo device works too. Prefer **`bootstrap-volumio-evo-player.sh`** for a full device setup: it applies the Evo overlay and pins the same build steps testers rely on.
 
 ---
+
+## Manual install (advanced only)
+
+The steps below **repeat what the bootstrap script automates**—MPD layout, binary install, systemd, etc. Use them only when you **cannot** run bootstrap (e.g. debugging one layer) or to understand what the script does. **Testers doing a standard build on Raspberry Pi OS Lite or Debian Lite should use the [Fast path](#fast-path-for-testers-open-ui-and-play) only.**
 
 ## Step 1 – Prepare the system
 
@@ -262,7 +275,9 @@ You should get: `ok`, `ok`, and `"pong"`. If you do, the backend is working.
 
 ---
 
-## Step 5 – How to test (what to validate)
+## How to test (what to validate)
+
+Use this after the [fast path](#fast-path-for-testers-open-ui-and-play) **or** after a manual install.
 
 **Backend only (no UI):**
 
@@ -276,14 +291,16 @@ You should get: `ok`, `ok`, and `"pong"`. If you do, the backend is working.
 
 **Full experience (with Volumio UI):**
 
-- Follow **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)** above: serve the built UI on a **different port** (e.g. 8080), set **`app/local-config.json`** so `"localhost"` is `http://<IP-OF-THE-DEVICE>:3000`, then open the UI in the browser on that port.
-- Then use the UI to browse music, play/pause, change volume, check playlists, etc., and report any wrong or missing behaviour.
+- **After bootstrap:** open **`http://<device-ip>/`** (nginx serves the built UI on port **80**; the script wires `local-config.json` to the Evo API on port 3000). Use **`/playback`** or the usual navigation to play music.
+- **Without bootstrap (UI served separately):** follow **[How to start the Volumio UI (optional)](#how-to-start-the-volumio-ui-optional)**: static server on another port (e.g. 8080), **`app/local-config.json`** with `"localhost": "http://<device-ip>:3000"`.
+
+Then use the UI to browse music, play/pause, change volume, check playlists, etc., and report any wrong or missing behaviour.
 
 **Simple checklist for the tester:**
 
 1. Backend starts: `systemctl status volumio-evo` shows "active (running)".
 2. Health: opening `http://<device-IP>:3000/api/health` in a browser shows `ok`.
-3. If you have the UI: you can open the UI, see "My Music" (or similar), browse into **local** (or the folder where you put files), add a track to the queue, and play it. You hear audio and the UI updates (play/pause, progress, etc.).
+3. **Bootstrap path:** open `http://<device-IP>/` and exercise playback from the UI. **Manual UI zip path:** open your static server URL as above.
 4. Any screen that doesn't load, shows an error, or does something different from what you expect should be reported (with what you clicked and what you saw).
 
 ---

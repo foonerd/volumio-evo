@@ -135,7 +135,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 
 | Endpoint | Covered? | Evo behaviour |
 |----------|----------|----------------|
-| `GET /v1/browse` | Yes | Evo layout (local/usb/nas/smb) + MPD lsinfo |
+| `GET /v1/browse` | Yes | Root `music-library`: Favourites (empty stub), Playlists, **Artists** (`artists://` → MPD `list Artist`), **Albums** (`albums://`), **Genres** (`genres://`), then local/usb/nas/smb; sub-URIs use MPD tag queries + `lsinfo` under paths |
 | `GET /v1/search` | Yes | MPD find, browse-like response |
 | `GET /v1/superSearch` | Yes | Same as search |
 | `GET /v1/listplaylists` | Yes | MPD listplaylists |
@@ -162,7 +162,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | closeAllModals (on connect), closeModals | Yes | closeAllModals on connect; closeModals -> emit closeAllModals to client. |
 | getState | Yes | MPD state -> pushState |
 | getQueue | Yes | MPD queue -> pushQueue |
-| browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: Evo layout + MPD lsinfo -> pushBrowseLibrary; getInputSources -> pushInputSources; getBrowseSources -> pushBrowseSources (same music sources: local, usb, nas, smb). |
+| browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: same root as REST (library shortcuts + sources); virtual URIs `artists://`, `albums://`, `genres://`, `favourites`, `playlists`; getInputSources/getBrowseSources -> filesystem sources only (local, usb, nas, smb). |
 | addToQueue, addPlay, addQueueUids | Yes | MPD add + optional play; addQueueUids adds multiple URIs (payload: array or { uids }). |
 | removeFromQueue, removeQueueItem | Yes | MPD delete (position); both use payload { value } (1-based from UI). |
 | volume, play, pause, toggle, stop, next, prev, seek, skipBackwards, skipForward | Yes | MPD commands; skipBackwards/skipForward seek ±10s within current track. |

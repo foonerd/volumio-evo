@@ -8,8 +8,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::config::MUSIC_SOURCE_NAMES;
-use crate::mpd::{self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig, VolumioState};
+use crate::mpd::{self, MpdConfig, VolumioState};
 
 use super::AppState;
 
@@ -23,7 +22,7 @@ pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
 /// GET /api/v1/getState
 pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
-    match mpd::get_state_connected(&config).await {
+    match mpd::get_state_connected(&config, &state.config.music_sources.music_root).await {
         Ok(s) => Json::<VolumioState>(s).into_response(),
         Err(e) => {
             tracing::warn!("getState MPD error: {}", e);
@@ -351,35 +350,15 @@ pub async fn browse(
         q.uri.as_str()
     };
 
-    // Root: return our four sources (no MPD call). MPD music_directory must be music_root.
+    // Root: same as classic Volumio — library shortcuts + filesystem sources (see mpd::music_library_root_response).
     if uri == "music-library" {
-        let items: Vec<BrowseItem> = MUSIC_SOURCE_NAMES
-            .iter()
-            .map(|(name, title)| BrowseItem {
-                item_type: "folder".to_string(),
-                title: title.to_string(),
-                uri: format!("music-library/{}", name),
-                service: "mpd".to_string(),
-                artist: None,
-                album: None,
-                duration: None,
-            })
-            .collect();
-        let resp = BrowseResponse {
-            navigation: BrowseNavigation {
-                prev: BrowsePrev {
-                    uri: String::new(),
-                },
-                lists: vec![BrowseList {
-                    available_list_views: vec!["list", "grid"],
-                    items,
-                }],
-            },
-        };
-        return Json(resp).into_response();
+        return Json(mpd::music_library_root_response()).into_response();
     }
 
     let config = mpd_config_from_app(&state);
+    if uri == "favourites" {
+        return Json(mpd::browse_favourites_stub()).into_response();
+    }
     match mpd::browse_connected(&config, uri).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {

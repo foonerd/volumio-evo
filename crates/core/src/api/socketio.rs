@@ -1,7 +1,6 @@
 //! Socket.IO adapter: same event names as Node backend so the existing UI works.
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
-use crate::config::MUSIC_SOURCE_NAMES;
 use crate::mpd::{
     self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig,
 };
@@ -139,7 +138,7 @@ async fn on_connect(s: SocketRef) {
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    match mpd::get_state_connected(&config).await {
+    match mpd::get_state_connected(&config, &state.config.music_sources.music_root).await {
         Ok(payload) => {
             s.emit("pushState", &payload).ok();
         }
@@ -278,22 +277,60 @@ async fn close_modals(s: SocketRef) {
 }
 
 async fn get_input_sources(s: SocketRef) {
-    let sources = browse_sources_json();
+    // Node: executeBrowseSource('inputs') — Evo has no input plugins yet.
+    let sources: Vec<serde_json::Value> = vec![];
     s.emit("pushInputSources", &sources).ok();
 }
 
-/// Same shape as getInputSources: list of { name, uri, service } for visible browse sources.
+/// Visible browse sources for the sidebar / browse source picker — must match Node
+/// `app/musiclibrary.js` default `browseSources` (when browsesources.json is absent).
+/// If we only expose `music-library/<disk>` here, the UI opens a filesystem folder (`lsinfo`)
+/// and never shows the virtual `music-library` index (Favourites, Artists, Albums, …).
 fn browse_sources_json() -> Vec<serde_json::Value> {
-    MUSIC_SOURCE_NAMES
-        .iter()
-        .map(|(name, title)| {
-            serde_json::json!({
-                "name": title,
-                "uri": format!("music-library/{}", name),
-                "service": "mpd"
-            })
-        })
-        .collect()
+    vec![
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/favouritesicon.png",
+            "name": "Favourites",
+            "uri": "favourites",
+            "plugin_type": "",
+            "plugin_name": ""
+        }),
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/playlisticon.png",
+            "name": "Playlists",
+            "uri": "playlists",
+            "plugin_type": "music_service",
+            "plugin_name": "mpd"
+        }),
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/musiclibraryicon.png",
+            "name": "Music Library",
+            "uri": "music-library",
+            "plugin_type": "music_service",
+            "plugin_name": "mpd"
+        }),
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/artisticon.png",
+            "name": "Artists",
+            "uri": "artists://",
+            "plugin_type": "music_service",
+            "plugin_name": "mpd"
+        }),
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/albumicon.png",
+            "name": "Albums",
+            "uri": "albums://",
+            "plugin_type": "music_service",
+            "plugin_name": "mpd"
+        }),
+        serde_json::json!({
+            "albumart": "/albumart?sourceicon=music_service/mpd/genreicon.png",
+            "name": "Genres",
+            "uri": "genres://",
+            "plugin_type": "music_service",
+            "plugin_name": "mpd"
+        }),
+    ]
 }
 
 async fn get_device_info(s: SocketRef) {
@@ -467,9 +504,18 @@ async fn get_device_hw_uuid(s: SocketRef) {
     s.emit("pushDeviceHWUUID", &serde_json::json!("evo-stub")).ok();
 }
 
-/// Stub: empty UI settings (Node: appearance plugin getUiSettings -> pushUiSettings).
+/// UI settings for the stock Angular UI (Node: appearance plugin getUiSettings).
+/// `language` is required: `ui-settings.service.js` only calls `$translate.use()` when this is set;
+/// otherwise the UI shows raw keys (`COMMON.TAB_BROWSE`, …).
 async fn get_ui_settings(s: SocketRef) {
-    s.emit("pushUiSettings", &serde_json::json!({})).ok();
+    s.emit(
+        "pushUiSettings",
+        &serde_json::json!({
+            "language": "en",
+            "theme": "volumio3"
+        }),
+    )
+    .ok();
 }
 
 /// Stub: shutdown mode (Node: commandRouter.getShutdownOrStandbyMode -> pushShutdownOrStandbyMode).
@@ -615,29 +661,13 @@ async fn browse_library(
     };
 
     if uri == "music-library" {
-        let items: Vec<BrowseItem> = MUSIC_SOURCE_NAMES
-            .iter()
-            .map(|(name, title)| BrowseItem {
-                item_type: "folder".to_string(),
-                title: title.to_string(),
-                uri: format!("music-library/{}", name),
-                service: "mpd".to_string(),
-                artist: None,
-                album: None,
-                duration: None,
-            })
-            .collect();
-        let resp = BrowseResponse {
-            navigation: BrowseNavigation {
-                prev: BrowsePrev {
-                    uri: String::new(),
-                },
-                lists: vec![BrowseList {
-                    available_list_views: vec!["list", "grid"],
-                    items,
-                }],
-            },
-        };
+        let resp = mpd::music_library_root_response();
+        push_browse_and_store(&s, &state, &resp).await;
+        return;
+    }
+
+    if uri == "favourites" {
+        let resp = mpd::browse_favourites_stub();
         push_browse_and_store(&s, &state, &resp).await;
         return;
     }
@@ -738,6 +768,7 @@ async fn add_to_queue(
     State(state): State<AppState>,
     Data(payload): Data<AddToQueuePayload>,
 ) {
+    tracing::info!("addToQueue received uri={:?}", payload.uri);
     if payload.uri.is_empty() {
         return;
     }
@@ -761,6 +792,7 @@ async fn replace_and_play(
     State(state): State<AppState>,
     Data(payload): Data<ReplaceAndPlayPayload>,
 ) {
+    tracing::info!("replaceAndPlay received uri={:?} title={:?}", payload.uri, payload.title);
     let uri = payload.uri.trim();
     if uri.is_empty() {
         return;
@@ -1127,7 +1159,9 @@ async fn play_next(
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
-            if let Ok(st) = mpd::get_state_connected(&config).await {
+            if let Ok(st) =
+                mpd::get_state_connected(&config, &state.config.music_sources.music_root).await
+            {
                 s.emit("pushState", &st).ok();
             }
         }
@@ -1524,10 +1558,11 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
 /// Run this in a spawned task so the UI updates when state or queue changes (e.g. from another client or MPD).
 pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) {
     let config = mpd_config(&state);
+    let music_root = state.config.music_sources.music_root.clone();
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
     loop {
         interval.tick().await;
-        if let Ok(s) = mpd::get_state_connected(&config).await {
+        if let Ok(s) = mpd::get_state_connected(&config, &music_root).await {
             if io.emit("pushState", &s).await.is_err() {
                 tracing::debug!("pushState broadcast error (connection closed?)");
             }
