@@ -430,6 +430,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         .route("/getzones", get(v1::get_zones))
         .route("/getActiveUi", get(v1::get_active_ui))
         .route("/replaceAndPlay", post(v1::replace_and_play))
+        .route("/pluginEndpoint", post(v1::plugin_endpoint))
         .with_state(router_state.clone());
 
     let app = Router::new()

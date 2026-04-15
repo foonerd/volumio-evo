@@ -83,7 +83,9 @@ impl Default for UiConfig {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct AlbumArtProvidersConfig {
     /// Last.fm API key (album.getinfo, artist.getinfo). Get one at https://www.last.fm/api/account/create.
-    /// Env override: VOLUMIO_EVO_LASTFM_API_KEY.
+    /// Env override: `VOLUMIO_EVO_LASTFM_API_KEY`.
+    /// Strongly recommended for browse **album/artist story** text (`POST /api/v1/pluginEndpoint`, metavolumio);
+    /// without it, Evo falls back to Wikipedia (needs outbound HTTPS and a working DNS path).
     pub lastfm_api_key: Option<String>,
     /// User-Agent for MusicBrainz / Cover Art Archive (required by their API policy).
     /// Env override: VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT.

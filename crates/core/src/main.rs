@@ -7,6 +7,7 @@ mod albumart;
 mod api;
 mod artist_normalize;
 mod config;
+mod metavolumio;
 mod mpd;
 mod plugins;
 

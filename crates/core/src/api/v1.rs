@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use crate::metavolumio::{metavolumio_response, PluginEndpointBody};
 use crate::mpd::{self, MpdConfig, VolumioState};
 
 use super::AppState;
@@ -199,6 +200,14 @@ pub async fn list_installed_plugins(state: &AppState) -> Vec<PluginInfo> {
 /// GET /api/v1/getInstalledPlugins - list WASM plugins from plugin_dir
 pub async fn get_installed_plugins(State(state): State<AppState>) -> impl IntoResponse {
     Json(list_installed_plugins(&state).await)
+}
+
+/// POST /api/v1/pluginEndpoint — stock UI metavolumio (album story, credits, artist bio).
+pub async fn plugin_endpoint(
+    State(state): State<AppState>,
+    Json(body): Json<PluginEndpointBody>,
+) -> impl IntoResponse {
+    Json(metavolumio_response(&state.config, &body).await)
 }
 
 /// GET /api/v1/ping - liveness (Node returns "pong")
