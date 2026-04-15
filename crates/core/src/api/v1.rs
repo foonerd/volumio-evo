@@ -259,7 +259,7 @@ pub async fn search(
             .into_response();
     }
     let config = mpd_config_from_app(&state);
-    match mpd::search_connected(&config, &q.query).await {
+    match mpd::search_connected(&config, &state.config.music_sources.music_root, &q.query).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
             tracing::warn!("search MPD error: {}", e);
@@ -366,7 +366,7 @@ pub async fn browse(
     if uri == "favourites" {
         return Json(mpd::browse_favourites_stub()).into_response();
     }
-    match mpd::browse_connected(&config, uri).await {
+    match mpd::browse_connected(&config, &state.config.music_sources.music_root, uri).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
             tracing::warn!("browse {} MPD error: {}", uri, e);

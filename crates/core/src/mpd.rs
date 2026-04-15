@@ -1,5 +1,6 @@
 //! MPD client: connect and run commands. Used by the v1 API to mirror Volumio backend behaviour.
 
+use crate::albumart;
 use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
 use std::path::Path;
@@ -258,34 +259,27 @@ fn browse_uri_is_under_internal(browse_uri: &str) -> bool {
         || browse_uri.starts_with("music-library/INTERNAL/")
 }
 
-/// Node `lsInfo` directory row: `remdisk` (USB volume), `internal-folder` under INTERNAL, else `folder`; `albumart` like `getAlbumArt`.
-fn lsinfo_directory_fields(browse_uri: &str, mpd_path: &str, item_uri: &str) -> (String, String) {
+/// Node `lsInfo` directory row types: `remdisk`, `internal-folder`, or `folder`.
+fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
     let segments: Vec<&str> = mpd_path.split('/').filter(|s| !s.is_empty()).collect();
     let is_remdisk = segments.len() == 2 && segments[0] == "USB";
-    let item_type = if is_remdisk {
-        "remdisk"
+    if is_remdisk {
+        "remdisk".to_string()
     } else if browse_uri_is_under_internal(browse_uri) {
-        "internal-folder"
+        "internal-folder".to_string()
     } else {
-        "folder"
+        "folder".to_string()
     }
-    .to_string();
-
-    let albumart = if browse_uri == "music-library" && segments.len() == 1 {
-        match mpd_path {
-            "INTERNAL" | "NAS" | "USB" | "SMB" => music_source_albumart(mpd_path).to_string(),
-            _ => format!("/albumart?path={}&icon=folder-o", urlencoding::encode(item_uri)),
-        }
-    } else {
-        format!("/albumart?path={}&icon=folder-o", urlencoding::encode(item_uri))
-    };
-
-    (item_type, albumart)
 }
 
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
-fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, browse_uri: &str) -> Vec<BrowseItem> {
+/// `music_root` resolves folder cover files vs Font Awesome folder icon (stock UI; no bundled `/albumart` SVG required).
+fn parse_lsinfo_frame(
+    frame: mpd_client::protocol::response::Frame,
+    browse_uri: &str,
+    music_root: &Path,
+) -> Vec<BrowseItem> {
     let mut items = Vec::new();
     let mut current_file: Option<FileEntry> = None;
 
@@ -302,8 +296,21 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, browse_uri: 
                     continue;
                 }
                 let item_uri = format!("music-library/{}", value);
-                let (item_type, albumart) =
-                    lsinfo_directory_fields(browse_uri, value, &item_uri);
+                let item_type = lsinfo_directory_item_type(browse_uri, value);
+                let has_cover = albumart::folder_has_browse_cover_file(music_root, &item_uri);
+                let (albumart, icon) = if has_cover {
+                    (
+                        Some(format!(
+                            "/albumart?path={}",
+                            urlencoding::encode(&item_uri)
+                        )),
+                        None,
+                    )
+                } else if item_type == "remdisk" {
+                    (None, Some("fa fa-usb".to_string()))
+                } else {
+                    (None, Some("fa fa-folder-open-o".to_string()))
+                };
                 items.push(BrowseItem {
                     item_type,
                     title: name,
@@ -312,8 +319,8 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, browse_uri: 
                     artist: None,
                     album: None,
                     duration: None,
-                    albumart: Some(albumart),
-                    icon: None,
+                    albumart,
+                    icon,
                 });
             }
             "file" => {
@@ -559,7 +566,11 @@ pub async fn enqueue_playlist_connected(config: &MpdConfig, name: &str) -> Resul
 }
 
 /// Search MPD library (find any <query>). Returns browse-style response.
-pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseResponse> {
+pub async fn search_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+    query: &str,
+) -> Result<BrowseResponse> {
     let query = query.trim();
     if query.is_empty() {
         return Ok(BrowseResponse {
@@ -579,7 +590,7 @@ pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseR
     // find any "term" searches in any tag
     let raw = RawCommand::new("find").argument("any").argument(query);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "music-library");
+    let items = parse_lsinfo_frame(frame, "music-library", music_root);
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
             prev: BrowsePrev {
@@ -750,14 +761,18 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
 }
 
 /// Songs when browsing by album title only (flat album list).
-async fn browse_album_only_songs_connected(config: &MpdConfig, album: &str) -> Result<BrowseResponse> {
+async fn browse_album_only_songs_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+    album: &str,
+) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
     let raw = RawCommand::new("find")
         .argument("Album")
         .argument(album);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "music-library");
+    let items = parse_lsinfo_frame(frame, "music-library", music_root);
     let prev = "albums://".to_string();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
@@ -889,6 +904,7 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
 /// List songs in an album (goTo type=album). Uses MPD find Artist/Album, returns song items.
 async fn browse_album_songs_connected(
     config: &MpdConfig,
+    music_root: &Path,
     artist: &str,
     album: &str,
 ) -> Result<BrowseResponse> {
@@ -900,7 +916,7 @@ async fn browse_album_songs_connected(
         .argument("Album")
         .argument(album);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "albums://find-tracks");
+    let items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root);
     let prev = format!("artists://{}", artist);
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
@@ -915,7 +931,11 @@ async fn browse_album_songs_connected(
 
 /// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library/INTERNAL/..."), return browse response.
 /// Handles virtual URIs: `artists://`, `albums://`, `genres://` (tag-based library, like classic Volumio).
-pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseResponse> {
+pub async fn browse_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<BrowseResponse> {
     if uri == "favourites" {
         return Ok(browse_favourites_stub());
     }
@@ -954,10 +974,10 @@ pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseRes
             let artist = a.trim();
             let album = b.trim();
             if !artist.is_empty() && !album.is_empty() {
-                return browse_album_songs_connected(config, artist, album).await;
+                return browse_album_songs_connected(config, music_root, artist, album).await;
             }
         }
-        return browse_album_only_songs_connected(config, &rest_dec).await;
+        return browse_album_only_songs_connected(config, music_root, &rest_dec).await;
     }
 
     let stream = TcpStream::connect(config.addr()).await?;
@@ -979,7 +999,7 @@ pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseRes
     };
     let frame = client.raw_command(raw).await?;
 
-    let items = parse_lsinfo_frame(frame, &uri_prefix);
+    let items = parse_lsinfo_frame(frame, &uri_prefix, music_root);
 
     let prev = if uri == "music-library" || uri.is_empty() {
         "".to_string()
@@ -1078,6 +1098,33 @@ fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// Node `miscellanea/albumart` `getAlbumArt`: when `data.artist` is set, the URL includes
+/// `web=artist/album/extralarge` **in addition to** `path=` so `searchOnline` runs after local/embed fails.
+fn push_state_albumart_url(
+    volumio_uri: &str,
+    artist: &Option<String>,
+    album: &Option<String>,
+) -> String {
+    let mut url = format!(
+        "/albumart?metadata=true&path={}",
+        urlencoding::encode(volumio_uri)
+    );
+    if let Some(a) = artist {
+        let a = a.trim();
+        if !a.is_empty() {
+            let web_inner = match album {
+                Some(b) if !b.trim().is_empty() => {
+                    format!("{}/{}/extralarge", a, b.trim())
+                }
+                _ => format!("{}//extralarge", a),
+            };
+            url.push_str("&web=");
+            url.push_str(&urlencoding::encode(&web_inner));
+        }
+    }
+    url
+}
+
 pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<VolumioState> {
     let status = client.command(Status).await?;
 
@@ -1113,9 +1160,10 @@ pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<Volumio
                 let volumio_uri = volumio_uri_from_mpd_url(&s.url, music_root);
                 let uri = Some(volumio_uri.clone());
                 let track_type = s.url.split('.').last().map(String::from);
-                let albumart = Some(format!(
-                    "/albumart?metadata=true&path={}",
-                    urlencoding::encode(&volumio_uri)
+                let albumart = Some(push_state_albumart_url(
+                    &volumio_uri,
+                    &artist,
+                    &album,
                 ));
                 (title, artist, album, uri, track_type, albumart)
             }

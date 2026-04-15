@@ -1,5 +1,6 @@
 //! Album art resolution: path → folder cache → metadata (incl. exiftool) → folder covers → personal
-//! → online providers (Cover Art Archive, Last.fm, iTunes, Volumio meta) → default.
+//! → online: Cover Art Archive (MusicBrainz, multi-release + title variants) → Last.fm → iTunes
+//! → Volumio meta (artist-only web=) → default.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,6 +43,15 @@ fn sanitize_path(path: &str) -> Option<String> {
         return None;
     }
     Some(s.to_string())
+}
+
+/// True if this browse URI maps to a directory that has a local cover image (`folder.jpg`, etc.).
+/// Used to decide `albumart` vs Font Awesome `icon` on folder rows (bundled SVG may be unavailable on device).
+pub fn folder_has_browse_cover_file(music_root: &Path, volumio_uri: &str) -> bool {
+    let Some(folder) = path_to_folder(music_root, volumio_uri) else {
+        return false;
+    };
+    try_folder_covers(&folder).is_some()
 }
 
 /// Resolve path param to an absolute folder path under music_root (for a file, its parent).
@@ -215,21 +225,65 @@ fn escape_lucene(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Cover Art Archive (MusicBrainz): search release by artist+album, then get front image.
-async fn try_cover_art_archive(
+/// Match Node `miscellanea/albumart` behavior so "A & B" searches like "A and B" on providers.
+fn normalize_provider_query(s: &str) -> String {
+    s.replace('&', "and")
+}
+
+/// Strip common multi-disc / reissue suffixes so MusicBrainz matches classical box sets and opera splits.
+fn album_title_search_variants(album: &str) -> Vec<String> {
+    let base = album.trim();
+    if base.is_empty() {
+        return vec![];
+    }
+    let mut out = vec![base.to_string()];
+    let lower = base.to_ascii_lowercase();
+    let strip_tail = |s: &str, tail: &str| -> Option<String> {
+        let t = s.trim_end();
+        if t.len() >= tail.len() && t[t.len() - tail.len()..].eq_ignore_ascii_case(tail) {
+            Some(t[..t.len() - tail.len()].trim().to_string())
+        } else {
+            None
+        }
+    };
+    for tail in [
+        " - disc 1",
+        " - disc 2",
+        " - disc 3",
+        " - cd 1",
+        " - cd 2",
+        " (disc 1)",
+        " (disc 2)",
+        " (cd 1)",
+        " (cd 2)",
+    ] {
+        if lower.ends_with(tail) {
+            if let Some(s) = strip_tail(base, tail) {
+                if !s.is_empty() && !out.iter().any(|x| x == &s) {
+                    out.push(s);
+                }
+            }
+            break;
+        }
+    }
+    out
+}
+
+/// MusicBrainz asks for ~1 request/s to coverartarchive.org; MB search is separate, but space out repeated MB queries.
+async fn sleep_mb_courtesy() {
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+}
+
+async fn mb_release_search_mbids(
     client: &reqwest::Client,
-    artist: &str,
-    album: &str,
+    lucene_query: &str,
     user_agent: &str,
-) -> Option<Vec<u8>> {
-    let query = format!(
-        "artist:\"{}\" AND release:\"{}\"",
-        escape_lucene(artist),
-        escape_lucene(album)
-    );
+    limit: u8,
+) -> Option<Vec<String>> {
     let url = format!(
-        "https://musicbrainz.org/ws/2/release/?query={}&fmt=json&limit=1",
-        urlencoding::encode(&query)
+        "https://musicbrainz.org/ws/2/release/?query={}&fmt=json&limit={}",
+        urlencoding::encode(lucene_query),
+        limit
     );
     let resp = client
         .get(&url)
@@ -241,9 +295,20 @@ async fn try_cover_art_archive(
         return None;
     }
     let search: MusicBrainzReleaseSearch = resp.json().await.ok()?;
-    let releases = search.releases?;
-    let mbid = releases.first()?.id.as_deref()?;
-    let caa_url = format!("https://coverartarchive.org/release/{}/front", mbid);
+    let releases = search.releases.unwrap_or_default();
+    let ids: Vec<String> = releases
+        .into_iter()
+        .filter_map(|r| r.id)
+        .collect();
+    Some(ids)
+}
+
+async fn fetch_cover_art_archive_front(
+    client: &reqwest::Client,
+    release_mbid: &str,
+    user_agent: &str,
+) -> Option<Vec<u8>> {
+    let caa_url = format!("https://coverartarchive.org/release/{}/front", release_mbid);
     let img_resp = client
         .get(&caa_url)
         .header("User-Agent", user_agent)
@@ -258,6 +323,40 @@ async fn try_cover_art_archive(
         return None;
     }
     Some(bytes.to_vec())
+}
+
+/// Cover Art Archive (MusicBrainz): search releases, try several MBIDs (first hit often has no front art).
+async fn try_cover_art_archive(
+    client: &reqwest::Client,
+    artist: &str,
+    album: &str,
+    user_agent: &str,
+) -> Option<Vec<u8>> {
+    const MB_LIMIT: u8 = 5;
+    let mut first_album_variant = true;
+    for album_part in album_title_search_variants(album) {
+        if !first_album_variant {
+            sleep_mb_courtesy().await;
+        }
+        first_album_variant = false;
+        let query = format!(
+            "artist:\"{}\" AND release:\"{}\"",
+            escape_lucene(artist),
+            escape_lucene(&album_part)
+        );
+        let Some(mbids) = mb_release_search_mbids(client, &query, user_agent, MB_LIMIT).await else {
+            continue;
+        };
+        if mbids.is_empty() {
+            continue;
+        }
+        for mbid in mbids {
+            if let Some(bytes) = fetch_cover_art_archive_front(client, &mbid, user_agent).await {
+                return Some(bytes);
+            }
+        }
+    }
+    None
 }
 
 #[derive(serde::Deserialize)]
@@ -620,7 +719,9 @@ pub async fn resolve_async(
         }
     }
 
-    let (artist, album) = web_param.and_then(parse_web)?;
+    let (artist_raw, album_raw) = web_param.and_then(parse_web)?;
+    let artist = normalize_provider_query(&artist_raw);
+    let album: Option<String> = album_raw.map(|a| normalize_provider_query(&a));
     let client = http_client();
     let user_agent = providers
         .musicbrainz_user_agent
@@ -654,7 +755,7 @@ pub async fn resolve_async(
         }
     }
 
-    // 7) Volumio meta (artist only when no album)
+    // 7) Volumio meta (artist-only lookups from web= artist//…)
     if album.is_none() {
         if let Some(bytes) = try_volumio_meta_artist(client, &artist).await {
             if let Some(r) = save_web_cache(albumart_root, &artist, None, &bytes) {

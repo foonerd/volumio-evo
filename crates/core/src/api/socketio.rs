@@ -182,7 +182,7 @@ async fn search(
         return;
     }
     let config = mpd_config(&state);
-    match mpd::search_connected(&config, query).await {
+    match mpd::search_connected(&config, &state.config.music_sources.music_root, query).await {
         Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
         Err(e) => tracing::warn!("search MPD error: {}", e),
     }
@@ -781,7 +781,7 @@ async fn browse_library(
     } else {
         "music-library"
     };
-    match mpd::browse_connected(&config, uri).await {
+    match mpd::browse_connected(&config, &state.config.music_sources.music_root, uri).await {
         Ok(resp) => {
             push_browse_and_store(&s, &state, &resp).await;
         }
@@ -877,7 +877,7 @@ async fn go_to(
     } else {
         return;
     };
-    match mpd::browse_connected(&config, &uri).await {
+    match mpd::browse_connected(&config, &state.config.music_sources.music_root, &uri).await {
         Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
         Err(e) => tracing::warn!("goTo {} MPD error: {}", uri, e),
     }
