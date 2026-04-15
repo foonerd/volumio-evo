@@ -2,7 +2,8 @@
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
 use crate::mpd::{
-    self, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev, BrowseResponse, MpdConfig,
+    self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
+    BrowseResponse, MpdConfig,
 };
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
@@ -702,7 +703,9 @@ async fn browse_library(
                         artist: None,
                         album: None,
                         duration: None,
-                        albumart: None,
+                        albumart: Some(
+                            "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
+                        ),
                         icon: None,
                     })
                     .collect();
@@ -739,6 +742,7 @@ async fn browse_library(
                             .next()
                             .unwrap_or(uri.as_str())
                             .to_string();
+                        let albumart = Some(browse_song_albumart_path_only(&uri));
                         BrowseItem {
                             item_type: "song".to_string(),
                             title,
@@ -747,7 +751,7 @@ async fn browse_library(
                             artist: None,
                             album: None,
                             duration: None,
-                            albumart: None,
+                            albumart,
                             icon: None,
                         }
                     })
@@ -1376,7 +1380,9 @@ async fn delete_playlist(
                         artist: None,
                         album: None,
                         duration: None,
-                        albumart: None,
+                        albumart: Some(
+                            "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
+                        ),
                         icon: None,
                     })
                     .collect();
@@ -1463,6 +1469,7 @@ async fn remove_from_playlist(
                             .next()
                             .unwrap_or(uri.as_str())
                             .to_string();
+                        let albumart = Some(browse_song_albumart_path_only(&uri));
                         BrowseItem {
                             item_type: "song".to_string(),
                             title,
@@ -1471,7 +1478,7 @@ async fn remove_from_playlist(
                             artist: None,
                             album: None,
                             duration: None,
-                            albumart: None,
+                            albumart,
                             icon: None,
                         }
                     })

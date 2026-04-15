@@ -276,7 +276,7 @@ fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
 
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
-/// `music_root` resolves folder cover files vs Font Awesome folder icon (stock UI; no bundled `/albumart` SVG required).
+/// `music_root` resolves folder cover files; rows without a local cover use `/albumart?...&icon=folder-o` like Node.
 fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
@@ -303,7 +303,7 @@ fn parse_lsinfo_frame(
                 let (albumart, icon) = if has_cover {
                     (
                         Some(format!(
-                            "/albumart?path={}",
+                            "/albumart?metadata=true&path={}",
                             urlencoding::encode(&item_uri)
                         )),
                         None,
@@ -311,7 +311,13 @@ fn parse_lsinfo_frame(
                 } else if item_type == "remdisk" {
                     (None, Some("fa fa-usb".to_string()))
                 } else {
-                    (None, Some("fa fa-folder-open-o".to_string()))
+                    (
+                        Some(format!(
+                            "/albumart?metadata=true&path={}&icon=folder-o",
+                            urlencoding::encode(&item_uri)
+                        )),
+                        None,
+                    )
                 };
                 items.push(BrowseItem {
                     item_type,
@@ -712,10 +718,10 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
                 urlencoding::encode(a.as_str())
             ),
             service: "mpd".to_string(),
-            artist: Some(a),
+            artist: Some(a.clone()),
             album: None,
             duration: None,
-            albumart: None,
+            albumart: Some(browse_virtual_folder_albumart_url(Some(a.as_str()), None)),
             icon: None,
         })
         .collect();
@@ -743,9 +749,9 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
             uri: format!("albums://{}", urlencoding::encode(album.as_str())),
             service: "mpd".to_string(),
             artist: None,
-            album: Some(album),
+            album: Some(album.clone()),
             duration: None,
-            albumart: None,
+            albumart: Some(browse_virtual_folder_albumart_url(None, Some(album.as_str()))),
             icon: None,
         })
         .collect();
@@ -800,7 +806,7 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
             artist: None,
             album: None,
             duration: None,
-            albumart: None,
+            albumart: Some(browse_virtual_folder_albumart_url(None, None)),
             icon: None,
         })
         .collect();
@@ -839,10 +845,10 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
             title: a.clone(),
             uri: format!("artists://{}", urlencoding::encode(a.as_str())),
             service: "mpd".to_string(),
-            artist: Some(a),
+            artist: Some(a.clone()),
             album: None,
             duration: None,
-            albumart: None,
+            albumart: Some(browse_virtual_folder_albumart_url(Some(a.as_str()), None)),
             icon: None,
         })
         .collect();
@@ -883,9 +889,12 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
                 uri: format!("albums://{}/{}", artist, album),
                 service: "mpd".to_string(),
                 artist: Some(artist.to_string()),
-                album: Some(album),
+                album: Some(album.clone()),
                 duration: None,
-                albumart: None,
+                albumart: Some(browse_virtual_folder_albumart_url(
+                    Some(artist),
+                    Some(album.as_str()),
+                )),
                 icon: None,
             }
         })
@@ -1100,6 +1109,30 @@ fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// Tag-library folder (`artists://`, `albums://`, …): no `music-library/` path — resolve art from `web=`
+/// (Last.fm / CAA / iTunes into `albumart/web/` cache), then `icon=folder-o` if nothing matches.
+///
+/// Album-only rows (flat album list) use **"Various Artists"** as a synthetic first segment so online
+/// album search can run; wrong for some compilations but better than no art.
+pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&str>) -> String {
+    let a = artist.map(str::trim).filter(|s| !s.is_empty());
+    let b = album.map(str::trim).filter(|s| !s.is_empty());
+    let web_inner = match (a, b) {
+        (Some(ar), Some(al)) => Some(format!("{}/{}/extralarge", ar, al)),
+        (Some(ar), None) => Some(format!("{}//extralarge", ar)),
+        (None, Some(al)) => Some(format!("Various Artists/{}/extralarge", al)),
+        (None, None) => None,
+    };
+    let mut url = String::from("/albumart?");
+    if let Some(w) = web_inner {
+        url.push_str("web=");
+        url.push_str(&urlencoding::encode(&w));
+        url.push_str("&");
+    }
+    url.push_str("icon=folder-o");
+    url
+}
+
 /// Node `miscellanea/albumart` `getAlbumArt`: `metadata=true` + `path=` for embed/exiftool/MPD readpicture;
 /// when `artist` is set, add `web=artist/album/extralarge` so online providers run after local fails.
 ///
@@ -1140,6 +1173,11 @@ fn push_state_albumart_url(
     album: &Option<String>,
 ) -> String {
     volumio_albumart_url(volumio_uri, artist, album, false)
+}
+
+/// Playlist rows and other browse paths where we only have a `music-library/...` URI (no tags yet).
+pub fn browse_song_albumart_path_only(volumio_uri: &str) -> String {
+    volumio_albumart_url(volumio_uri, &None, &None, true)
 }
 
 pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<VolumioState> {
