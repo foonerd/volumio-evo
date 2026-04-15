@@ -811,7 +811,13 @@ async fn add_to_queue(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_to_queue_connected(&config, &payload.uri).await {
+    if let Err(e) = mpd::add_to_queue_resolved(
+        &config,
+        &state.config.music_sources.music_root,
+        &payload.uri,
+    )
+    .await
+    {
         tracing::warn!("addToQueue MPD error: {}", e);
     }
 }
@@ -834,7 +840,13 @@ async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
         if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
             tracing::warn!("replaceAndPlay (playlist) MPD error: {}", e);
         }
-    } else if let Err(e) = mpd::add_play_connected(&config, uri).await {
+    } else if let Err(e) = mpd::replace_and_play_resolved(
+        &config,
+        &state.config.music_sources.music_root,
+        uri,
+    )
+    .await
+    {
         tracing::warn!("replaceAndPlay MPD error: {}", e);
     }
 }
@@ -1010,7 +1022,13 @@ async fn add_play(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_play_append_connected(&config, &payload.uri).await {
+    if let Err(e) = mpd::add_play_append_resolved(
+        &config,
+        &state.config.music_sources.music_root,
+        &payload.uri,
+    )
+    .await
+    {
         tracing::warn!("addPlay MPD error: {}", e);
     }
 }
@@ -1205,7 +1223,13 @@ async fn play_next(
         return;
     }
     let config = mpd_config(&state);
-    match mpd::play_next_connected(&config, &payload.uri).await {
+    match mpd::play_next_resolved(
+        &config,
+        &state.config.music_sources.music_root,
+        &payload.uri,
+    )
+    .await
+    {
         Ok(()) => {
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();

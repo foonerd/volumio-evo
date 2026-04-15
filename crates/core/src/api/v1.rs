@@ -88,7 +88,13 @@ pub async fn commands(
                     .into_response()
             }
         };
-        return match mpd::add_to_queue_connected(&config, uri).await {
+        return match mpd::add_to_queue_resolved(
+            &config,
+            &state.config.music_sources.music_root,
+            uri,
+        )
+        .await
+        {
             Ok(()) => Json(serde_json::json!({"response": "addToQueue Success"})).into_response(),
             Err(e) => {
                 tracing::warn!("addToQueue MPD error: {}", e);
@@ -111,7 +117,13 @@ pub async fn commands(
                     .into_response()
             }
         };
-        return match mpd::add_play_append_connected(&config, uri).await {
+        return match mpd::add_play_append_resolved(
+            &config,
+            &state.config.music_sources.music_root,
+            uri,
+        )
+        .await
+        {
             Ok(()) => Json(serde_json::json!({"response": "addPlay Success"})).into_response(),
             Err(e) => {
                 tracing::warn!("addPlay MPD error: {}", e);
@@ -326,7 +338,13 @@ pub async fn replace_and_play(
             .into_response();
     }
     let config = mpd_config_from_app(&state);
-    match mpd::add_play_connected(&config, &body.uri).await {
+    match mpd::replace_and_play_resolved(
+        &config,
+        &state.config.music_sources.music_root,
+        &body.uri,
+    )
+    .await
+    {
         Ok(()) => Json(serde_json::json!({"response": "success"})).into_response(),
         Err(e) => {
             tracing::warn!("replaceAndPlay MPD error: {}", e);

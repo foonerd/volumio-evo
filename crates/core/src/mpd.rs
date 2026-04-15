@@ -1,20 +1,20 @@
 //! MPD client: connect and run commands. Used by the v1 API to mirror Volumio backend behaviour.
 
 use crate::albumart;
+use crate::artist_normalize;
 use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use urlencoding::decode;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue,
-        Rescan, Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat,
-        SetVolume, Song, SongPosition, Status, Stop, Update,
+        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
+        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Song,
+        SongPosition, Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
-    tag::Tag,
     Client,
 };
 use std::io;
@@ -178,6 +178,56 @@ pub async fn play_items_list_connected(
     client
         .command(Play::song(Song::Position(SongPosition(play_index))))
         .await?;
+    Ok(())
+}
+
+/// Append several `music-library/...` URIs and start playback at the first appended song (Node `addPlay` after `explodeUri`).
+pub async fn add_play_append_many_connected(config: &MpdConfig, uris: &[String]) -> Result<()> {
+    if uris.is_empty() {
+        return Ok(());
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let start = client.command(Queue::all()).await?.len();
+    for uri in uris {
+        let path = volumio_uri_to_mpd_path(uri.trim());
+        if path.is_empty() {
+            continue;
+        }
+        client
+            .raw_command(RawCommand::new("add").argument(path))
+            .await?;
+    }
+    client
+        .command(Play::song(Song::Position(SongPosition(start))))
+        .await?;
+    Ok(())
+}
+
+/// Insert multiple tracks after the current song (`add URI [POSITION]`). Used when `explodeUri` returns many rows.
+pub async fn play_next_tracks_connected(config: &MpdConfig, uris: &[String]) -> Result<()> {
+    if uris.is_empty() {
+        return Ok(());
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let status = client.command(Status).await?;
+    let qlen = client.command(Queue::all()).await?.len();
+    let insert_at = status
+        .current_song
+        .map(|(pos, _)| pos.0 + 1)
+        .unwrap_or(qlen);
+    let mut pos = insert_at;
+    for uri in uris {
+        let path = volumio_uri_to_mpd_path(uri.trim());
+        if path.is_empty() {
+            continue;
+        }
+        client
+            .raw_command(RawCommand::new("add").argument(path).argument(pos.to_string()))
+            .await?;
+        pos += 1;
+    }
     Ok(())
 }
 
@@ -711,75 +761,212 @@ async fn list_tag_values(config: &MpdConfig, tag: &str) -> Result<Vec<String>> {
     Ok(vals)
 }
 
-/// Distinct `(album, artist)` pairs: `list album group albumartist` plus `list album group artist`
-/// for tracks without AlbumArtist (merged, Node-style).
-async fn list_album_artist_pairs(config: &MpdConfig) -> Vec<(String, String)> {
-    let stream = match TcpStream::connect(config.addr()).await {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let (client, _) = match Client::connect(stream).await {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut seen: HashSet<(String, String)> = HashSet::new();
-    let mut pairs: Vec<(String, String)> = Vec::new();
-
-    let mut push_pair = |album: &str, artist: &str| {
-        let ar = artist.trim();
-        let al = album.trim();
-        if al.is_empty() || ar.is_empty() {
-            return;
-        }
-        let key = (al.to_string(), ar.to_string());
-        if seen.insert(key.clone()) {
-            pairs.push(key);
-        }
-    };
-
-    if let Ok(list) = client
-        .command(MpdListCmd::new(Tag::Album).group_by([Tag::AlbumArtist]))
-        .await
-    {
-        for (album, groups) in list.grouped_values() {
-            push_pair(album, groups[0]);
-        }
-    }
-    if let Ok(list) = client
-        .command(MpdListCmd::new(Tag::Album).group_by([Tag::Artist]))
-        .await
-    {
-        for (album, groups) in list.grouped_values() {
-            push_pair(album, groups[0]);
-        }
-    }
-
-    pairs.sort_by(|x, y| {
-        x.0.to_lowercase()
-            .cmp(&y.0.to_lowercase())
-            .then_with(|| x.1.to_lowercase().cmp(&y.1.to_lowercase()))
-    });
-    pairs
+/// Stable key to merge **Album artist** / **Artist** spellings that differ only by case or spacing (Node uses
+/// `list albumartist` for browse; we group so "b mars" / "B Mars" collapse when MPD lists both).
+fn artist_browse_normalize_key(s: &str) -> String {
+    let t = s.trim();
+    t.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
-/// All artists (`artists://` root).
-async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseResponse> {
-    let artists = list_tag_values(config, "Artist").await?;
-    let items: Vec<BrowseItem> = artists
+fn is_heavy_uppercase(s: &str) -> bool {
+    let letters: Vec<char> = s.chars().filter(|c| c.is_alphabetic()).collect();
+    if letters.is_empty() {
+        return false;
+    }
+    let upper = letters.iter().filter(|c| c.is_uppercase()).count();
+    upper * 3 >= letters.len() * 2
+}
+
+/// Pick a single display string for browse (prefer not ALL‑CAPS; then shortest).
+fn pick_canonical_artist_title(candidates: &[String]) -> String {
+    if candidates.len() == 1 {
+        return candidates[0].clone();
+    }
+    let has_mixed = candidates.iter().any(|s| !is_heavy_uppercase(s));
+    let pool: Vec<&String> = if has_mixed {
+        candidates.iter().filter(|s| !is_heavy_uppercase(s)).collect()
+    } else {
+        candidates.iter().collect()
+    };
+    pool.iter()
+        .min_by_key(|s| (s.len(), s.as_str()))
+        .expect("non-empty pool")
+        .to_string()
+}
+
+/// Deduplicate raw MPD tag values by [`artist_browse_normalize_key`]; returns `(display_title, uri_token)`.
+fn group_artist_names_for_browse(raw: Vec<String>) -> Vec<(String, String)> {
+    let mut buckets: HashMap<String, Vec<String>> = HashMap::new();
+    for r in raw {
+        let k = artist_browse_normalize_key(&r);
+        if k.is_empty() {
+            continue;
+        }
+        buckets.entry(k).or_default().push(r);
+    }
+    let mut out: Vec<(String, String)> = buckets
+        .into_values()
+        .filter_map(|mut group| {
+            if group.is_empty() {
+                return None;
+            }
+            group.sort();
+            let title = pick_canonical_artist_title(&group);
+            // URI uses canonical title so links stay readable; drill-down resolves all spellings via normalize.
+            Some((title.clone(), title))
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    out
+}
+
+/// All spellings of the same logical artist (same normalize key) for union album queries, and whether
+/// the library uses **AlbumArtist** tags (Node `artistsort` / non-empty `list albumartist`).
+async fn expand_artist_spelling_variants(
+    config: &MpdConfig,
+    artist_decoded: &str,
+) -> Result<(Vec<String>, bool)> {
+    let aa = list_tag_values(config, "AlbumArtist").await?;
+    let (pool, use_aa) = if !aa.is_empty() {
+        (aa, true)
+    } else {
+        (list_tag_values(config, "Artist").await?, false)
+    };
+    let key = artist_browse_normalize_key(artist_decoded);
+    let mut variants: Vec<String> = pool
         .into_iter()
-        .map(|a| BrowseItem {
+        .filter(|s| artist_browse_normalize_key(s) == key)
+        .collect();
+    if variants.is_empty() {
+        variants.push(artist_decoded.to_string());
+    }
+    variants.sort();
+    variants.dedup();
+    Ok((variants, use_aa))
+}
+
+/// `list Album` constrained by AlbumArtist or Artist tag (exact MPD value).
+async fn list_albums_for_artist_tag(
+    config: &MpdConfig,
+    tag: &str,
+    exact_value: &str,
+) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("list")
+        .argument("Album")
+        .argument(tag)
+        .argument(exact_value);
+    let frame = client.raw_command(raw).await?;
+    let mut albums: Vec<String> = frame
+        .fields()
+        .filter_map(|(k, v)| if k == "Album" { Some(v.to_string()) } else { None })
+        .collect();
+    albums.sort();
+    albums.dedup();
+    Ok(albums)
+}
+
+#[derive(Default)]
+struct PendingAlbumSongTags {
+    album: Option<String>,
+    albumartist: Option<String>,
+    artist: Option<String>,
+}
+
+/// Node `listAlbums`: `search album ""`, then one browse row per distinct `albumName + artistName` where
+/// `artistName` is **AlbumArtist** if set, else **Artist** (per track). This avoids wrong subtitles when
+/// `list album group albumartist` collapses homonym album titles to an arbitrary `groups[0]`.
+fn parse_node_style_album_rows_from_frame(
+    frame: &mpd_client::protocol::response::Frame,
+) -> Vec<(String, String)> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut rows: Vec<(String, String)> = Vec::new();
+
+    let mut flush = |p: PendingAlbumSongTags| {
+        let album_name = p.album.unwrap_or_default();
+        let artist_name = p
+            .albumartist
+            .or(p.artist)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "*".to_string());
+        if album_name.trim().is_empty() {
+            return;
+        }
+        let album_id = format!("{}{}", album_name, artist_name);
+        if seen.insert(album_id) {
+            rows.push((album_name, artist_name));
+        }
+    };
+
+    let mut current: Option<PendingAlbumSongTags> = None;
+    for (key, value) in frame.fields() {
+        match key.to_lowercase().as_str() {
+            "file" => {
+                if let Some(p) = current.take() {
+                    flush(p);
+                }
+                current = Some(PendingAlbumSongTags::default());
+            }
+            "album" => {
+                if let Some(ref mut c) = current {
+                    c.album = Some(value.to_string());
+                }
+            }
+            "albumartist" => {
+                if let Some(ref mut c) = current {
+                    c.albumartist = Some(value.to_string());
+                }
+            }
+            "artist" => {
+                if let Some(ref mut c) = current {
+                    if c.artist.is_none() {
+                        c.artist = Some(value.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(p) = current {
+        flush(p);
+    }
+    rows
+}
+
+/// Same source as Node `listAlbums` (`search album ""`).
+async fn list_albums_via_search_album_empty(config: &MpdConfig) -> Result<Vec<(String, String)>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("search")
+        .argument("album")
+        .argument("");
+    let frame = client.raw_command(raw).await?;
+    Ok(parse_node_style_album_rows_from_frame(&frame))
+}
+
+/// All artists (`artists://` root). Matches Node default `artistsort`: **`list albumartist`**, not `list artist`.
+/// Falls back to **`list artist`** if no AlbumArtist tags exist. Merges case/whitespace variants for browse.
+async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseResponse> {
+    let raw = list_tag_values(config, "AlbumArtist").await?;
+    let grouped = if !raw.is_empty() {
+        group_artist_names_for_browse(raw)
+    } else {
+        group_artist_names_for_browse(list_tag_values(config, "Artist").await?)
+    };
+    // Node `listArtists`: each item has `title`, `albumart`, `uri` only — no `artist` (avoids duplicate
+    // title/subtitle lines on Browse → Artists).
+    let items: Vec<BrowseItem> = grouped
+        .into_iter()
+        .map(|(title, uri_token)| BrowseItem {
             item_type: "folder".to_string(),
-            title: a.clone(),
-            uri: format!(
-                "artists://{}",
-                urlencoding::encode(a.as_str())
-            ),
+            title: artist_normalize::normalize_for_artist_tile_title(&title),
+            uri: format!("artists://{}", urlencoding::encode(uri_token.as_str())),
             service: "mpd".to_string(),
-            artist: Some(a.clone()),
+            artist: None,
             album: None,
             duration: None,
-            albumart: Some(browse_artist_list_albumart_url(a.as_str())),
+            albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
         })
         .collect();
@@ -798,7 +985,10 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
 
 /// All distinct albums (`albums://` root). Rows are `albums://artist/album` (like Node); subtitle uses `artist`.
 async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
-    let pairs = list_album_artist_pairs(config).await;
+    let pairs = list_albums_via_search_album_empty(config).await.unwrap_or_else(|e| {
+        tracing::warn!("albums browse: search album \"\" failed (falling back to flat list): {}", e);
+        Vec::new()
+    });
     let items: Vec<BrowseItem> = if !pairs.is_empty() {
         pairs
             .into_iter()
@@ -907,32 +1097,42 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
     })
 }
 
-/// Artists under a genre (`genres://Rock` → list Artist Genre "Rock"`).
+/// Artists under a genre (`genres://Rock`). Node uses **albumartist** when `artistsort` (default): `list AlbumArtist Genre "Rock"`.
 async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<BrowseResponse> {
+    let use_aa = !list_tag_values(config, "AlbumArtist").await?.is_empty();
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("list")
-        .argument("Artist")
-        .argument("Genre")
-        .argument(genre);
+    let raw = if use_aa {
+        RawCommand::new("list")
+            .argument("AlbumArtist")
+            .argument("Genre")
+            .argument(genre)
+    } else {
+        RawCommand::new("list")
+            .argument("Artist")
+            .argument("Genre")
+            .argument(genre)
+    };
     let frame = client.raw_command(raw).await?;
+    let tag = if use_aa { "AlbumArtist" } else { "Artist" };
     let mut artists: Vec<String> = frame
         .fields()
-        .filter_map(|(k, v)| if k == "Artist" { Some(v.to_string()) } else { None })
+        .filter_map(|(k, v)| if k == tag { Some(v.to_string()) } else { None })
         .collect();
     artists.sort();
     artists.dedup();
-    let items: Vec<BrowseItem> = artists
+    let grouped = group_artist_names_for_browse(artists);
+    let items: Vec<BrowseItem> = grouped
         .into_iter()
-        .map(|a| BrowseItem {
+        .map(|(title, uri_token)| BrowseItem {
             item_type: "folder".to_string(),
-            title: a.clone(),
-            uri: format!("artists://{}", urlencoding::encode(a.as_str())),
+            title: title.clone(),
+            uri: format!("artists://{}", urlencoding::encode(uri_token.as_str())),
             service: "mpd".to_string(),
-            artist: Some(a.clone()),
+            artist: Some(title),
             album: None,
             duration: None,
-            albumart: Some(browse_artist_list_albumart_url(a.as_str())),
+            albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
         })
         .collect();
@@ -949,38 +1149,40 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
     })
 }
 
-/// List albums by artist (goTo type=artist). Uses MPD "list Album Artist <name>", returns folder items.
+/// List albums by artist. Node `artistsort`: **`list Album AlbumArtist <value>`** (exact tag spellings).
+/// Unions albums across all spelling variants that share [`artist_browse_normalize_key`] with `artist`.
 async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<BrowseResponse> {
-    let stream = TcpStream::connect(config.addr()).await?;
-    let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("list")
-        .argument("Album")
-        .argument("Artist")
-        .argument(artist);
-    let frame = client.raw_command(raw).await?;
-    let mut albums: Vec<String> = frame
-        .fields()
-        .filter_map(|(k, v)| if k == "Album" { Some(v.to_string()) } else { None })
-        .collect();
-    albums.sort();
-    albums.dedup();
+    let (variants, use_aa) = expand_artist_spelling_variants(config, artist).await?;
+    let tag = if use_aa { "AlbumArtist" } else { "Artist" };
+    let mut album_set: HashSet<String> = HashSet::new();
+    for v in &variants {
+        for a in list_albums_for_artist_tag(config, tag, v).await? {
+            if !a.is_empty() {
+                album_set.insert(a);
+            }
+        }
+    }
+    let mut albums: Vec<String> = album_set.into_iter().collect();
+    albums.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
     let items: Vec<BrowseItem> = albums
         .into_iter()
-        .map(|album| {
-            BrowseItem {
-                item_type: "folder".to_string(),
-                title: album.clone(),
-                uri: format!("albums://{}/{}", artist, album),
-                service: "mpd".to_string(),
-                artist: Some(artist.to_string()),
-                album: Some(album.clone()),
-                duration: None,
-                albumart: Some(browse_virtual_folder_albumart_url(
-                    Some(artist),
-                    Some(album.as_str()),
-                )),
-                icon: None,
-            }
+        .map(|album| BrowseItem {
+            item_type: "folder".to_string(),
+            title: album.clone(),
+            uri: format!(
+                "albums://{}/{}",
+                urlencoding::encode(artist),
+                urlencoding::encode(album.as_str())
+            ),
+            service: "mpd".to_string(),
+            artist: Some(artist.to_string()),
+            album: Some(album.clone()),
+            duration: None,
+            albumart: Some(browse_virtual_folder_albumart_url(
+                Some(artist),
+                Some(album.as_str()),
+            )),
+            icon: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1033,6 +1235,162 @@ async fn browse_album_songs_connected(
             }],
         },
     })
+}
+
+fn song_uris_from_browse(resp: &BrowseResponse) -> Vec<String> {
+    resp.navigation
+        .lists
+        .iter()
+        .flat_map(|l| &l.items)
+        .filter(|i| i.item_type == "song")
+        .map(|i| i.uri.clone())
+        .collect()
+}
+
+/// All tracks for an artist tag (Node `explodeUri` `artists://…`: `find Artist`, then `find AlbumArtist` if empty).
+async fn find_artist_all_tracks(
+    config: &MpdConfig,
+    music_root: &Path,
+    artist: &str,
+) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("find")
+        .argument("Artist")
+        .argument(artist);
+    let frame = client.raw_command(raw).await?;
+    let items = parse_lsinfo_frame(frame, "artists://explode", music_root);
+    let mut uris: Vec<String> = items
+        .into_iter()
+        .filter(|i| i.item_type == "song")
+        .map(|i| i.uri)
+        .collect();
+    if uris.is_empty() {
+        let raw2 = RawCommand::new("find")
+            .argument("AlbumArtist")
+            .argument(artist);
+        let frame2 = client.raw_command(raw2).await?;
+        let items2 = parse_lsinfo_frame(frame2, "artists://explode", music_root);
+        uris = items2
+            .into_iter()
+            .filter(|i| i.item_type == "song")
+            .map(|i| i.uri)
+            .collect();
+    }
+    Ok(uris)
+}
+
+/// Node `music_service` `explodeUri`: turn virtual browse URIs into concrete `music-library/...` paths. Pass-through otherwise.
+pub async fn resolve_uri_for_queue(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<Vec<String>> {
+    let uri = uri.trim();
+    if uri.starts_with("albums://") {
+        let rest = uri.strip_prefix("albums://").unwrap_or("");
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if let Some((a, b)) = rest_dec.split_once('/') {
+            let artist = a.trim();
+            let album = b.trim();
+            if !artist.is_empty() && !album.is_empty() {
+                let resp = browse_album_songs_connected(config, music_root, artist, album).await?;
+                return Ok(song_uris_from_browse(&resp));
+            }
+        }
+        let album = rest_dec.trim();
+        if album.is_empty() {
+            return Ok(vec![]);
+        }
+        let resp = browse_album_only_songs_connected(config, music_root, album).await?;
+        return Ok(song_uris_from_browse(&resp));
+    }
+    if uri.starts_with("artists://") {
+        let rest = uri.strip_prefix("artists://").unwrap_or("");
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if let Some((a, b)) = rest_dec.split_once('/') {
+            let artist = a.trim();
+            let album = b.trim();
+            if !artist.is_empty() && !album.is_empty() {
+                let resp = browse_album_songs_connected(config, music_root, artist, album).await?;
+                return Ok(song_uris_from_browse(&resp));
+            }
+        }
+        let artist = rest_dec.trim();
+        if artist.is_empty() {
+            return Ok(vec![]);
+        }
+        return find_artist_all_tracks(config, music_root, artist).await;
+    }
+    Ok(vec![uri.to_string()])
+}
+
+pub async fn replace_and_play_resolved(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<()> {
+    let paths = resolve_uri_for_queue(config, music_root, uri).await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if paths.len() == 1 {
+        add_play_connected(config, &paths[0]).await
+    } else {
+        play_items_list_connected(config, &paths, 0).await
+    }
+}
+
+pub async fn add_play_append_resolved(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<()> {
+    let paths = resolve_uri_for_queue(config, music_root, uri).await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if paths.len() == 1 {
+        add_play_append_connected(config, &paths[0]).await
+    } else {
+        add_play_append_many_connected(config, &paths).await
+    }
+}
+
+pub async fn add_to_queue_resolved(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<()> {
+    let paths = resolve_uri_for_queue(config, music_root, uri).await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if paths.len() == 1 {
+        add_to_queue_connected(config, &paths[0]).await
+    } else {
+        add_multiple_to_queue_connected(config, &paths).await
+    }
+}
+
+pub async fn play_next_resolved(
+    config: &MpdConfig,
+    music_root: &Path,
+    uri: &str,
+) -> Result<()> {
+    let paths = resolve_uri_for_queue(config, music_root, uri).await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if paths.len() == 1 {
+        play_next_connected(config, &paths[0]).await
+    } else {
+        play_next_tracks_connected(config, &paths).await
+    }
 }
 
 /// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library/INTERNAL/..."), return browse response.
@@ -1334,7 +1692,8 @@ pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&s
 
 /// `artists://` list rows: Node uses `icons/users.svg` when fetched artist art is unavailable.
 pub fn browse_artist_list_albumart_url(artist: &str) -> String {
-    browse_virtual_albumart_url_with_icon(Some(artist), None, "users")
+    let for_web = artist_normalize::normalize_for_art_lookup(artist);
+    browse_virtual_albumart_url_with_icon(Some(for_web.as_str()), None, "users")
 }
 
 /// Node `miscellanea/albumart` `getAlbumArt`: `metadata=true` + `path=` for embed/exiftool/MPD readpicture;
