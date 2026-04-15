@@ -276,8 +276,9 @@ fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
 
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
-/// `music_root` resolves folder cover files; rows without a local cover use Font Awesome
-/// `fa-folder-open-o` (same as Node), not a generic `/albumart` SVG thumbnail.
+/// `music_root` resolves folder cover files. Rows without `folder.jpg` get `/albumart?metadata=true&path=…`
+/// plus heuristic `web=` (artist/album from path: INTERNAL/Artist/Album, USB/…/Artist/Album, or leaf as artist)
+/// so online providers can fill thumbnails; then `icon=folder-o` if all else fails.
 fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
@@ -312,8 +313,10 @@ fn parse_lsinfo_frame(
                 } else if item_type == "remdisk" {
                     (None, Some("fa fa-usb".to_string()))
                 } else {
-                    // Match Node: Font Awesome open-folder when no folder.jpg (not /albumart SVG).
-                    (None, Some("fa fa-folder-open-o".to_string()))
+                    (
+                        Some(browse_directory_albumart_url(&item_uri, value)),
+                        None,
+                    )
                 };
                 items.push(BrowseItem {
                     item_type,
@@ -1103,6 +1106,47 @@ fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
         return (Some(sr_str), Some(bd_str));
     }
     (None, None)
+}
+
+/// MPD `directory` path under `music_directory` (e.g. `INTERNAL/Adele`, `INTERNAL/Adele/21`).
+/// Build `web=` for online providers: `INTERNAL/Artist/Album` → artist+album; `Root/…/Artist/Album` with
+/// four or more segments → last two as artist+album; otherwise last segment as artist-only.
+fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
+    const ROOTS: &[&str] = &["INTERNAL", "USB", "NAS", "SMB"];
+    let segs: Vec<&str> = mpd_path.split('/').filter(|s| !s.is_empty()).collect();
+    let n = segs.len();
+    if n < 2 {
+        return None;
+    }
+    if n == 3 && segs[0] == "INTERNAL" {
+        return Some(format!("{}/{}/extralarge", segs[1], segs[2]));
+    }
+    if n >= 4 && ROOTS.contains(&segs[0]) {
+        return Some(format!(
+            "{}/{}/extralarge",
+            segs[n - 2],
+            segs[n - 1]
+        ));
+    }
+    let leaf = segs[n - 1];
+    if leaf.is_empty() {
+        return None;
+    }
+    Some(format!("{}//extralarge", leaf))
+}
+
+/// Filesystem browse folder row: `path=` for local `folder.jpg` / cache, plus heuristic `web=` from folder path.
+fn browse_directory_albumart_url(volumio_uri: &str, mpd_directory_path: &str) -> String {
+    let mut url = format!(
+        "/albumart?metadata=true&path={}",
+        urlencoding::encode(volumio_uri)
+    );
+    if let Some(inner) = web_inner_for_mpd_directory(mpd_directory_path) {
+        url.push_str("&web=");
+        url.push_str(&urlencoding::encode(&inner));
+    }
+    url.push_str("&icon=folder-o");
+    url
 }
 
 /// Tag-library folder (`artists://`, `albums://`, …): no `music-library/` path — resolve art from `web=`
