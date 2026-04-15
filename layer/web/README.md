@@ -13,3 +13,5 @@ Prebuilt **web roots** for the three stock layouts (same roles as `/volumio/http
 **Required** for install unless **`UI_DIST_SOURCE`** is set to a single **`dist/`** tree (that tree is copied to all three roots).
 
 **Refreshing assets:** replace trees from upstream published branches or device copies; record commit or date in your release notes. Do not commit device-specific **`app/local-config.json`** here — bootstrap generates it at install time.
+
+**Playback dial / codec badges:** the stock UI loads SVGs from **`/app/assets-common/format-icons/<codec>.svg`** (e.g. `mp3.svg`, `flac.svg`). Each layout tree includes **`app/assets-common/format-icons/`**; nginx `root` must be that layout’s folder so `/app/...` resolves. The backend sets **`trackType`** (lowercase extension) on `pushState` so `player.service.js` can pick the icon.

@@ -397,10 +397,8 @@ fn flush_file_item(
             if let Some(ref g) = f.genre {
                 a.genre = Some(g.clone());
             }
-            if let Some(dot) = f.uri.rfind('.') {
-                if dot + 1 < f.uri.len() {
-                    a.last_ext = f.uri[dot + 1..].to_string();
-                }
+            if let Some(ext) = codec_track_type_from_song_url(&f.uri) {
+                a.last_ext = ext;
             }
         }
         let albumart = Some(volumio_albumart_url(
@@ -1795,6 +1793,8 @@ pub struct VolumioState {
     pub album: Option<String>,
     /// Volumio browse URI (`music-library/...`).
     pub uri: Option<String>,
+    /// File extension / codec key for the playback dial (UI: `state.trackType`, `loadFileFormatIcon`).
+    #[serde(rename = "trackType")]
     pub track_type: Option<String>,
     pub service: Option<String>,
     /// Cover URL for playback view (`GET /albumart?...`).
@@ -1822,6 +1822,17 @@ fn volumio_uri_from_mpd_url(url: &str, music_root: &Path) -> String {
         }
     }
     format!("music-library/{}", u.trim_start_matches('/'))
+}
+
+/// Last path segment’s extension, lowercased — must match `player.service.js` `loadFileFormatIcon`
+/// (`case 'mp3':`, `case 'flac':`, …) and `/app/assets-common/format-icons/<ext>.svg` on disk.
+fn codec_track_type_from_song_url(url: &str) -> Option<String> {
+    let leaf = url.rsplit('/').next()?.trim();
+    let (_, ext) = leaf.rsplit_once('.')?;
+    if ext.is_empty() {
+        return None;
+    }
+    Some(ext.to_ascii_lowercase())
 }
 
 /// Parse MPD `audio` field (`44100:24:2`, `dsd64:1:2`, …) like `volumio3-backend` `parseState`.
@@ -2088,7 +2099,7 @@ pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<Volumio
                 let album = s.album().map(String::from);
                 let volumio_uri = volumio_uri_from_mpd_url(&s.url, music_root);
                 let uri = Some(volumio_uri.clone());
-                let track_type = s.url.split('.').last().map(String::from);
+                let track_type = codec_track_type_from_song_url(&s.url);
                 let albumart = Some(push_state_albumart_url(
                     &volumio_uri,
                     &artist,
