@@ -276,7 +276,8 @@ fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
 
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
-/// `music_root` resolves folder cover files; rows without a local cover use `/albumart?...&icon=folder-o` like Node.
+/// `music_root` resolves folder cover files; rows without a local cover use Font Awesome
+/// `fa-folder-open-o` (same as Node), not a generic `/albumart` SVG thumbnail.
 fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
@@ -311,13 +312,8 @@ fn parse_lsinfo_frame(
                 } else if item_type == "remdisk" {
                     (None, Some("fa fa-usb".to_string()))
                 } else {
-                    (
-                        Some(format!(
-                            "/albumart?metadata=true&path={}&icon=folder-o",
-                            urlencoding::encode(&item_uri)
-                        )),
-                        None,
-                    )
+                    // Match Node: Font Awesome open-folder when no folder.jpg (not /albumart SVG).
+                    (None, Some("fa fa-folder-open-o".to_string()))
                 };
                 items.push(BrowseItem {
                     item_type,

@@ -390,20 +390,32 @@ install_bundled_plugins_assets() {
     cp -a "${src}/." /usr/share/volumio-evo/plugins/
     return 0
   fi
-  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (icons/music.svg, icons/folder-o.svg)."
+  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (icons/music.svg; folder-o from layer if present)."
   mkdir -p /usr/share/volumio-evo/plugins/icons
+  local src_fo=""
+  for src_fo in \
+    "${SCRIPT_REPO_DIR}/layer/bundled-plugins/icons/folder-o.svg" \
+    "${EVO_REPO_DIR}/layer/bundled-plugins/icons/folder-o.svg"; do
+    if [[ -f "${src_fo}" ]]; then
+      cp -f "${src_fo}" /usr/share/volumio-evo/plugins/icons/folder-o.svg
+      src_fo="copied"
+      break
+    fi
+  done
+  if [[ "${src_fo}" != "copied" ]]; then
+    cat > /usr/share/volumio-evo/plugins/icons/folder-o.svg <<'EOSVG'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal fallback; prefer layer/bundled-plugins/icons/folder-o.svg (Node albumart asset). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <path fill="#FFFFFF" d="M464 128H272l-64-64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V176c0-26.5-21.5-48-48-48zm0 272H48V112h136l64 64h216v224z"/>
+</svg>
+EOSVG
+  fi
   cat > /usr/share/volumio-evo/plugins/icons/music.svg <<'EOSVG'
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Note glyph for /albumart?icon=music (browse song rows without embedded art yet). -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <path fill="#c8c8c8" d="M470.4 105.6c16.8 7.2 28.8 24 28.8 43.2v256c0 38.4-34.4 67.2-72 57.6-20.8-4.8-35.2-24-35.2-45.6V188.8L192 249.6v156.8c0 38.4-34.4 67.2-72 57.6-25.6-6.4-40-28.8-40-54.4V153.6c0-25.6 14.4-48 40-54.4l249.6-62.4c10.4-2.4 20.8-.8 30.4 4.8z"/>
-</svg>
-EOSVG
-  cat > /usr/share/volumio-evo/plugins/icons/folder-o.svg <<'EOSVG'
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Open-folder glyph for /albumart?icon=folder-o (stock Volumio browse rows). -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <path fill="#c8c8c8" d="M464 128H272l-64-64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V176c0-26.5-21.5-48-48-48zm0 272H48V112h136l64 64h216v224z"/>
 </svg>
 EOSVG
 }
