@@ -2,11 +2,14 @@
 //!
 //! Full MPD/ALSA apply pipeline (asound, modular snippets) is deferred; we persist the user choice
 //! and expose the same Socket.IO / UI shapes as `audio_interface/alsa_controller` on Node.
+//! I2S DAC list comes from `dacs.json` (see `crate::i2s`); boot `dtoverlay` uses `sudo` like Node.
 
 use std::path::PathBuf;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+
+use crate::i2s::DacEntry;
 
 /// One ALSA playback card line from `aplay -l` (first line per card, matching Node `getAplayInfo`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +23,12 @@ pub struct AplayCard {
 pub struct AlsaSettings {
     pub output_device_id: String,
     pub output_device_label: String,
+    #[serde(default)]
+    pub i2s_enabled: bool,
+    #[serde(default)]
+    pub i2s_dac_id: Option<String>,
+    #[serde(default)]
+    pub i2s_dac_label: String,
 }
 
 impl Default for AlsaSettings {
@@ -27,6 +36,9 @@ impl Default for AlsaSettings {
         Self {
             output_device_id: "0".to_string(),
             output_device_label: "Default".to_string(),
+            i2s_enabled: false,
+            i2s_dac_id: None,
+            i2s_dac_label: String::new(),
         }
     }
 }
@@ -57,12 +69,55 @@ impl AlsaSettings {
         std::fs::write(&path, s)
     }
 
-    /// Apply `saveAlsaOptions` / `setOutputDevices` JSON (`output_device` + optional `i2s`).
-    /// I2S enable path is ignored until Evo wires `i2s_dacs`.
+    /// Apply `saveAlsaOptions` / `setOutputDevices` JSON (`output_device` + optional `i2s` / `i2sid`).
     pub fn apply_save_payload(&mut self, data: &serde_json::Value) -> anyhow::Result<()> {
+        let i2s = data.get("i2s").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dacs = crate::i2s::load_dacs()?;
+        let profile = crate::i2s::hardware_profile();
+
+        if i2s {
+            let i2sid = data.get("i2sid").context("i2sid required when i2s is true")?;
+            let dac_id = match i2sid.get("value") {
+                Some(serde_json::Value::String(s)) => s.as_str(),
+                Some(serde_json::Value::Number(_)) => {
+                    return Err(anyhow::anyhow!("i2sid.value must be string (dac id)"));
+                }
+                _ => anyhow::bail!("i2sid.value missing"),
+            };
+            let entry = crate::i2s::find_dac(&dacs, &profile, dac_id)
+                .context("unknown I2S DAC id for this hardware profile")?;
+            if !entry.modules.is_empty() && entry.overlay.is_empty() {
+                anyhow::bail!(
+                    "DAC {:?} uses kernel modules, not dtoverlay — not implemented in Evo yet",
+                    entry.id
+                );
+            }
+            crate::i2s::enable_i2s_overlay(&entry.overlay)?;
+            if entry.needs_reboot() {
+                tracing::info!(
+                    dac = %entry.name,
+                    "I2S dtoverlay updated; reboot required for audio device to match catalogue"
+                );
+            }
+            self.i2s_enabled = true;
+            self.i2s_dac_id = Some(entry.id.clone());
+            self.i2s_dac_label = entry.name.clone();
+            self.output_device_id = entry.alsanum.clone();
+            self.output_device_label = entry.name.clone();
+            self.save()?;
+            return Ok(());
+        }
+
+        if self.i2s_enabled {
+            crate::i2s::disable_i2s_overlay()?;
+        }
+        self.i2s_enabled = false;
+        self.i2s_dac_id = None;
+        self.i2s_dac_label.clear();
+
         let od = data
             .get("output_device")
-            .context("missing output_device in save payload")?;
+            .context("missing output_device when I2S is off")?;
         let label = od
             .get("label")
             .and_then(|x| x.as_str())
@@ -136,7 +191,11 @@ fn parse_aplay_l(stdout: &str) -> Vec<AplayCard> {
 }
 
 /// If the saved device is missing (USB unplugged), fall back to the first card.
+/// When I2S is enabled, ALSA card numbers may not match `aplay` until after reboot — skip remap.
 pub fn coerce_selection(cards: &[AplayCard], mut settings: AlsaSettings) -> AlsaSettings {
+    if settings.i2s_enabled {
+        return settings;
+    }
     if cards.is_empty() {
         return settings;
     }
@@ -148,8 +207,12 @@ pub fn coerce_selection(cards: &[AplayCard], mut settings: AlsaSettings) -> Alsa
     settings
 }
 
-/// `pushOutputDevices` body (wizard + internal consistency); matches Node `getAudioDevices` without I2S extras.
-pub fn push_output_devices_json(cards: &[AplayCard], settings: &AlsaSettings) -> serde_json::Value {
+/// `pushOutputDevices` body (wizard + internal consistency); matches Node `getAudioDevices` shape.
+pub fn push_output_devices_json(
+    cards: &[AplayCard],
+    settings: &AlsaSettings,
+    i2s_available: &[DacEntry],
+) -> serde_json::Value {
     let available: Vec<serde_json::Value> = cards
         .iter()
         .map(|c| {
@@ -160,7 +223,7 @@ pub fn push_output_devices_json(cards: &[AplayCard], settings: &AlsaSettings) ->
         })
         .collect();
 
-    serde_json::json!({
+    let mut base = serde_json::json!({
         "devices": {
             "active": {
                 "id": settings.output_device_id,
@@ -168,12 +231,50 @@ pub fn push_output_devices_json(cards: &[AplayCard], settings: &AlsaSettings) ->
             },
             "available": available,
         }
-    })
+    });
+
+        if !i2s_available.is_empty() {
+        let i2s_opts: Vec<serde_json::Value> = i2s_available
+            .iter()
+            .filter(|e| !e.overlay.is_empty() && e.modules.is_empty())
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "name": e.name,
+                })
+            })
+            .collect();
+        let active_name = if settings.i2s_enabled {
+            settings.i2s_dac_label.clone()
+        } else {
+            i2s_available
+                .first()
+                .map(|e| e.name.clone())
+                .unwrap_or_default()
+        };
+        base.as_object_mut().unwrap().insert(
+            "i2s".to_string(),
+            serde_json::json!({
+                "enabled": settings.i2s_enabled,
+                "active": active_name,
+                "available": i2s_opts,
+            }),
+        );
+    }
+
+    base
 }
 
-/// Stock plugin UI for `audio_interface/alsa_controller` — enough for the output device selector.
-pub fn playback_options_ui_config(cards: &[AplayCard], settings: &AlsaSettings) -> serde_json::Value {
-    let options: Vec<serde_json::Value> = cards
+pub struct PlaybackOptionsUiParams<'a> {
+    pub cards: &'a [AplayCard],
+    pub settings: &'a AlsaSettings,
+    pub i2s_dacs: &'a [DacEntry],
+}
+
+/// Stock plugin UI for `audio_interface/alsa_controller` (output device + optional I2S DAC model).
+pub fn playback_options_ui_config(p: &PlaybackOptionsUiParams<'_>) -> serde_json::Value {
+    let output_options: Vec<serde_json::Value> = p
+        .cards
         .iter()
         .map(|c| {
             serde_json::json!({
@@ -183,8 +284,89 @@ pub fn playback_options_ui_config(cards: &[AplayCard], settings: &AlsaSettings) 
         })
         .collect();
 
-    let selected_value = settings.output_device_id.clone();
-    let selected_label = settings.output_device_label.clone();
+    let show_i2s = !p.i2s_dacs.is_empty();
+    let i2s_select_options: Vec<serde_json::Value> = p
+        .i2s_dacs
+        .iter()
+        .filter(|e| !e.overlay.is_empty() && e.modules.is_empty())
+        .map(|e| {
+            serde_json::json!({
+                "value": e.id,
+                "label": e.name,
+            })
+        })
+        .collect();
+
+    let i2s_id = p
+        .settings
+        .i2s_dac_id
+        .as_deref()
+        .and_then(|id| p.i2s_dacs.iter().find(|e| e.id == id))
+        .map(|e| e.id.clone())
+        .or_else(|| p.i2s_dacs.first().map(|e| e.id.clone()))
+        .unwrap_or_default();
+    let i2s_label = p
+        .settings
+        .i2s_dac_id
+        .as_deref()
+        .and_then(|id| p.i2s_dacs.iter().find(|e| e.id == id))
+        .map(|e| e.name.clone())
+        .or_else(|| p.i2s_dacs.first().map(|e| e.name.clone()))
+        .unwrap_or_default();
+
+    let save_fields: Vec<serde_json::Value> = if show_i2s {
+        vec![
+            serde_json::json!("output_device"),
+            serde_json::json!("i2s"),
+            serde_json::json!("i2sid"),
+        ]
+    } else {
+        vec![serde_json::json!("output_device")]
+    };
+
+    let mut content: Vec<serde_json::Value> = vec![
+        serde_json::json!({
+            "id": "output_device",
+            "element": "select",
+            "doc": "Local outputs from aplay (HDMI, headphone, USB, …). Shown when I2S DAC is off.",
+            "label": "Output device",
+            "value": {
+                "value": p.settings.output_device_id,
+                "label": p.settings.output_device_label
+            },
+            "visibleIf": {
+                "field": "i2s",
+                "value": false
+            },
+            "options": output_options
+        }),
+    ];
+
+    if show_i2s {
+        content.push(serde_json::json!({
+            "id": "i2s",
+            "element": "switch",
+            "doc": "Enable an I2S HAT: writes dtoverlay to boot config (sudo). Reboot required for most boards.",
+            "label": "I2S DAC",
+            "hidden": false,
+            "value": p.settings.i2s_enabled
+        }));
+        content.push(serde_json::json!({
+            "id": "i2sid",
+            "element": "select",
+            "doc": "DAC model from Volumio dacs.json (same catalogue as stock Volumio).",
+            "label": "DAC model",
+            "value": {
+                "value": i2s_id,
+                "label": i2s_label
+            },
+            "visibleIf": {
+                "field": "i2s",
+                "value": true
+            },
+            "options": i2s_select_options
+        }));
+    }
 
     serde_json::json!({
         "page": {
@@ -199,37 +381,13 @@ pub fn playback_options_ui_config(cards: &[AplayCard], settings: &AlsaSettings) 
                 "onSave": {"type": "controller", "endpoint": "audio_interface/alsa_controller", "method": "saveAlsaOptions"},
                 "saveButton": {
                     "label": "Save",
-                    "data": ["output_device"]
+                    "data": save_fields
                 },
                 "value": {
-                    "value": selected_value,
-                    "label": selected_label
+                    "value": p.settings.output_device_id,
+                    "label": p.settings.output_device_label
                 },
-                "content": [
-                    {
-                        "id": "output_device",
-                        "element": "select",
-                        "doc": "Choose the ALSA device used for playback.",
-                        "label": "Output device",
-                        "value": {
-                            "value": settings.output_device_id,
-                            "label": settings.output_device_label
-                        },
-                        "visibleIf": {
-                            "field": "i2s",
-                            "value": false
-                        },
-                        "options": options
-                    },
-                    {
-                        "id": "i2s",
-                        "element": "switch",
-                        "doc": "I2S DAC (not used on Evo yet).",
-                        "label": "I2S DAC",
-                        "hidden": true,
-                        "value": false
-                    }
-                ]
+                "content": content
             }
         ]
     })

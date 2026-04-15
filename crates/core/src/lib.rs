@@ -1,5 +1,6 @@
 pub mod alsa;
 pub mod albumart;
+pub mod i2s;
 pub mod api;
 pub mod artist_normalize;
 pub mod config;

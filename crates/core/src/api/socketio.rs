@@ -2,6 +2,7 @@
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
 use crate::alsa;
+use crate::i2s;
 use crate::mpd::{
     self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
     BrowseResponse, MpdConfig,
@@ -461,7 +462,20 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
 
     let settings = state.alsa.read().await.clone();
     let settings = alsa::coerce_selection(&cards, settings);
-    Ok(alsa::playback_options_ui_config(&cards, &settings))
+
+    let i2s_dacs: Vec<i2s::DacEntry> = i2s::load_dacs()
+        .map(|d| i2s::dac_list_for_profile(&d, &i2s::hardware_profile()))
+        .unwrap_or_else(|e| {
+            tracing::warn!("dacs.json unavailable: {}", e);
+            vec![]
+        });
+
+    let params = alsa::PlaybackOptionsUiParams {
+        cards: &cards,
+        settings: &settings,
+        i2s_dacs: &i2s_dacs,
+    };
+    Ok(alsa::playback_options_ui_config(&params))
 }
 
 async fn get_dsp_ui_config(s: SocketRef) {
@@ -673,7 +687,10 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
     };
     let settings = state.alsa.read().await.clone();
     let settings = alsa::coerce_selection(&cards, settings);
-    let payload = alsa::push_output_devices_json(&cards, &settings);
+    let i2s_dacs: Vec<i2s::DacEntry> = i2s::load_dacs()
+        .map(|d| i2s::dac_list_for_profile(&d, &i2s::hardware_profile()))
+        .unwrap_or_default();
+    let payload = alsa::push_output_devices_json(&cards, &settings, &i2s_dacs);
     s.emit("pushOutputDevices", &payload).ok();
 }
 

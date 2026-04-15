@@ -495,6 +495,10 @@ build_and_install_evo() {
   fi
 
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart
+  if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/dacs.json" ]]; then
+    cp -f "${EVO_REPO_DIR}/layer/config/dacs.json" /usr/share/volumio-evo/dacs.json
+    chmod 644 /usr/share/volumio-evo/dacs.json
+  fi
   install_bundled_plugins_assets
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
     if [[ ! -f /etc/volumio-evo/config.toml ]]; then

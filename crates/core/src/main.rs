@@ -5,6 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod alsa;
 mod albumart;
+mod i2s;
 mod api;
 mod artist_normalize;
 mod config;
