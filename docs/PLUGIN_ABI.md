@@ -8,6 +8,13 @@ Contract between the host (Rust core) and guest (WASM plugin).
 |---------------------|------------|--------------------------------|
 | `plugin_init`       | `() -> ()` | Called once after load.        |
 | `plugin_handle_request` | TBD    | Per-request handler; details TBD. |
+| `has_alsa_contribution` | `() -> i32` | **Optional.** Returns `1` if the plugin contributes ALSA fragments, else `0`. Missing export = no contribution. |
+| `alsa_contribution_json_ptr` | `() -> i32` | **Optional** (required if `has_alsa_contribution` returns `1`). Byte offset in guest linear memory where UTF-8 JSON starts. |
+| `alsa_contribution_json_len` | `() -> i32` | **Optional** (required if `has` is `1`). Length of that JSON in bytes. |
+
+### ALSA contribution JSON
+
+When `has_alsa_contribution` returns `1`, the host reads `memory[ptr .. ptr+len]` and parses JSON matching `AlsaContribution` in `crates/plugin-sdk/src/abi.rs`: `abi_version` (must match host), `fragments[]` with `id`, `order`, and `asound_snippet`. The host merges snippets in order; plugins must not write ALSA files on disk directly.
 
 ## Host imports (core provides)
 
@@ -31,4 +38,5 @@ Further host calls (e.g. `mpd_command`, `config_get`, `http_fetch`) will be adde
 
 ## Versioning
 
-ABI version will be reflected in the import module name or via a version export. TBD.
+- **`AlsaContribution.abi_version`** must equal **`ALSA_PLUGIN_ABI_VERSION`** in `plugin-sdk` (see `crates/plugin-sdk/src/abi.rs`). Bump when the JSON schema changes.
+- General plugin ABI versioning (imports module name, etc.) TBD.

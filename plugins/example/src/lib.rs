@@ -20,3 +20,23 @@ extern "C" {
 pub extern "C" fn plugin_init() {
     // Stub: in real ABI we'd write a message to memory and call log(ptr, len).
 }
+
+// --- Optional ALSA ABI (see `volumio_evo_plugin_sdk::abi`) ---
+
+/// `1` if this plugin contributes ALSA fragments, else `0`. Absent export = no contribution.
+#[no_mangle]
+pub extern "C" fn has_alsa_contribution() -> i32 {
+    0
+}
+
+/// UTF-8 JSON offset in guest linear memory; `0` if none (when `has_alsa_contribution` is `0`).
+#[no_mangle]
+pub extern "C" fn alsa_contribution_json_ptr() -> i32 {
+    0
+}
+
+/// Byte length of JSON at `alsa_contribution_json_ptr`.
+#[no_mangle]
+pub extern "C" fn alsa_contribution_json_len() -> i32 {
+    0
+}

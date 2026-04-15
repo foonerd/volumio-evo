@@ -34,3 +34,4 @@ uuid = { version = "1", features = ["v4"] }
 urlencoding = "2"
 image = "0.25"
 if-addrs = "0.13"
+volumio-evo-plugin-sdk = { path = "../plugin-sdk" }
