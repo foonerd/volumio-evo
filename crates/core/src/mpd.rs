@@ -278,7 +278,7 @@ fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
 /// `music_root` resolves folder cover files. Rows without `folder.jpg` get `/albumart?metadata=true&path=…`
 /// plus heuristic `web=` (artist/album from path: INTERNAL/Artist/Album, USB/…/Artist/Album, or leaf as artist)
-/// so online providers can fill thumbnails; then `icon=folder-o` if all else fails.
+/// so online providers can fill thumbnails; then `icon=folder-open-o` if all else fails.
 fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
@@ -1108,9 +1108,23 @@ fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// `Artist - Album` in a single folder title (e.g. `Queen - Greatest Hits III`).
+fn artist_album_from_leaf_name(leaf: &str) -> Option<(String, String)> {
+    for sep in [" – ", " — ", " - "] {
+        if let Some((a, b)) = leaf.split_once(sep) {
+            let a = a.trim();
+            let b = b.trim();
+            if !a.is_empty() && !b.is_empty() {
+                return Some((a.to_string(), b.to_string()));
+            }
+        }
+    }
+    None
+}
+
 /// MPD `directory` path under `music_directory` (e.g. `INTERNAL/Adele`, `INTERNAL/Adele/21`).
 /// Build `web=` for online providers: `INTERNAL/Artist/Album` → artist+album; `Root/…/Artist/Album` with
-/// four or more segments → last two as artist+album; otherwise last segment as artist-only.
+/// four or more segments → last two as artist+album; leaf `Artist - Album` → split; else artist-only.
 fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
     const ROOTS: &[&str] = &["INTERNAL", "USB", "NAS", "SMB"];
     let segs: Vec<&str> = mpd_path.split('/').filter(|s| !s.is_empty()).collect();
@@ -1132,6 +1146,9 @@ fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
     if leaf.is_empty() {
         return None;
     }
+    if let Some((ar, al)) = artist_album_from_leaf_name(leaf) {
+        return Some(format!("{}/{}/extralarge", ar, al));
+    }
     Some(format!("{}//extralarge", leaf))
 }
 
@@ -1145,19 +1162,29 @@ fn browse_directory_albumart_url(volumio_uri: &str, mpd_directory_path: &str) ->
         url.push_str("&web=");
         url.push_str(&urlencoding::encode(&inner));
     }
-    url.push_str("&icon=folder-o");
+    url.push_str("&icon=folder-open-o");
     url
 }
 
 /// Tag-library folder (`artists://`, `albums://`, …): no `music-library/` path — resolve art from `web=`
-/// (Last.fm / CAA / iTunes into `albumart/web/` cache), then `icon=folder-o` if nothing matches.
+/// (Last.fm / CAA / iTunes into `albumart/web/` cache), then `icon=folder-open-o` if nothing matches.
 ///
 /// Album-only rows (flat album list) use **"Various Artists"** as a synthetic first segment so online
 /// album search can run; wrong for some compilations but better than no art.
+///
+/// A single **album** field like `Queen - Greatest Hits III` is split into artist+album when possible.
 pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&str>) -> String {
-    let a = artist.map(str::trim).filter(|s| !s.is_empty());
-    let b = album.map(str::trim).filter(|s| !s.is_empty());
-    let web_inner = match (a, b) {
+    let mut a = artist.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mut b = album.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    if a.is_none() && b.is_some() {
+        if let Some(ref b_s) = b {
+            if let Some((ar, al)) = artist_album_from_leaf_name(b_s) {
+                a = Some(ar);
+                b = Some(al);
+            }
+        }
+    }
+    let web_inner = match (a.as_deref(), b.as_deref()) {
         (Some(ar), Some(al)) => Some(format!("{}/{}/extralarge", ar, al)),
         (Some(ar), None) => Some(format!("{}//extralarge", ar)),
         (None, Some(al)) => Some(format!("Various Artists/{}/extralarge", al)),
@@ -1169,7 +1196,7 @@ pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&s
         url.push_str(&urlencoding::encode(&w));
         url.push_str("&");
     }
-    url.push_str("icon=folder-o");
+    url.push_str("icon=folder-open-o");
     url
 }
 
