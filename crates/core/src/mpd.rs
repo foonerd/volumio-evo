@@ -280,7 +280,7 @@ fn lsinfo_directory_item_type(browse_uri: &str, mpd_path: &str) -> String {
 /// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
 /// `music_root` resolves folder cover files. Rows without `folder.jpg` get `/albumart?metadata=true&path=…`
 /// plus heuristic `web=` (artist/album from path: INTERNAL/Artist/Album, USB/…/Artist/Album, or leaf as artist)
-/// so online providers can fill thumbnails; then `icon=folder-open-o` if all else fails.
+/// so online providers can fill thumbnails; then `icon=folder-o` if all else fails.
 fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
@@ -316,7 +316,11 @@ fn parse_lsinfo_frame(
                     (None, Some("fa fa-usb".to_string()))
                 } else {
                     (
-                        Some(browse_directory_albumart_url(&item_uri, value)),
+                        Some(browse_directory_albumart_url(
+                            &item_uri,
+                            value,
+                            browse_uri,
+                        )),
                         None,
                     )
                 };
@@ -613,14 +617,15 @@ pub async fn search_connected(
     })
 }
 
-/// Bundled `sourceicon` paths for the four storage roots (Node: `stickingMusicLibrary` + `lsinfo` names).
+/// Top-level storage roots: same as Node `getAlbumArt('', '', 'microchip'|'server'|'usb')` → `/albumart?icon=…`.
 fn music_source_albumart(path_segment: &str) -> &'static str {
     match path_segment {
-        "INTERNAL" => "/albumart?sourceicon=music_service/mpd/musiclibraryicon.png",
-        "USB" => "/albumart?sourceicon=music_service/mpd/playlisticon.png",
-        "NAS" => "/albumart?sourceicon=music_service/mpd/albumicon.png",
-        "SMB" => "/albumart?sourceicon=music_service/mpd/artisticon.png",
-        _ => "/albumart?sourceicon=music_service/mpd/musiclibraryicon.png",
+        "INTERNAL" => "/albumart?icon=microchip",
+        "NAS" => "/albumart?icon=server",
+        "USB" => "/albumart?icon=usb",
+        // No `smb.svg` in miscellanea/albumart; treat like network attach.
+        "SMB" => "/albumart?icon=server",
+        _ => "/albumart?icon=microchip",
     }
 }
 
@@ -1243,8 +1248,26 @@ fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
     Some(format!("{}//extralarge", leaf))
 }
 
+/// Fallback icon for directory rows: storage roots under `music-library` match Node (`microchip` / `server` / `usb`).
+fn browse_directory_fallback_icon(browse_listing_uri: &str, mpd_directory_path: &str) -> &'static str {
+    if browse_listing_uri == "music-library" {
+        return match mpd_directory_path {
+            "INTERNAL" => "microchip",
+            "NAS" => "server",
+            "USB" => "usb",
+            "SMB" => "server",
+            _ => "folder-o",
+        };
+    }
+    "folder-o"
+}
+
 /// Filesystem browse folder row: `path=` for local `folder.jpg` / cache, plus heuristic `web=` from folder path.
-fn browse_directory_albumart_url(volumio_uri: &str, mpd_directory_path: &str) -> String {
+fn browse_directory_albumart_url(
+    volumio_uri: &str,
+    mpd_directory_path: &str,
+    browse_listing_uri: &str,
+) -> String {
     let mut url = format!(
         "/albumart?metadata=true&path={}",
         urlencoding::encode(volumio_uri)
@@ -1253,7 +1276,11 @@ fn browse_directory_albumart_url(volumio_uri: &str, mpd_directory_path: &str) ->
         url.push_str("&web=");
         url.push_str(&urlencoding::encode(&inner));
     }
-    url.push_str("&icon=folder-open-o");
+    url.push_str("&icon=");
+    url.push_str(browse_directory_fallback_icon(
+        browse_listing_uri,
+        mpd_directory_path,
+    ));
     url
 }
 
@@ -1300,9 +1327,9 @@ pub fn browse_album_list_albumart_url(artist: &str, album: &str) -> String {
     browse_virtual_albumart_url_with_icon(Some(artist), Some(album), "dot-circle-o")
 }
 
-/// `albums://`, genres, album-under-artist folders, etc. — fallback `folder-open-o` like Node browse.
+/// `albums://`, genres, album-under-artist folders, etc. — fallback `folder-o` (Node miscellanea/albumart).
 pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&str>) -> String {
-    browse_virtual_albumart_url_with_icon(artist, album, "folder-open-o")
+    browse_virtual_albumart_url_with_icon(artist, album, "folder-o")
 }
 
 /// `artists://` list rows: Node uses `icons/users.svg` when fetched artist art is unavailable.

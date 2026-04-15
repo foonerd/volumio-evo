@@ -390,7 +390,7 @@ install_bundled_plugins_assets() {
     cp -a "${src}/." /usr/share/volumio-evo/plugins/
     return 0
   fi
-  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (music; folder-o / folder-open-o / users from layer if present)."
+  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (music; folder-o / users / dot-circle-o from layer if present)."
   mkdir -p /usr/share/volumio-evo/plugins/icons
   local src_fo=""
   for src_fo in \
@@ -408,27 +408,6 @@ install_bundled_plugins_assets() {
 <!-- Minimal fallback; prefer layer/bundled-plugins/icons/folder-o.svg (Node albumart asset). -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <path fill="#FFFFFF" d="M464 128H272l-64-64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V176c0-26.5-21.5-48-48-48zm0 272H48V112h136l64 64h216v224z"/>
-</svg>
-EOSVG
-  fi
-  local src_fop=""
-  for src_fop in \
-    "${SCRIPT_REPO_DIR}/layer/bundled-plugins/icons/folder-open-o.svg" \
-    "${EVO_REPO_DIR}/layer/bundled-plugins/icons/folder-open-o.svg"; do
-    if [[ -f "${src_fop}" ]]; then
-      cp -f "${src_fop}" /usr/share/volumio-evo/plugins/icons/folder-open-o.svg
-      src_fop="copied"
-      break
-    fi
-  done
-  if [[ "${src_fop}" != "copied" ]]; then
-    cat > /usr/share/volumio-evo/plugins/icons/folder-open-o.svg <<'EOSVG'
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <path fill="none" stroke="#e8e8e8" stroke-width="20" stroke-linejoin="round" stroke-linecap="round"
-    d="M64 208V144c0-26.5 21.5-48 48-48h112l48 48h176c26.5 0 48 21.5 48 48v32M64 208h384c26.5 0 48 21.5 48 48v112c0 26.5-21.5 48-48 48H112c-26.5 0-48-21.5-48-48V256c0-26.5 21.5-48 48-48z"/>
-  <path fill="none" stroke="#e8e8e8" stroke-width="20" stroke-linejoin="round"
-    d="M64 208l72 88h304"/>
 </svg>
 EOSVG
   fi
