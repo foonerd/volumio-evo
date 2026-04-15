@@ -261,10 +261,33 @@ pub struct BrowseResponse {
     pub navigation: BrowseNavigation,
 }
 
+/// Album / folder header when opening a drill-down browse (Node `navigation.info`, e.g. `listAlbumSongs`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowseNavigationInfo {
+    pub uri: String,
+    pub service: &'static str,
+    pub artist: String,
+    pub album: String,
+    pub albumart: String,
+    #[serde(rename = "type")]
+    pub browse_kind: &'static str,
+    /// Total album duration like Node (`M:SS` or `MM:SS`).
+    pub duration: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "trackType")]
+    pub track_type: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BrowseNavigation {
     pub prev: BrowsePrev,
     pub lists: Vec<BrowseList>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub info: Option<BrowseNavigationInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -327,10 +350,59 @@ struct FileEntry {
     artist: Option<String>,
     album: Option<String>,
     duration: Option<u64>,
+    date: Option<String>,
+    genre: Option<String>,
 }
 
-fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>) {
+/// Aggregates tags across tracks when parsing an album drill-down (`find` + `lsinfo`).
+#[derive(Default)]
+struct AlbumDrillAgg {
+    total_secs: u64,
+    year: Option<String>,
+    genre: Option<String>,
+    first_rep_uri: Option<String>,
+    last_ext: String,
+}
+
+fn year_from_mpd_date_tag(d: &str) -> String {
+    let t = d.trim();
+    if t.len() >= 4 && t[..4].chars().all(|c| c.is_ascii_digit()) {
+        t[..4].to_string()
+    } else {
+        t.to_string()
+    }
+}
+
+/// Node `listAlbumSongs` duration string: total seconds as `M:SS` / `MM:SS`.
+fn format_album_total_duration_node_style(total_secs: u64) -> String {
+    let m = total_secs / 60;
+    let s = total_secs % 60;
+    format!("{}:{:02}", m, s)
+}
+
+fn flush_file_item(
+    current: &mut Option<FileEntry>,
+    items: &mut Vec<BrowseItem>,
+    agg: Option<&mut AlbumDrillAgg>,
+) {
     if let Some(f) = current.take() {
+        if let Some(a) = agg {
+            a.total_secs += f.duration.unwrap_or(0);
+            if a.first_rep_uri.is_none() {
+                a.first_rep_uri = Some(f.uri.clone());
+            }
+            if let Some(ref d) = f.date {
+                a.year = Some(year_from_mpd_date_tag(d));
+            }
+            if let Some(ref g) = f.genre {
+                a.genre = Some(g.clone());
+            }
+            if let Some(dot) = f.uri.rfind('.') {
+                if dot + 1 < f.uri.len() {
+                    a.last_ext = f.uri[dot + 1..].to_string();
+                }
+            }
+        }
         let albumart = Some(volumio_albumart_url(
             &f.uri,
             &f.artist,
@@ -380,6 +452,8 @@ fn parse_lsinfo_frame(
     frame: mpd_client::protocol::response::Frame,
     browse_uri: &str,
     music_root: &Path,
+    drill: &mut AlbumDrillAgg,
+    aggregate: bool,
 ) -> Vec<BrowseItem> {
     let mut items = Vec::new();
     let mut current_file: Option<FileEntry> = None;
@@ -387,7 +461,11 @@ fn parse_lsinfo_frame(
     for (key, value) in frame.fields() {
         match key {
             "directory" => {
-                flush_file_item(&mut current_file, &mut items);
+                flush_file_item(
+                    &mut current_file,
+                    &mut items,
+                    if aggregate { Some(drill) } else { None },
+                );
                 let name = value
                     .rsplit('/')
                     .next()
@@ -433,7 +511,11 @@ fn parse_lsinfo_frame(
                 });
             }
             "file" => {
-                flush_file_item(&mut current_file, &mut items);
+                flush_file_item(
+                    &mut current_file,
+                    &mut items,
+                    if aggregate { Some(drill) } else { None },
+                );
                 let name = value
                     .rsplit('/')
                     .next()
@@ -446,6 +528,8 @@ fn parse_lsinfo_frame(
                     artist: None,
                     album: None,
                     duration: None,
+                    date: None,
+                    genre: None,
                 });
             }
             "Title" => {
@@ -470,10 +554,24 @@ fn parse_lsinfo_frame(
                     }
                 }
             }
+            "Date" => {
+                if let Some(ref mut f) = current_file {
+                    f.date = Some(value.to_string());
+                }
+            }
+            "Genre" => {
+                if let Some(ref mut f) = current_file {
+                    f.genre = Some(value.to_string());
+                }
+            }
             _ => {}
         }
     }
-    flush_file_item(&mut current_file, &mut items);
+    flush_file_item(
+        &mut current_file,
+        &mut items,
+        if aggregate { Some(drill) } else { None },
+    );
 
     items
 }
@@ -684,6 +782,7 @@ pub async fn search_connected(
     if query.is_empty() {
         return Ok(BrowseResponse {
             navigation: BrowseNavigation {
+                info: None,
                 prev: BrowsePrev {
                     uri: "music-library".to_string(),
                 },
@@ -699,9 +798,11 @@ pub async fn search_connected(
     // find any "term" searches in any tag
     let raw = RawCommand::new("find").argument("any").argument(query);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "music-library", music_root);
+    let mut drill = AlbumDrillAgg::default();
+    let items = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
@@ -745,6 +846,7 @@ pub fn music_library_root_response() -> BrowseResponse {
         .collect();
     BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: String::new(),
             },
@@ -761,6 +863,7 @@ pub fn music_library_root_response() -> BrowseResponse {
 pub fn empty_browse_response(prev_uri: impl Into<String>) -> BrowseResponse {
     BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: prev_uri.into(),
             },
@@ -776,6 +879,7 @@ pub fn empty_browse_response(prev_uri: impl Into<String>) -> BrowseResponse {
 pub fn browse_favourites_stub() -> BrowseResponse {
     BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
@@ -1084,6 +1188,7 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
         .collect();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
@@ -1166,6 +1271,7 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
     };
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
@@ -1189,10 +1295,12 @@ async fn browse_album_only_songs_connected(
         .argument("Album")
         .argument(album);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "music-library", music_root);
+    let mut drill = AlbumDrillAgg::default();
+    let items = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
     let prev = "albums://".to_string();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev { uri: prev },
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],
@@ -1222,6 +1330,7 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
         .collect();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
@@ -1275,6 +1384,7 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
         .collect();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "genres://".to_string(),
             },
@@ -1325,6 +1435,7 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
         .collect();
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev {
                 uri: "artists://".to_string(),
             },
@@ -1337,7 +1448,8 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
 }
 
 /// List songs in an album from `albums://artist/album`. Matches Node: `find` by Album + AlbumArtist,
-/// then Album + Artist if the library has no AlbumArtist tags.
+/// then Album + Artist if the library has no AlbumArtist tags. Emits `navigation.info` like Node
+/// `listAlbumSongs` (album header: art, duration, year, genre) and **`list`** view only for tracks.
 async fn browse_album_songs_connected(
     config: &MpdConfig,
     music_root: &Path,
@@ -1346,35 +1458,69 @@ async fn browse_album_songs_connected(
 ) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
+    let mut agg = AlbumDrillAgg::default();
+
     let raw_aa = RawCommand::new("find")
         .argument("Album")
         .argument(album)
         .argument("AlbumArtist")
         .argument(artist);
     let frame = client.raw_command(raw_aa).await?;
-    let mut items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root);
+    let mut items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root, &mut agg, true);
     if items.is_empty() {
+        agg = AlbumDrillAgg::default();
         let raw_ar = RawCommand::new("find")
             .argument("Album")
             .argument(album)
             .argument("Artist")
             .argument(artist);
         let frame2 = client.raw_command(raw_ar).await?;
-        items = parse_lsinfo_frame(frame2, "albums://find-tracks", music_root);
+        items = parse_lsinfo_frame(frame2, "albums://find-tracks", music_root, &mut agg, true);
     }
     // Missing artist tags are not always the same as empty-string tags in MPD.
     if items.is_empty() && artist.is_empty() {
+        agg = AlbumDrillAgg::default();
         let raw_album_only = RawCommand::new("find").argument("Album").argument(album);
         let frame3 = client.raw_command(raw_album_only).await?;
-        items = parse_lsinfo_frame(frame3, "albums://find-tracks", music_root);
+        items = parse_lsinfo_frame(frame3, "albums://find-tracks", music_root, &mut agg, true);
     }
+
+    let browse_uri = format!(
+        "albums://{}/{}",
+        urlencoding::encode(artist),
+        urlencoding::encode(album)
+    );
+
+    let info = if items.is_empty() {
+        None
+    } else {
+        let albumart = browse_album_list_albumart_url(agg.first_rep_uri.as_deref(), artist, album);
+        Some(BrowseNavigationInfo {
+            uri: browse_uri,
+            service: "mpd",
+            artist: artist.to_string(),
+            album: album.to_string(),
+            albumart,
+            browse_kind: "album",
+            duration: format_album_total_duration_node_style(agg.total_secs),
+            year: agg.year,
+            genre: agg.genre,
+            track_type: if agg.last_ext.is_empty() {
+                None
+            } else {
+                Some(agg.last_ext)
+            },
+        })
+    };
+
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info,
             prev: BrowsePrev {
                 uri: "albums://".to_string(),
             },
             lists: vec![BrowseList {
-                available_list_views: vec!["list", "grid"],
+                available_list_views: vec!["list"],
                 items,
             }],
         },
@@ -1403,7 +1549,8 @@ async fn find_artist_all_tracks(
         .argument("Artist")
         .argument(artist);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "artists://explode", music_root);
+    let mut drill = AlbumDrillAgg::default();
+    let items = parse_lsinfo_frame(frame, "artists://explode", music_root, &mut drill, false);
     let mut uris: Vec<String> = items
         .into_iter()
         .filter(|i| i.item_type == "song")
@@ -1414,7 +1561,8 @@ async fn find_artist_all_tracks(
             .argument("AlbumArtist")
             .argument(artist);
         let frame2 = client.raw_command(raw2).await?;
-        let items2 = parse_lsinfo_frame(frame2, "artists://explode", music_root);
+        let mut drill2 = AlbumDrillAgg::default();
+        let items2 = parse_lsinfo_frame(frame2, "artists://explode", music_root, &mut drill2, false);
         uris = items2
             .into_iter()
             .filter(|i| i.item_type == "song")
@@ -1607,7 +1755,8 @@ pub async fn browse_connected(
     };
     let frame = client.raw_command(raw).await?;
 
-    let items = parse_lsinfo_frame(frame, &uri_prefix, music_root);
+    let mut drill = AlbumDrillAgg::default();
+    let items = parse_lsinfo_frame(frame, &uri_prefix, music_root, &mut drill, false);
 
     let prev = if uri == "music-library" || uri.is_empty() {
         "".to_string()
@@ -1619,6 +1768,7 @@ pub async fn browse_connected(
 
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
+            info: None,
             prev: BrowsePrev { uri: prev },
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],

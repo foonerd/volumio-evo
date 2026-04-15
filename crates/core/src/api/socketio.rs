@@ -714,6 +714,7 @@ async fn browse_library(
                     .collect();
                 let resp = BrowseResponse {
                     navigation: BrowseNavigation {
+                        info: None,
                         prev: BrowsePrev {
                             uri: String::new(),
                         },
@@ -762,6 +763,7 @@ async fn browse_library(
                     .collect();
                 let resp = BrowseResponse {
                     navigation: BrowseNavigation {
+                        info: None,
                         prev: BrowsePrev {
                             uri: "playlists".to_string(),
                         },
@@ -1417,6 +1419,7 @@ async fn delete_playlist(
                     .collect();
                 let resp = BrowseResponse {
                     navigation: BrowseNavigation {
+                        info: None,
                         prev: BrowsePrev {
                             uri: String::new(),
                         },
@@ -1515,6 +1518,7 @@ async fn remove_from_playlist(
                     .collect();
                 let resp = BrowseResponse {
                     navigation: BrowseNavigation {
+                        info: None,
                         prev: BrowsePrev {
                             uri: "playlists".to_string(),
                         },
