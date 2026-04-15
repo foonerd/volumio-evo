@@ -3,16 +3,18 @@
 use crate::albumart;
 use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::Path;
 use urlencoding::decode;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
-        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Song, SongPosition,
-        Status, Stop, Update,
+        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue,
+        Rescan, Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat,
+        SetVolume, Song, SongPosition, Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
+    tag::Tag,
     Client,
 };
 use std::io;
@@ -704,6 +706,58 @@ async fn list_tag_values(config: &MpdConfig, tag: &str) -> Result<Vec<String>> {
     Ok(vals)
 }
 
+/// Distinct `(album, artist)` pairs: `list album group albumartist` plus `list album group artist`
+/// for tracks without AlbumArtist (merged, Node-style).
+async fn list_album_artist_pairs(config: &MpdConfig) -> Vec<(String, String)> {
+    let stream = match TcpStream::connect(config.addr()).await {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let (client, _) = match Client::connect(stream).await {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut pairs: Vec<(String, String)> = Vec::new();
+
+    let mut push_pair = |album: &str, artist: &str| {
+        let ar = artist.trim();
+        let al = album.trim();
+        if al.is_empty() || ar.is_empty() {
+            return;
+        }
+        let key = (al.to_string(), ar.to_string());
+        if seen.insert(key.clone()) {
+            pairs.push(key);
+        }
+    };
+
+    if let Ok(list) = client
+        .command(MpdListCmd::new(Tag::Album).group_by([Tag::AlbumArtist]))
+        .await
+    {
+        for (album, groups) in list.grouped_values() {
+            push_pair(album, groups[0]);
+        }
+    }
+    if let Ok(list) = client
+        .command(MpdListCmd::new(Tag::Album).group_by([Tag::Artist]))
+        .await
+    {
+        for (album, groups) in list.grouped_values() {
+            push_pair(album, groups[0]);
+        }
+    }
+
+    pairs.sort_by(|x, y| {
+        x.0.to_lowercase()
+            .cmp(&y.0.to_lowercase())
+            .then_with(|| x.1.to_lowercase().cmp(&y.1.to_lowercase()))
+    });
+    pairs
+}
+
 /// All artists (`artists://` root).
 async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseResponse> {
     let artists = list_tag_values(config, "Artist").await?;
@@ -737,23 +791,49 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
     })
 }
 
-/// All distinct albums (`albums://` root). Click opens tracks tagged with that album (any artist).
+/// All distinct albums (`albums://` root). Rows are `albums://artist/album` (like Node); subtitle uses `artist`.
 async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
-    let albums = list_tag_values(config, "Album").await?;
-    let items: Vec<BrowseItem> = albums
-        .into_iter()
-        .map(|album| BrowseItem {
-            item_type: "folder".to_string(),
-            title: album.clone(),
-            uri: format!("albums://{}", urlencoding::encode(album.as_str())),
-            service: "mpd".to_string(),
-            artist: None,
-            album: Some(album.clone()),
-            duration: None,
-            albumart: Some(browse_virtual_folder_albumart_url(None, Some(album.as_str()))),
-            icon: None,
-        })
-        .collect();
+    let pairs = list_album_artist_pairs(config).await;
+    let items: Vec<BrowseItem> = if !pairs.is_empty() {
+        pairs
+            .into_iter()
+            .map(|(album, artist)| BrowseItem {
+                item_type: "folder".to_string(),
+                title: album.clone(),
+                uri: format!(
+                    "albums://{}/{}",
+                    urlencoding::encode(artist.as_str()),
+                    urlencoding::encode(album.as_str())
+                ),
+                service: "mpd".to_string(),
+                artist: Some(artist.clone()),
+                album: None,
+                duration: None,
+                albumart: Some(browse_album_list_albumart_url(artist.as_str(), album.as_str())),
+                icon: None,
+            })
+            .collect()
+    } else {
+        let albums = list_tag_values(config, "Album").await?;
+        albums
+            .into_iter()
+            .map(|album| BrowseItem {
+                item_type: "folder".to_string(),
+                title: album.clone(),
+                uri: format!("albums://{}", urlencoding::encode(album.as_str())),
+                service: "mpd".to_string(),
+                artist: None,
+                album: Some(album.clone()),
+                duration: None,
+                albumart: Some(browse_virtual_albumart_url_with_icon(
+                    Some("Various Artists"),
+                    Some(album.as_str()),
+                    "dot-circle-o",
+                )),
+                icon: None,
+            })
+            .collect()
+    };
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
             prev: BrowsePrev {
@@ -911,7 +991,8 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
     })
 }
 
-/// List songs in an album (goTo type=album). Uses MPD find Artist/Album, returns song items.
+/// List songs in an album from `albums://artist/album`. Matches Node: `find` by Album + AlbumArtist,
+/// then Album + Artist if the library has no AlbumArtist tags.
 async fn browse_album_songs_connected(
     config: &MpdConfig,
     music_root: &Path,
@@ -920,17 +1001,27 @@ async fn browse_album_songs_connected(
 ) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find")
-        .argument("Artist")
-        .argument(artist)
+    let raw_aa = RawCommand::new("find")
         .argument("Album")
-        .argument(album);
-    let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root);
-    let prev = format!("artists://{}", artist);
+        .argument(album)
+        .argument("AlbumArtist")
+        .argument(artist);
+    let frame = client.raw_command(raw_aa).await?;
+    let mut items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root);
+    if items.is_empty() {
+        let raw_ar = RawCommand::new("find")
+            .argument("Album")
+            .argument(album)
+            .argument("Artist")
+            .argument(artist);
+        let frame2 = client.raw_command(raw_ar).await?;
+        items = parse_lsinfo_frame(frame2, "albums://find-tracks", music_root);
+    }
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
-            prev: BrowsePrev { uri: prev },
+            prev: BrowsePrev {
+                uri: "albums://".to_string(),
+            },
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],
                 items,
@@ -1202,6 +1293,11 @@ fn browse_virtual_albumart_url_with_icon(
     url.push_str("icon=");
     url.push_str(icon);
     url
+}
+
+/// `albums://` root grid rows (Node `miscellanea/albumart`: `dot-circle-o` when no thumbnail yet).
+pub fn browse_album_list_albumart_url(artist: &str, album: &str) -> String {
+    browse_virtual_albumart_url_with_icon(Some(artist), Some(album), "dot-circle-o")
 }
 
 /// `albums://`, genres, album-under-artist folders, etc. — fallback `folder-open-o` like Node browse.

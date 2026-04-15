@@ -445,6 +445,19 @@ EOSVG
   if [[ "${src_users}" != "copied" ]]; then
     echo "WARN: users.svg missing (artist browse fallback); install full layer/bundled-plugins."
   fi
+  local src_dot=""
+  for src_dot in \
+    "${SCRIPT_REPO_DIR}/layer/bundled-plugins/icons/dot-circle-o.svg" \
+    "${EVO_REPO_DIR}/layer/bundled-plugins/icons/dot-circle-o.svg"; do
+    if [[ -f "${src_dot}" ]]; then
+      cp -f "${src_dot}" /usr/share/volumio-evo/plugins/icons/dot-circle-o.svg
+      src_dot="copied"
+      break
+    fi
+  done
+  if [[ "${src_dot}" != "copied" ]]; then
+    echo "WARN: dot-circle-o.svg missing (albums browse fallback); install full layer/bundled-plugins."
+  fi
   cat > /usr/share/volumio-evo/plugins/icons/music.svg <<'EOSVG'
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Note glyph for /albumart?icon=music (browse song rows without embedded art yet). -->
