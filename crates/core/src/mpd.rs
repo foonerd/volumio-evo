@@ -720,7 +720,7 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
             artist: Some(a.clone()),
             album: None,
             duration: None,
-            albumart: Some(browse_virtual_folder_albumart_url(Some(a.as_str()), None)),
+            albumart: Some(browse_artist_list_albumart_url(a.as_str())),
             icon: None,
         })
         .collect();
@@ -847,7 +847,7 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
             artist: Some(a.clone()),
             album: None,
             duration: None,
-            albumart: Some(browse_virtual_folder_albumart_url(Some(a.as_str()), None)),
+            albumart: Some(browse_artist_list_albumart_url(a.as_str())),
             icon: None,
         })
         .collect();
@@ -1166,14 +1166,17 @@ fn browse_directory_albumart_url(volumio_uri: &str, mpd_directory_path: &str) ->
     url
 }
 
-/// Tag-library folder (`artists://`, `albums://`, …): no `music-library/` path — resolve art from `web=`
-/// (Last.fm / CAA / iTunes into `albumart/web/` cache), then `icon=folder-open-o` if nothing matches.
+/// Tag-library virtual rows: `web=` for online art; `icon` basename must match `icons/<icon>.svg` under plugin dirs.
 ///
 /// Album-only rows (flat album list) use **"Various Artists"** as a synthetic first segment so online
 /// album search can run; wrong for some compilations but better than no art.
 ///
 /// A single **album** field like `Queen - Greatest Hits III` is split into artist+album when possible.
-pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&str>) -> String {
+fn browse_virtual_albumart_url_with_icon(
+    artist: Option<&str>,
+    album: Option<&str>,
+    icon: &str,
+) -> String {
     let mut a = artist.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let mut b = album.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     if a.is_none() && b.is_some() {
@@ -1196,8 +1199,19 @@ pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&s
         url.push_str(&urlencoding::encode(&w));
         url.push_str("&");
     }
-    url.push_str("icon=folder-open-o");
+    url.push_str("icon=");
+    url.push_str(icon);
     url
+}
+
+/// `albums://`, genres, album-under-artist folders, etc. — fallback `folder-open-o` like Node browse.
+pub fn browse_virtual_folder_albumart_url(artist: Option<&str>, album: Option<&str>) -> String {
+    browse_virtual_albumart_url_with_icon(artist, album, "folder-open-o")
+}
+
+/// `artists://` list rows: Node uses `icons/users.svg` when fetched artist art is unavailable.
+pub fn browse_artist_list_albumart_url(artist: &str) -> String {
+    browse_virtual_albumart_url_with_icon(Some(artist), None, "users")
 }
 
 /// Node `miscellanea/albumart` `getAlbumArt`: `metadata=true` + `path=` for embed/exiftool/MPD readpicture;

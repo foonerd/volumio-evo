@@ -390,7 +390,7 @@ install_bundled_plugins_assets() {
     cp -a "${src}/." /usr/share/volumio-evo/plugins/
     return 0
   fi
-  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (music; folder-o / folder-open-o from layer if present)."
+  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (music; folder-o / folder-open-o / users from layer if present)."
   mkdir -p /usr/share/volumio-evo/plugins/icons
   local src_fo=""
   for src_fo in \
@@ -431,6 +431,19 @@ EOSVG
     d="M64 208l72 88h304"/>
 </svg>
 EOSVG
+  fi
+  local src_users=""
+  for src_users in \
+    "${SCRIPT_REPO_DIR}/layer/bundled-plugins/icons/users.svg" \
+    "${EVO_REPO_DIR}/layer/bundled-plugins/icons/users.svg"; do
+    if [[ -f "${src_users}" ]]; then
+      cp -f "${src_users}" /usr/share/volumio-evo/plugins/icons/users.svg
+      src_users="copied"
+      break
+    fi
+  done
+  if [[ "${src_users}" != "copied" ]]; then
+    echo "WARN: users.svg missing (artist browse fallback); install full layer/bundled-plugins."
   fi
   cat > /usr/share/volumio-evo/plugins/icons/music.svg <<'EOSVG'
 <?xml version="1.0" encoding="UTF-8"?>
