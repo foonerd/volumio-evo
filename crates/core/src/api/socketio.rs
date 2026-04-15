@@ -379,13 +379,36 @@ async fn get_system_info(s: SocketRef) {
     s.emit("pushSystemInfo", &data).ok();
 }
 
-/// Minimal main menu for Evo (Node uses mainmenu.json + i18n). Emit same shape: array of { id, name?, state?, params? }.
-async fn get_menu_items(s: SocketRef) {
-    let menu = serde_json::json!([
-        { "id": "browse", "name": "TRANSLATE.MAIN_MENU.MUSIC", "state": "volumio.browse" },
-        { "id": "mymusic", "name": "TRANSLATE.COMMON.SOURCES", "state": "volumio.plugin", "params": { "pluginName": "miscellanea/my_music" } }
+/// Main menu for Evo. Node merges `mainmenu.json` with i18n so **names are already human text** before
+/// `pushMenuItems`; the Angular template uses `{{::item.name}}` without `| translate`, so we must not
+/// emit `TRANSLATE.*` placeholders (those only work after Node's server-side resolution).
+///
+/// Shape matches `volumio3-backend/app/mainmenu.json` + English `strings_en.json` values.
+/// Omits **browse** when `active_layout` is not `manifest` (same as Node `VOLUMIO_ACTIVE_UI_NAME`).
+async fn get_menu_items(s: SocketRef, State(state): State<AppState>) {
+    let layout = state.config.ui.active_layout.trim();
+    let mut items: Vec<serde_json::Value> = Vec::new();
+    if layout == "manifest" {
+        items.push(serde_json::json!({
+            "id": "browse",
+            "name": "Music",
+            "state": "volumio.browse"
+        }));
+    }
+    items.extend([
+        serde_json::json!({"id": "mymusic", "name": "Sources", "state": "volumio.plugin", "params": {"pluginName": "miscellanea/my_music"}}),
+        serde_json::json!({"id": "playback_options", "name": "Playback Options", "state": "volumio.plugin", "params": {"pluginName": "audio_interface/alsa_controller"}}),
+        serde_json::json!({"id": "appearance", "name": "Appearance", "state": "volumio.plugin", "params": {"pluginName": "miscellanea/appearance"}}),
+        serde_json::json!({"id": "network", "name": "Network", "state": "volumio.plugin", "params": {"pluginName": "system_controller/network"}}),
+        serde_json::json!({"id": "system", "name": "System", "state": "volumio.plugin", "params": {"pluginName": "system_controller/system"}}),
+        serde_json::json!({"id": "plugin-manager", "name": "Plugins", "state": "volumio.plugin-manager"}),
+        serde_json::json!({"id": "modal", "name": "Alarm", "params": {"modalName": "modal-alarm-clock"}}),
+        serde_json::json!({"id": "modal", "name": "Sleep", "params": {"modalName": "modal-sleep"}}),
+        serde_json::json!({"id": "shutdown", "name": "Shutdown", "params": {"modalName": "modal-power-off"}}),
+        serde_json::json!({"id": "iframe-page", "name": "Help", "params": {"url": "http://help.volumio.com"}}),
+        serde_json::json!({"id": "iframe-page", "name": "Volumio Shop", "params": {"url": "https://volumio.com/shop/"}}),
     ]);
-    s.emit("pushMenuItems", &menu).ok();
+    s.emit("pushMenuItems", &serde_json::Value::Array(items)).ok();
 }
 
 /// Empty plugin UI config stub (Node: getUIConfigOnPlugin per page). Payload: { page?: string }.
