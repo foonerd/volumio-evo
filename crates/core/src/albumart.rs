@@ -467,6 +467,15 @@ struct ITunesResult {
     artwork_url600: Option<String>,
 }
 
+/// Apple Search often omits `artworkUrl600`; `artworkUrl100` is literally 100×100. mzstatic URLs use a
+/// `100x100bb` path segment that can be swapped for `600x600bb` to fetch the same asset at higher res.
+fn itunes_artwork_fetch_url(url: &str) -> String {
+    if url.contains("100x100bb") {
+        return url.replace("100x100bb", "600x600bb");
+    }
+    url.to_string()
+}
+
 /// iTunes Search API: search by artist+album, use first result artwork.
 async fn try_itunes(client: &reqwest::Client, artist: &str, album: &str) -> Option<Vec<u8>> {
     let term = format!("{} {}", artist, album);
@@ -481,10 +490,12 @@ async fn try_itunes(client: &reqwest::Client, artist: &str, album: &str) -> Opti
     let search: ITunesSearchResult = resp.json().await.ok()?;
     let results = search.results?;
     let first = results.first()?;
-    let image_url = first
+    let raw = first
         .artwork_url600
         .as_deref()
-        .or_else(|| first.artwork_url100.as_deref())?;
+        .filter(|s| !s.is_empty())
+        .or_else(|| first.artwork_url100.as_deref().filter(|s| !s.is_empty()))?;
+    let image_url = itunes_artwork_fetch_url(raw);
     if image_url.is_empty() {
         return None;
     }
