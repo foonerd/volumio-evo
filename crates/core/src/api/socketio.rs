@@ -1,6 +1,7 @@
 //! Socket.IO adapter: same event names as Node backend so the existing UI works.
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
+use crate::alsa;
 use crate::mpd::{
     self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
     BrowseResponse, MpdConfig,
@@ -423,9 +424,44 @@ struct GetUiConfigPayload {
     page: String,
 }
 
-async fn get_ui_config(s: SocketRef, TryData(payload): TryData<GetUiConfigPayload>) {
-    let _ = payload; // Node uses data.page to route to plugin; Evo has no plugins, always stub
-    s.emit("pushUiConfig", &empty_ui_config()).ok();
+async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<GetUiConfigPayload>) {
+    let page = payload.ok().map(|p| p.page).unwrap_or_default();
+    if page.trim() == "audio_interface/alsa_controller" {
+        match build_playback_options_ui(&state).await {
+            Ok(v) => {
+                s.emit("pushUiConfig", &v).ok();
+            }
+            Err(e) => {
+                tracing::warn!("getUiConfig playback options: {}", e);
+                s.emit("pushUiConfig", &empty_ui_config()).ok();
+            }
+        }
+    } else {
+        s.emit("pushUiConfig", &empty_ui_config()).ok();
+    }
+}
+
+async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    let mut cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            tracing::warn!("aplay -l: {}", e);
+            vec![]
+        }
+        Err(e) => return Err(anyhow::Error::new(e)),
+    };
+
+    if cards.is_empty() {
+        tracing::info!("no ALSA playback cards; Playback Options shows a placeholder device");
+        cards.push(alsa::AplayCard {
+            id: "nodev".to_string(),
+            name: "No playback device (is aplay installed?)".to_string(),
+        });
+    }
+
+    let settings = state.alsa.read().await.clone();
+    let settings = alsa::coerce_selection(&cards, settings);
+    Ok(alsa::playback_options_ui_config(&cards, &settings))
 }
 
 async fn get_dsp_ui_config(s: SocketRef) {
@@ -616,9 +652,29 @@ async fn get_extended_output_devices(s: SocketRef) {
     s.emit("pushExtendedOutputDevices", &serde_json::json!([])).ok();
 }
 
-/// Stub: no output devices list (Node: alsa_controller getAudioDevices -> pushOutputDevices).
-async fn get_output_devices(s: SocketRef) {
-    s.emit("pushOutputDevices", &serde_json::json!([])).ok();
+/// ALSA device list for wizard / Playback (Node: alsa_controller getAudioDevices -> pushOutputDevices).
+async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
+    let cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => {
+            tracing::warn!("getOutputDevices aplay: {}", e);
+            vec![alsa::AplayCard {
+                id: "nodev".into(),
+                name: "No playback device".into(),
+            }]
+        }
+        Err(e) => {
+            tracing::warn!("getOutputDevices join: {}", e);
+            vec![alsa::AplayCard {
+                id: "nodev".into(),
+                name: "No playback device".into(),
+            }]
+        }
+    };
+    let settings = state.alsa.read().await.clone();
+    let settings = alsa::coerce_selection(&cards, settings);
+    let payload = alsa::push_output_devices_json(&cards, &settings);
+    s.emit("pushOutputDevices", &payload).ok();
 }
 
 /// Stub: no backgrounds (Node: appearance getBackgrounds -> pushBackgrounds).
@@ -639,8 +695,16 @@ async fn get_experience_advanced_settings(s: SocketRef) {
 /// No-op: Node calls system setExperienceAdvancedSettings; Evo has no persistence.
 async fn set_experience_advanced_settings(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
 
-/// No-op: Node calls alsa_controller saveAlsaOptions; Evo has no ALSA device config.
-async fn set_output_devices(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
+/// Persist output device (wizard `setOutputDevices`; same shape as `saveAlsaOptions` data).
+async fn set_output_devices(s: SocketRef, State(state): State<AppState>, Data(data): Data<serde_json::Value>) {
+    let mut guard = state.alsa.write().await;
+    match guard.apply_save_payload(&data) {
+        Ok(()) => tracing::info!("ALSA output saved: {:?}", *guard),
+        Err(e) => tracing::warn!("setOutputDevices: {}", e),
+    }
+    drop(guard);
+    get_output_devices(s, State(state.clone())).await;
+}
 
 /// Stub: no wizard done page (Node: wizard getDonation/getDonationsArray/getDoneMessage -> pushDonePage).
 async fn get_done_page(s: SocketRef) {
@@ -1593,9 +1657,9 @@ struct CallMethodPayload {
     data: serde_json::Value,
 }
 
-/// callMethod: handle miscellanea/albumart clearAlbumartCache (trigger broadcast so clients refresh).
+/// callMethod: miscellanea/albumart clearAlbumartCache; audio ALSA save (Playback Options).
 async fn call_method(
-    _s: SocketRef,
+    s: SocketRef,
     State(state): State<AppState>,
     Data(payload): Data<CallMethodPayload>,
 ) {
@@ -1603,6 +1667,19 @@ async fn call_method(
         && payload.method.as_deref() == Some("clearAlbumartCache")
     {
         state.send_clear_albumart_cache();
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("audio_interface/alsa_controller")
+        && payload.method.as_deref() == Some("saveAlsaOptions")
+    {
+        let mut guard = state.alsa.write().await;
+        match guard.apply_save_payload(&payload.data) {
+            Ok(()) => tracing::info!("ALSA saveAlsaOptions: {:?}", *guard),
+            Err(e) => tracing::warn!("saveAlsaOptions: {}", e),
+        }
+        drop(guard);
+        get_output_devices(s, State(state.clone())).await;
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod alsa;
 pub mod albumart;
 pub mod api;
 pub mod artist_normalize;
