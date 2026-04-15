@@ -193,6 +193,10 @@ pub struct BrowseItem {
     pub album: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub albumart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Response for GET /api/v1/browse. Matches Volumio navigation structure.
@@ -230,6 +234,10 @@ struct FileEntry {
 
 fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>) {
     if let Some(f) = current.take() {
+        let albumart = Some(format!(
+            "/albumart?path={}&icon=music",
+            urlencoding::encode(&f.uri)
+        ));
         items.push(BrowseItem {
             item_type: "song".to_string(),
             title: f.title,
@@ -238,12 +246,46 @@ fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>)
             artist: f.artist,
             album: f.album,
             duration: f.duration,
+            albumart,
+            icon: None,
         });
     }
 }
 
+/// Matches Node `uri.indexOf('music-library/INTERNAL')` for `internal-folder` vs `folder`.
+fn browse_uri_is_under_internal(browse_uri: &str) -> bool {
+    browse_uri == "music-library/INTERNAL"
+        || browse_uri.starts_with("music-library/INTERNAL/")
+}
+
+/// Node `lsInfo` directory row: `remdisk` (USB volume), `internal-folder` under INTERNAL, else `folder`; `albumart` like `getAlbumArt`.
+fn lsinfo_directory_fields(browse_uri: &str, mpd_path: &str, item_uri: &str) -> (String, String) {
+    let segments: Vec<&str> = mpd_path.split('/').filter(|s| !s.is_empty()).collect();
+    let is_remdisk = segments.len() == 2 && segments[0] == "USB";
+    let item_type = if is_remdisk {
+        "remdisk"
+    } else if browse_uri_is_under_internal(browse_uri) {
+        "internal-folder"
+    } else {
+        "folder"
+    }
+    .to_string();
+
+    let albumart = if browse_uri == "music-library" && segments.len() == 1 {
+        match mpd_path {
+            "INTERNAL" | "NAS" | "USB" | "SMB" => music_source_albumart(mpd_path).to_string(),
+            _ => format!("/albumart?path={}&icon=folder-o", urlencoding::encode(item_uri)),
+        }
+    } else {
+        format!("/albumart?path={}&icon=folder-o", urlencoding::encode(item_uri))
+    };
+
+    (item_type, albumart)
+}
+
 /// Parse MPD lsinfo Frame into BrowseItems. Frame has key-value pairs; "directory" and "file" start new entries.
-fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, _uri_prefix: &str) -> Vec<BrowseItem> {
+/// `browse_uri` is the listing URI (e.g. `music-library/INTERNAL`), used like Node `lsInfo` `uri` for typing rows.
+fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, browse_uri: &str) -> Vec<BrowseItem> {
     let mut items = Vec::new();
     let mut current_file: Option<FileEntry> = None;
 
@@ -260,14 +302,18 @@ fn parse_lsinfo_frame(frame: mpd_client::protocol::response::Frame, _uri_prefix:
                     continue;
                 }
                 let item_uri = format!("music-library/{}", value);
+                let (item_type, albumart) =
+                    lsinfo_directory_fields(browse_uri, value, &item_uri);
                 items.push(BrowseItem {
-                    item_type: "folder".to_string(),
+                    item_type,
                     title: name,
                     uri: item_uri,
                     service: "mpd".to_string(),
                     artist: None,
                     album: None,
                     duration: None,
+                    albumart: Some(albumart),
+                    icon: None,
                 });
             }
             "file" => {
@@ -547,66 +593,34 @@ pub async fn search_connected(config: &MpdConfig, query: &str) -> Result<BrowseR
     })
 }
 
-/// Root `music-library` listing: like classic Volumio — virtual library entries, then filesystem sources (local/usb/nas/smb).
+/// Bundled `sourceicon` paths for the four storage roots (Node: `stickingMusicLibrary` + `lsinfo` names).
+fn music_source_albumart(path_segment: &str) -> &'static str {
+    match path_segment {
+        "INTERNAL" => "/albumart?sourceicon=music_service/mpd/musiclibraryicon.png",
+        "USB" => "/albumart?sourceicon=music_service/mpd/playlisticon.png",
+        "NAS" => "/albumart?sourceicon=music_service/mpd/albumicon.png",
+        "SMB" => "/albumart?sourceicon=music_service/mpd/artisticon.png",
+        _ => "/albumart?sourceicon=music_service/mpd/musiclibraryicon.png",
+    }
+}
+
+/// Root `music-library` listing: storage roots only (INTERNAL, USB, NAS, SMB), with art like Node browse rows.
+/// Favourites / tag library / playlists are reached from the sidebar (`browseSources`), not duplicated here.
 pub fn music_library_root_response() -> BrowseResponse {
-    let mut items: Vec<BrowseItem> = vec![
-        BrowseItem {
-            item_type: "folder".to_string(),
-            title: "Favourites".to_string(),
-            uri: "favourites".to_string(),
-            service: "mpd".to_string(),
-            artist: None,
-            album: None,
-            duration: None,
-        },
-        BrowseItem {
-            item_type: "folder".to_string(),
-            title: "Playlists".to_string(),
-            uri: "playlists".to_string(),
-            service: "mpd".to_string(),
-            artist: None,
-            album: None,
-            duration: None,
-        },
-        BrowseItem {
-            item_type: "folder".to_string(),
-            title: "Artists".to_string(),
-            uri: "artists://".to_string(),
-            service: "mpd".to_string(),
-            artist: None,
-            album: None,
-            duration: None,
-        },
-        BrowseItem {
-            item_type: "folder".to_string(),
-            title: "Albums".to_string(),
-            uri: "albums://".to_string(),
-            service: "mpd".to_string(),
-            artist: None,
-            album: None,
-            duration: None,
-        },
-        BrowseItem {
-            item_type: "folder".to_string(),
-            title: "Genres".to_string(),
-            uri: "genres://".to_string(),
-            service: "mpd".to_string(),
-            artist: None,
-            album: None,
-            duration: None,
-        },
-    ];
-    for (name, title) in MUSIC_SOURCE_NAMES {
-        items.push(BrowseItem {
+    let items: Vec<BrowseItem> = MUSIC_SOURCE_NAMES
+        .iter()
+        .map(|(path_segment, title)| BrowseItem {
             item_type: "folder".to_string(),
             title: (*title).to_string(),
-            uri: format!("music-library/{}", name),
+            uri: format!("music-library/{}", path_segment),
             service: "mpd".to_string(),
             artist: None,
             album: None,
             duration: None,
-        });
-    }
+            albumart: Some(music_source_albumart(path_segment).to_string()),
+            icon: None,
+        })
+        .collect();
     BrowseResponse {
         navigation: BrowseNavigation {
             prev: BrowsePrev {
@@ -615,6 +629,22 @@ pub fn music_library_root_response() -> BrowseResponse {
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],
                 items,
+            }],
+        },
+    }
+}
+
+/// When MPD browse fails, emit this so the stock UI still gets `navigation.lists[].items` arrays
+/// (otherwise `browse.controller` / `browse-music` can throw on `forEach` / `map`).
+pub fn empty_browse_response(prev_uri: impl Into<String>) -> BrowseResponse {
+    BrowseResponse {
+        navigation: BrowseNavigation {
+            prev: BrowsePrev {
+                uri: prev_uri.into(),
+            },
+            lists: vec![BrowseList {
+                available_list_views: vec!["list", "grid"],
+                items: vec![],
             }],
         },
     }
@@ -672,6 +702,8 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
             artist: Some(a),
             album: None,
             duration: None,
+            albumart: None,
+            icon: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -700,6 +732,8 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
             artist: None,
             album: Some(album),
             duration: None,
+            albumart: None,
+            icon: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -749,6 +783,8 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
             artist: None,
             album: None,
             duration: None,
+            albumart: None,
+            icon: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -789,6 +825,8 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
             artist: Some(a),
             album: None,
             duration: None,
+            albumart: None,
+            icon: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -830,6 +868,8 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
                 artist: Some(artist.to_string()),
                 album: Some(album),
                 duration: None,
+                albumart: None,
+                icon: None,
             }
         })
         .collect();
@@ -860,7 +900,7 @@ async fn browse_album_songs_connected(
         .argument("Album")
         .argument(album);
     let frame = client.raw_command(raw).await?;
-    let items = parse_lsinfo_frame(frame, "music-library");
+    let items = parse_lsinfo_frame(frame, "albums://find-tracks");
     let prev = format!("artists://{}", artist);
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
@@ -873,7 +913,7 @@ async fn browse_album_songs_connected(
     })
 }
 
-/// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library/local/..."), return browse response.
+/// Connect to MPD, run lsinfo for the given Volumio uri (e.g. "music-library/INTERNAL/..."), return browse response.
 /// Handles virtual URIs: `artists://`, `albums://`, `genres://` (tag-based library, like classic Volumio).
 pub async fn browse_connected(config: &MpdConfig, uri: &str) -> Result<BrowseResponse> {
     if uri == "favourites" {

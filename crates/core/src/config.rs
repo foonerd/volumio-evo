@@ -5,17 +5,17 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 /// Evo-owned layout for music sources. MPD's `music_directory` must be set to
-/// `music_root` so that paths like `local/`, `usb/`, `nas/`, `smb/` exist under it
-/// (as dirs or symlinks). Works on vanilla Debian (no Volumio overlayfs).
+/// `music_root` so that paths like `INTERNAL/`, `USB/`, `NAS/`, `SMB/` exist under it
+/// (as dirs or symlinks), matching stock Volumio browse URIs. Works on vanilla Debian.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[allow(dead_code)] // used by config file and future init/ensure-layout
 pub struct MusicSourcesConfig {
     /// Base path for music. MPD must use this as music_directory.
-    /// Under it: local, usb, nas, smb (create or symlink per deployment).
+    /// Under it: INTERNAL, USB, NAS, SMB (create or symlink per deployment).
     #[serde(default = "default_music_root")]
     pub music_root: PathBuf,
-    /// Optional path for "local" (on-device) storage. If set, installer/startup
-    /// should ensure music_root/local exists and points here (e.g. symlink).
+    /// Optional path for on-device storage. If set, installer/startup should ensure
+    /// `music_root/INTERNAL` exists and points here (e.g. symlink).
     pub local: Option<PathBuf>,
     /// Optional path for USB media (e.g. /media). music_root/usb can symlink here.
     pub usb: Option<PathBuf>,
@@ -48,12 +48,13 @@ fn user_or_system_music_root_default() -> PathBuf {
     default_music_root()
 }
 
-/// Default source names under music_root. URI prefix: music-library/<name>/...
+/// Top-level directory names under `music_root` / browse URIs `music-library/<SEGMENT>/...`.
+/// Segments match Node `stickingMusicLibrary` + `lsinfo` (`INTERNAL`, not `local`).
 pub const MUSIC_SOURCE_NAMES: &[(&str, &str)] = &[
-    ("local", "Local"),
-    ("usb", "USB"),
-    ("nas", "NAS"),
-    ("smb", "SMB"),
+    ("INTERNAL", "INTERNAL"),
+    ("USB", "USB"),
+    ("NAS", "NAS"),
+    ("SMB", "SMB"),
 ];
 
 /// User interface layout (stock `volumioUisList.json` uses the same `uiName` strings).

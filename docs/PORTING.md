@@ -153,7 +153,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 
 | Endpoint | Covered? | Evo behaviour |
 |----------|----------|----------------|
-| `GET /v1/browse` | Yes | Root `music-library`: Favourites (empty stub), Playlists, **Artists** (`artists://` → MPD `list Artist`), **Albums** (`albums://`), **Genres** (`genres://`), then local/usb/nas/smb; sub-URIs use MPD tag queries + `lsinfo` under paths |
+| `GET /v1/browse` | Yes | Root `music-library`: **INTERNAL**, **USB**, **NAS**, **SMB** only (each with `albumart` via bundled `sourceicon`); Favourites / tag library / playlists are sidebar `browseSources`, not duplicated here. Sub-URIs: MPD `lsinfo` — directory rows use Node types **`internal-folder`** (under `music-library/INTERNAL/...`), **`remdisk`** (`USB/<volume>`), or **`folder`**, with **`albumart`** (`/albumart?path=...&icon=folder-o` or `sourceicon` at storage root); songs include `albumart` with `icon=music`. Virtual `artists://`, `albums://`, `genres://`, `favourites`, `playlists` when browsing those URIs |
 | `GET /v1/search` | Yes | MPD find, browse-like response |
 | `GET /v1/superSearch` | Yes | Same as search |
 | `GET /v1/listplaylists` | Yes | MPD listplaylists |
@@ -180,7 +180,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | closeAllModals (on connect), closeModals | Yes | closeAllModals on connect; closeModals -> emit closeAllModals to client. |
 | getState | Yes | MPD state -> pushState |
 | getQueue | Yes | MPD queue -> pushQueue |
-| browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: same root as REST (library shortcuts + sources); virtual URIs `artists://`, `albums://`, `genres://`, `favourites`, `playlists`; getInputSources/getBrowseSources -> filesystem sources only (local, usb, nas, smb). |
+| browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: same root as REST (storage roots + `albumart`); virtual URIs `artists://`, `albums://`, `genres://`, `favourites`, `playlists`; getBrowseSources -> sidebar entries (Favourites, Playlists, Music Library, …). |
 | addToQueue, addPlay, addQueueUids | Yes | MPD add + optional play; addQueueUids adds multiple URIs (payload: array or { uids }). |
 | removeFromQueue, removeQueueItem | Yes | MPD delete (position); both use payload { value } (1-based from UI). |
 | volume, play, pause, toggle, stop, next, prev, seek, skipBackwards, skipForward | Yes | MPD commands; skipBackwards/skipForward seek ±10s within current track. |
@@ -199,7 +199,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | goTo | Yes | type=artist -> pushBrowseLibrary(albums by artist); type=album -> pushBrowseLibrary(songs in album). Uses artists:// and albums:// browse. |
 | replaceAndPlayCue | Yes | Clear queue, add single uri (no play). No CUE sheet support; treated as single track. |
 | addPlayCue | Yes | Add single uri to queue. No CUE sheet support. |
-| playItemsList | Yes | Clear queue, add list of uris, play at index (payload: list, index). |
+| playItemsList | Yes | With `list` + `index`: clear queue, add uris, play at index (songs). With **`item` only** (Node folder inline play): same as `replaceAndPlay` on `item.uri` (MPD `add` expands directories). |
 | search, superSearch | Yes | MPD find (any); payload value or query -> pushBrowseLibrary. Same behaviour for both. |
 | getMyCollectionStats | Yes | MPD stats -> pushMyCollectionStats (artists, albums, songs, playtime). |
 | getDeviceInfo | Yes | pushDeviceInfo({ uuid, name }) — stub: uuid "evo-stub", name "Volumio Evo". |
@@ -232,7 +232,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 
 | Area | Covered? | Evo behaviour |
 |------|----------|----------------|
-| Music layout | Yes | music_root, local/usb/nas/smb, config + env, MPD music_directory |
+| Music layout | Yes | music_root, INTERNAL/USB/NAS/SMB dir names, config + env, MPD music_directory |
 | Album art resolution (path, cache, personal, MPD readpicture, exiftool, online, icon, resize) | Yes | path → folder/metadata cache → folder covers → personal → MPD readpicture (path param) → exiftool (metadata=true) → web cache → online → icon/sectionimage/sourceicon → default; albumartd 500px, tinyart 250px |
 
 ---
@@ -248,7 +248,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **Socket.IO (core):** getState, getQueue, browseLibrary (including uri `playlists` and `playlists/<name>` for stored playlists; virtual `artists://<name>` and `albums://<artist>/<album>` for goTo), addToQueue, addPlay, removeFromQueue, volume, play, pause, toggle, stop, next, prev, seek, setRandom, setRepeat, clearQueue, getInstalledPlugins, moveQueue, playNext; playlist manager: getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue; pinger (-> ponger), setConsume (-> pushSetConsume), getLastPushedBrowseLibrary (-> pushBrowseLibrary with last result), mute, unmute, rescanDb, updateDb; replaceAndPlay (uri or playlists/Name -> clear+add+play or load playlist+play), goTo (type=artist|album -> pushBrowseLibrary), replaceAndPlayCue (clear+add uri, no play), addPlayCue (add uri to queue), playItemsList (clear+add list+play at index), search, superSearch (MPD find -> pushBrowseLibrary), getMyCollectionStats (-> pushMyCollectionStats), removeQueueItem (same as removeFromQueue), addQueueUids (add multiple URIs), skipBackwards, skipForward (seek ±10s), closeModals (-> closeAllModals), getInputSources (-> pushInputSources), getDeviceInfo, getBrowseSources, getSystemVersion, getSystemInfo, getMenuItems (-> pushMenuItems), getUiConfig (-> pushUiConfig), getDSPUiConfig (-> pushDSPUiConfig), getAvailableLanguages (-> pushAvailableLanguages), getDeviceName (-> pushDeviceName), setLanguage (no-op), getAvailableTimezones (-> pushAvailableTimezones), getCurrentTimezone (-> pushCurrentTimezone), setTimezone (no-op), initSocket (no-op), volatilePlay (same as play), getLibraryListing (-> pushLibraryListing stub), getLibraryFilters (-> pushLibraryFilters []), getPlaylistIndex (-> pushPlaylistIndex []), getMultiRoomDevices (-> pushMultiRoomDevices []), serviceUpdateTracklist, updateAllMetadata, importServicePlaylists (no-op), setDeviceName (no-op), getDeviceHWUUID (-> pushDeviceHWUUID stub), getUiSettings (-> pushUiSettings {}), getShutdownOrStandbyMode (-> pushShutdownOrStandbyMode {}), getPrivacySettings (-> pushPrivacySettings {}), getInfinityPlayback (-> pushInfinityPlayback), setInfinityPlayback (no-op), getSleep/setSleep (-> pushSleep {}), getAlarms (-> pushAlarm []), saveAlarm (-> pushSleep {}), getMultiroom/setMultiroom (-> pushMultiroom {}), writeMultiroom (no-op), getExtendedOutputDevices/getOutputDevices (-> pushExtendedOutputDevices/pushOutputDevices []), getBackgrounds (-> pushBackgrounds []), setBackgrounds (-> pushBackgrounds []), getExperienceAdvancedSettings (-> pushExperienceAdvancedSettings {}), setExperienceAdvancedSettings (no-op), setOutputDevices (no-op), getDonePage (-> pushDonePage stub), getWizard (-> pushWizard { openWizard: false }), getWizardSteps (-> pushWizardSteps []), getWizardUiConfig (-> pushWizardUiConfig {}), deleteBackground (no-op); closeAllModals on connect; responses: pushState, pushQueue, pushBrowseLibrary (and last stored for getLastPushedBrowseLibrary), pushInstalledPlugins, pushPlaylistContent, pushListPlaylist, pushPlayPlaylist, pushSaveQueueToPlaylist, pushCreatePlaylist, pushAddToPlaylist, pushEnqueue, pushSetConsume, ponger, pushDeviceInfo, pushBrowseSources, pushSystemVersion, pushSystemInfo, pushMenuItems, pushUiConfig, pushDSPUiConfig, pushAvailableLanguages, pushDeviceName, pushAvailableTimezones, pushCurrentTimezone, pushLibraryListing, pushLibraryFilters, pushPlaylistIndex, pushMultiRoomDevices, pushDeviceHWUUID, pushUiSettings, pushShutdownOrStandbyMode, pushPrivacySettings, pushInfinityPlayback, pushSleep, pushAlarm, pushMultiroom, pushExtendedOutputDevices, pushOutputDevices, pushBackgrounds, pushExperienceAdvancedSettings, pushDonePage, pushWizard, pushWizardSteps, pushWizardUiConfig. Background polling (2s) broadcasts pushState/pushQueue to all clients when MPD state or queue changes.
 - **Album art routes:** GET /albumart, /albumartd, /tinyart/*; query path/web/metadata/icon/sourceicon/sectionimage; resolution: path → folder/metadata cache → folder covers → personal → MPD readpicture → exiftool (metadata=true) → web cache → online providers → icon/sectionimage/sourceicon from plugin dirs → default. albumartd/tinyart resized (500px/250px). POST /albumart-upload (multipart → personal); after upload, broadcast callMethod(clearAlbumartCache) to all Socket.IO clients.
 - **Status:** GET /status returns VOLUMIO_SYSTEM_STATUS or "ready".
-- **Music layout:** music_root + local/usb/nas/smb; config and env; MPD alignment.
+- **Music layout:** music_root + INTERNAL/USB/NAS/SMB; config and env; MPD alignment.
 
 ### 3.2 Deferred or stubbed
 
@@ -274,7 +274,7 @@ What is left to do, grouped by phase. Each phase states what is **done**, what i
 
 | Status | Scope |
 |--------|--------|
-| **Done** | Playback (getState, getQueue, play, pause, volume, seek, etc.), queue ops, browseLibrary (Evo layout + MPD), playlists (MPD stored), album art (path/cache/personal/MPD/exiftool/online), music layout (local/usb/nas/smb), replaceAndPlay, goTo, search, superSearch, getMyCollectionStats, rescanDb, updateDb. |
+| **Done** | Playback (getState, getQueue, play, pause, volume, seek, etc.), queue ops, browseLibrary (Evo layout + MPD), playlists (MPD stored), album art (path/cache/personal/MPD/exiftool/online), music layout (INTERNAL/USB/NAS/SMB), replaceAndPlay, goTo, search, superSearch, getMyCollectionStats, rescanDb, updateDb. |
 | **Outstanding** | None. |
 | **Cannot be ported** | N/A. |
 

@@ -48,7 +48,7 @@ cross build --release --target armv7-unknown-linux-gnueabihf -p volumio-evo-core
 
 On armhf the core runs without the WASM plugin layer. For full plugin support use arm64 (e.g. Pi Zero 2 W with 64-bit Pi OS).
 
-## Music sources (local, USB, NAS, SMB)
+## Music sources (INTERNAL, USB, NAS, SMB)
 
 Evo uses its **own layout** for music sources instead of relying on Volumio OS paths (`/mnt/INTERNAL`, overlayfs, etc.). This works on vanilla Debian (e.g. Trixie) and keeps MPD integration explicit.
 
@@ -57,12 +57,12 @@ Evo uses its **own layout** for music sources instead of relying on Volumio OS p
   - **Config file:** `[music_sources] music_root = "..."` in `/etc/volumio-evo/config.toml` or `config/volumio-evo.toml`.
   - **No config file:** user-aware default: `$XDG_DATA_HOME/volumio-evo/music` or `$HOME/.local/share/volumio-evo/music`, else `/var/lib/volumio-evo/music`. So a different user (e.g. `pi`, `debian`) gets a writable path when running without a config file.
 - **MPD:** Set MPD's `music_directory` to the same path (install or MPD config) so MPD sees one root with four subdirs.
-- **Subdirs:** Under `music_root` create (or symlink) **local**, **usb**, **nas**, **smb**:
-  - **local** - on-device storage (e.g. symlink to `/data/INTERNAL` on Volumio OS, or a dir on rootfs on vanilla).
-  - **usb** - removable media (e.g. symlink to `/media`).
-  - **nas** / **smb** - mount points or symlinks for network shares.
+- **Subdirs:** Under `music_root` create (or symlink) **INTERNAL**, **USB**, **NAS**, **SMB** (same names as stock Volumio / Node `stickingMusicLibrary` so `lsinfo` matches browse URIs):
+  - **INTERNAL** - on-device storage (e.g. symlink to `/data/INTERNAL` on Volumio OS, or a dir on rootfs on vanilla).
+  - **USB** - removable media (e.g. symlink under `/media`).
+  - **NAS** / **SMB** - mount points or symlinks for network shares.
 
-Browse root `GET /api/v1/browse?uri=music-library` returns these four sources; subpaths use MPD `lsinfo`. The four subdirs must exist (or be symlinks) under `music_root` so MPD can list them. In config you can set optional `music_sources.local`, `usb`, `nas`, `smb` to document where each source points; the installer or a small init script then creates the dirs/symlinks under `music_root`.
+Browse root `GET /api/v1/browse?uri=music-library` returns these four sources with `albumart` (bundled `sourceicon` PNGs); subpaths use MPD `lsinfo`. The four subdirs must exist under `music_root`. If you still have a lowercase **`local`** tree from an older Evo install, add e.g. `ln -s local INTERNAL` under `music_root` until you rename dirs. Optional `music_sources.local`, `usb`, `nas`, `smb` in config document where each source points for installers.
 
 ## Layer
 

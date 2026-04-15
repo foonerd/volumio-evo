@@ -72,7 +72,7 @@ You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or
   Check `systemctl status volumio-evo` and firewall (`sudo ufw allow 3000` on Ubuntu if needed).
 
 - **Empty library**  
-  Music lives under `/var/lib/volumio-evo/music/` with subfolders **local**, **usb**, **nas**, **smb** — put files in one of them, then `sudo systemctl restart mpd` and optionally `sudo systemctl restart volumio-evo`.
+  Music lives under `/var/lib/volumio-evo/music/` with subfolders **INTERNAL**, **USB**, **NAS**, **SMB** — put files in one of them, then `sudo systemctl restart mpd` and optionally `sudo systemctl restart volumio-evo`.
 
 - **Backend fails to start**  
   `journalctl -u volumio-evo -n 50 --no-pager` — send the last lines to the developer.

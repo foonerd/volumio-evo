@@ -46,8 +46,8 @@ const FALLBACK_PNG: &[u8] = &[
 const CACHE_MAX_AGE: &str = "public, max-age=2628000"; // 30d
 
 /// Plugin dirs to search for icon/sectionimage/sourceicon (Volumio-compatible order).
-/// Bundled tree ships stock `music_service/mpd/*icon.png` so `/albumart?sourceicon=...` works
-/// without copying Node's plugin tree into `/usr/share` (dev and minimal installs).
+/// Bundled tree ships `music_service/mpd/*icon.png`, and `icons/folder-o.svg` / `icons/music.svg`
+/// for `/albumart?icon=folder-o|music` (browse rows when no folder/track cover), matching Node’s albumart server.
 fn albumart_plugin_dirs(plugin_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let bundled =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/bundled-plugins");

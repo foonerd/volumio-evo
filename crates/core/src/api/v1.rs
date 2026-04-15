@@ -357,7 +357,7 @@ pub async fn browse(
         q.uri.as_str()
     };
 
-    // Root: same as classic Volumio — library shortcuts + filesystem sources (see mpd::music_library_root_response).
+    // Root: storage sources only with albumart (see mpd::music_library_root_response); sidebar lists Favourites / tag library.
     if uri == "music-library" {
         return Json(mpd::music_library_root_response()).into_response();
     }

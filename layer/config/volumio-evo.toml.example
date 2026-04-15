@@ -20,7 +20,7 @@ albumart_root = "/var/lib/volumio-evo/albumart"
 # musicbrainz_user_agent = "VolumioEvo/1.0 (https://volumio.org)"
 
 [music_sources]
-# Base path for local, usb, nas, smb. MPD music_directory must match.
+# Base path; under it: INTERNAL, USB, NAS, SMB (stock Volumio names). MPD music_directory must match.
 # Override at install: Environment=VOLUMIO_EVO_MUSIC_ROOT=/var/lib/volumio-evo/music
 music_root = "/var/lib/volumio-evo/music"
 

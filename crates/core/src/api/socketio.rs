@@ -88,6 +88,7 @@ async fn on_connect(s: SocketRef) {
     s.on("getInputSources", get_input_sources);
     s.on("getDeviceInfo", get_device_info);
     s.on("getBrowseSources", get_browse_sources);
+    s.on("getBrowseFilters", get_browse_filters);
     s.on("getSystemVersion", get_system_version);
     s.on("getSystemInfo", get_system_info);
     s.on("getMenuItems", get_menu_items);
@@ -284,8 +285,8 @@ async fn get_input_sources(s: SocketRef) {
 
 /// Visible browse sources for the sidebar / browse source picker — must match Node
 /// `app/musiclibrary.js` default `browseSources` (when browsesources.json is absent).
-/// If we only expose `music-library/<disk>` here, the UI opens a filesystem folder (`lsinfo`)
-/// and never shows the virtual `music-library` index (Favourites, Artists, Albums, …).
+/// Sidebar entries: Favourites, tag library, playlists, etc. The `music-library` root listing
+/// itself is storage-only (INTERNAL, USB, NAS, SMB) with `albumart`, matching Node browse rows.
 fn browse_sources_json() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({
@@ -344,6 +345,11 @@ async fn get_device_info(s: SocketRef) {
 async fn get_browse_sources(s: SocketRef) {
     let sources = browse_sources_json();
     s.emit("pushBrowseSources", &sources).ok();
+}
+
+/// Stock UI calls `getBrowseFilters` on browse init (Node: musiclibrary index filters). Evo uses MPD browse only — empty list.
+async fn get_browse_filters(s: SocketRef) {
+    s.emit("pushBrowseFilters", &serde_json::json!([])).ok();
 }
 
 async fn get_system_version(s: SocketRef) {
@@ -696,6 +702,8 @@ async fn browse_library(
                         artist: None,
                         album: None,
                         duration: None,
+                        albumart: None,
+                        icon: None,
                     })
                     .collect();
                 let resp = BrowseResponse {
@@ -711,7 +719,10 @@ async fn browse_library(
                 };
                 push_browse_and_store(&s, &state, &resp).await;
             }
-            Err(e) => tracing::warn!("browse playlists MPD error: {}", e),
+            Err(e) => {
+                tracing::warn!("browse playlists MPD error: {}", e);
+                push_browse_and_store(&s, &state, &mpd::empty_browse_response("music-library")).await;
+            }
         }
         return;
     }
@@ -736,6 +747,8 @@ async fn browse_library(
                             artist: None,
                             album: None,
                             duration: None,
+                            albumart: None,
+                            icon: None,
                         }
                     })
                     .collect();
@@ -752,18 +765,29 @@ async fn browse_library(
                 };
                 push_browse_and_store(&s, &state, &resp).await;
             }
-            Err(e) => tracing::warn!("browse playlists/{} MPD error: {}", playlist_name, e),
+            Err(e) => {
+                tracing::warn!("browse playlists/{} MPD error: {}", playlist_name, e);
+                push_browse_and_store(&s, &state, &mpd::empty_browse_response("playlists")).await;
+            }
         }
         return;
     }
 
     let config = mpd_config(&state);
+    let prev_on_error = if uri.starts_with("music-library/") {
+        "music-library"
+    } else if uri.starts_with("playlists/") {
+        "playlists"
+    } else {
+        "music-library"
+    };
     match mpd::browse_connected(&config, uri).await {
         Ok(resp) => {
             push_browse_and_store(&s, &state, &resp).await;
         }
         Err(e) => {
             tracing::warn!("browse {} MPD error: {}", uri, e);
+            push_browse_and_store(&s, &state, &mpd::empty_browse_response(prev_on_error)).await;
         }
     }
 }
@@ -797,6 +821,20 @@ struct ReplaceAndPlayPayload {
     title: String, // Volumio UI sends it; used for playlist name when uri is playlists/Name
 }
 
+/// Node `CoreCommandRouter.replaceAndPlay`: clear queue, add uri, play. MPD `add` on a directory adds the subtree.
+async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
+    let config = mpd_config(state);
+    let is_playlist = uri.starts_with("playlists/") && !uri.contains("://");
+    if is_playlist {
+        let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
+        if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
+            tracing::warn!("replaceAndPlay (playlist) MPD error: {}", e);
+        }
+    } else if let Err(e) = mpd::add_play_connected(&config, uri).await {
+        tracing::warn!("replaceAndPlay MPD error: {}", e);
+    }
+}
+
 async fn replace_and_play(
     _s: SocketRef,
     State(state): State<AppState>,
@@ -807,17 +845,7 @@ async fn replace_and_play(
     if uri.is_empty() {
         return;
     }
-    let config = mpd_config(&state);
-    // Volumio: "playlists/Name" (no ://) -> load playlist and play; else clear + add uri + play.
-    let is_playlist = uri.starts_with("playlists/") && !uri.contains("://");
-    if is_playlist {
-        let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
-        if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
-            tracing::warn!("replaceAndPlay (playlist) MPD error: {}", e);
-        }
-    } else if let Err(e) = mpd::add_play_connected(&config, uri).await {
-        tracing::warn!("replaceAndPlay MPD error: {}", e);
-    }
+    mpd_replace_and_play_uri(&state, uri).await;
 }
 
 #[derive(Debug, Deserialize)]
@@ -919,9 +947,9 @@ struct ListItemUri {
 
 #[derive(Debug, Deserialize)]
 struct PlayItemsListPayload {
+    /// Browse row when playing a folder from the inline button: only `item` is set (Node → `replaceAndPlay` → `addQueueItems(data.item)`).
     #[serde(default)]
-    #[allow(dead_code)]
-    item: Option<ListItemUri>, // Volumio sends; we use list + index
+    item: Option<ListItemUri>,
     #[serde(default)]
     list: Vec<ListItemUri>,
     #[serde(default)]
@@ -933,14 +961,23 @@ async fn play_items_list(
     State(state): State<AppState>,
     Data(payload): Data<PlayItemsListPayload>,
 ) {
-    let list = &payload.list;
+    // Node `playItemsList` → `replaceAndPlay(data)`; branch `data.item` only (folder / single entry from browse).
+    if payload.list.is_empty() {
+        if let Some(ref it) = payload.item {
+            let uri = it.uri.trim();
+            if !uri.is_empty() {
+                tracing::info!("playItemsList (item-only) uri={:?}", uri);
+                mpd_replace_and_play_uri(&state, uri).await;
+            }
+        }
+        return;
+    }
+
     let index = match payload.index {
         Some(i) => i as usize,
         None => return,
     };
-    if list.is_empty() {
-        return;
-    }
+    let list = &payload.list;
     let uris: Vec<String> = list
         .iter()
         .map(|e| e.uri.trim().to_string())
@@ -1339,6 +1376,8 @@ async fn delete_playlist(
                         artist: None,
                         album: None,
                         duration: None,
+                        albumart: None,
+                        icon: None,
                     })
                     .collect();
                 let resp = BrowseResponse {
@@ -1432,6 +1471,8 @@ async fn remove_from_playlist(
                             artist: None,
                             album: None,
                             duration: None,
+                            albumart: None,
+                            icon: None,
                         }
                     })
                     .collect();

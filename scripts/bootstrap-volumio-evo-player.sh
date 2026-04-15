@@ -348,7 +348,7 @@ clone_or_update_repo() {
 }
 
 configure_mpd() {
-  mkdir -p "${MUSIC_ROOT}"/{local,usb,nas,smb}
+  mkdir -p "${MUSIC_ROOT}"/{INTERNAL,USB,NAS,SMB}
   if grep -q '^[[:space:]]*music_directory' /etc/mpd.conf; then
     sed -i 's|^[[:space:]]*music_directory.*|music_directory "'"${MUSIC_ROOT}"'"|' /etc/mpd.conf
   else
