@@ -235,9 +235,11 @@ struct FileEntry {
 
 fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>) {
     if let Some(f) = current.take() {
-        let albumart = Some(format!(
-            "/albumart?path={}&icon=music",
-            urlencoding::encode(&f.uri)
+        let albumart = Some(volumio_albumart_url(
+            &f.uri,
+            &f.artist,
+            &f.album,
+            true,
         ));
         items.push(BrowseItem {
             item_type: "song".to_string(),
@@ -1098,17 +1100,24 @@ fn parse_mpd_audio(audio: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
-/// Node `miscellanea/albumart` `getAlbumArt`: when `data.artist` is set, the URL includes
-/// `web=artist/album/extralarge` **in addition to** `path=` so `searchOnline` runs after local/embed fails.
-fn push_state_albumart_url(
+/// Node `miscellanea/albumart` `getAlbumArt`: `metadata=true` + `path=` for embed/exiftool/MPD readpicture;
+/// when `artist` is set, add `web=artist/album/extralarge` so online providers run after local fails.
+///
+/// Browse track rows set `browse_icon_music`: append `icon=music` so `/albumart` can fall back to the
+/// bundled music note SVG like classic Volumio (grid/list thumbnails).
+fn volumio_albumart_url(
     volumio_uri: &str,
     artist: &Option<String>,
     album: &Option<String>,
+    browse_icon_music: bool,
 ) -> String {
     let mut url = format!(
         "/albumart?metadata=true&path={}",
         urlencoding::encode(volumio_uri)
     );
+    if browse_icon_music {
+        url.push_str("&icon=music");
+    }
     if let Some(a) = artist {
         let a = a.trim();
         if !a.is_empty() {
@@ -1123,6 +1132,14 @@ fn push_state_albumart_url(
         }
     }
     url
+}
+
+fn push_state_albumart_url(
+    volumio_uri: &str,
+    artist: &Option<String>,
+    album: &Option<String>,
+) -> String {
+    volumio_albumart_url(volumio_uri, artist, album, false)
 }
 
 pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<VolumioState> {

@@ -45,18 +45,23 @@ const FALLBACK_PNG: &[u8] = &[
 
 const CACHE_MAX_AGE: &str = "public, max-age=2628000"; // 30d
 
-/// Plugin dirs to search for icon/sectionimage/sourceicon (Volumio-compatible order).
-/// Bundled tree ships `music_service/mpd/*icon.png`, and `icons/folder-o.svg` / `icons/music.svg`
-/// for `/albumart?icon=folder-o|music` (browse rows when no folder/track cover), matching Node’s albumart server.
+/// Plugin dirs for icon/sectionimage/sourceicon. Prefer **runtime** paths on device (`/usr/share/…`)
+/// before the compile-time `CARGO_MANIFEST_DIR` tree (often absent on a deployed binary).
 fn albumart_plugin_dirs(plugin_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let bundled =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/bundled-plugins");
-    vec![
-        bundled,
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    for p in [
+        std::path::PathBuf::from("/usr/share/volumio-evo/plugins"),
         plugin_dir.to_path_buf(),
         std::path::PathBuf::from("/data/plugins"),
-        std::path::PathBuf::from("/usr/share/volumio-evo/plugins"),
-    ]
+        bundled,
+    ] {
+        if !out.iter().any(|e| e == &p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// Try to serve icon/sectionimage/sourceicon from plugin dirs before default. Returns (body, content_type).

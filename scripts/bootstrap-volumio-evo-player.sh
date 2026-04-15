@@ -238,7 +238,8 @@ install_packages() {
   apt-get install -y \
     git curl ca-certificates nginx mpd python3 acl \
     build-essential pkg-config libssl-dev \
-    rsync
+    rsync \
+    libimage-exiftool-perl
   if [[ "${EVO_INSTALL_RUST:-0}" == "1" ]]; then
     ensure_rustup_toolchain
   else
@@ -369,6 +370,44 @@ install_evo_binary() {
   install -m 0755 "${src}" "${dst}"
 }
 
+# Stock Evo ships the same assets as Node's miscellanea/albumart (SVG/PNG under plugins/), not Font Awesome.
+# GET /albumart?icon=music serves plugins/icons/music.svg. Install from repo when present; else minimal SVGs only.
+install_bundled_plugins_assets() {
+  mkdir -p /usr/share/volumio-evo/plugins
+  local src="" d
+  for d in \
+    "${EVO_REPO_DIR}/layer/bundled-plugins" \
+    "${EVO_REPO_DIR}/crates/core/assets/bundled-plugins" \
+    "${SCRIPT_REPO_DIR}/layer/bundled-plugins" \
+    "${SCRIPT_REPO_DIR}/crates/core/assets/bundled-plugins"; do
+    if [[ -d "${d}" ]]; then
+      src="${d}"
+      break
+    fi
+  done
+  if [[ -n "${src}" ]]; then
+    echo "Installing bundled plugin assets from ${src} -> /usr/share/volumio-evo/plugins/"
+    cp -a "${src}/." /usr/share/volumio-evo/plugins/
+    return 0
+  fi
+  echo "WARN: No bundled-plugins tree in repo checkout; writing minimal SVG fallbacks (icons/music.svg, icons/folder-o.svg)."
+  mkdir -p /usr/share/volumio-evo/plugins/icons
+  cat > /usr/share/volumio-evo/plugins/icons/music.svg <<'EOSVG'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Note glyph for /albumart?icon=music (browse song rows without embedded art yet). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <path fill="#c8c8c8" d="M470.4 105.6c16.8 7.2 28.8 24 28.8 43.2v256c0 38.4-34.4 67.2-72 57.6-20.8-4.8-35.2-24-35.2-45.6V188.8L192 249.6v156.8c0 38.4-34.4 67.2-72 57.6-25.6-6.4-40-28.8-40-54.4V153.6c0-25.6 14.4-48 40-54.4l249.6-62.4c10.4-2.4 20.8-.8 30.4 4.8z"/>
+</svg>
+EOSVG
+  cat > /usr/share/volumio-evo/plugins/icons/folder-o.svg <<'EOSVG'
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Open-folder glyph for /albumart?icon=folder-o (stock Volumio browse rows). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <path fill="#c8c8c8" d="M464 128H272l-64-64H48C21.5 64 0 85.5 0 112v288c0 26.5 21.5 48 48 48h416c26.5 0 48-21.5 48-48V176c0-26.5-21.5-48-48-48zm0 272H48V112h136l64 64h216v224z"/>
+</svg>
+EOSVG
+}
+
 # Map `uname -m` to Rust target triple (Linux GNU) for layer/binaries/<triple>/volumio-evo.
 host_rust_triple() {
   local m
@@ -418,10 +457,7 @@ build_and_install_evo() {
   fi
 
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart
-  # Stock browse-source icons (music_service/mpd/*icon.png) for GET /albumart?sourceicon=...
-  if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -d "${EVO_REPO_DIR}/crates/core/assets/bundled-plugins" ]]; then
-    cp -a "${EVO_REPO_DIR}/crates/core/assets/bundled-plugins/." /usr/share/volumio-evo/plugins/
-  fi
+  install_bundled_plugins_assets
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
     if [[ ! -f /etc/volumio-evo/config.toml ]]; then
       cp "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" /etc/volumio-evo/config.toml
