@@ -24,6 +24,14 @@ Try in order; use first successful result and cache to `albumart_root/web/<artis
 - **Caching:** All online results should be written under `albumart_root/web/<artist>/<album>/` (and optionally `albumart_root/web/<artist>/` for artist art) with a stable filename (e.g. by resolution), and `info.json` can store which URL/filename per size, as in current Volumio.
 - **Rate limits:** MusicBrainz/Cover Art Archive and iTunes ask for a descriptive User-Agent; Last.fm uses an API key (per-app). Respect 503/429 and back off; fallback to next provider.
 - **Config:** API keys live in `volumio-evo.toml` under `[albumart_providers]`: `lastfm_api_key`, `musicbrainz_user_agent`. Env overrides: `VOLUMIO_EVO_LASTFM_API_KEY`, `VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT` (so keys can be set in systemd without editing the config file). `VOLUMIO_ALBUMART_VARIANT` for meta.volumio.org if used.
+
+## Browse UI: album story, artist bio, credits (metavolumio)
+
+The stock UI loads extra HTML via **`POST /api/v1/pluginEndpoint`** with **`endpoint: "metavolumio"`** (not the album-art pipeline above). Evo resolves that in **`crates/core/src/metavolumio.rs`** using the **same** `[albumart_providers]` keys where applicable:
+
+- **`lastfm_api_key` / `VOLUMIO_EVO_LASTFM_API_KEY`** — strongly recommended (album/artist wiki, or tags/listeners when wiki is empty).
+- **`musicbrainz_user_agent` / `VOLUMIO_EVO_MUSICBRAINZ_USER_AGENT`** — used for MusicBrainz release credits and entity lookups; a default User-Agent is used if unset.
+- Outbound **HTTPS** to Last.fm, MusicBrainz, and Wikimedia (Wikipedia/Wikidata) must be allowed on the device for online text.
 - **Order rationale:** Cover Art Archive first (no key, high quality); then Last.fm (good coverage, key required); then iTunes (no key, rate limited); then Volumio meta as fallback.
 
 ## References
