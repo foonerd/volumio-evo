@@ -2,6 +2,7 @@
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
 
 use crate::alsa;
+use crate::alsa_cards;
 use crate::i2s;
 use crate::mpd::{
     self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
@@ -443,6 +444,15 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
 }
 
 async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    let settings = state.alsa.read().await.clone();
+    let profile = i2s::hardware_profile();
+    let dacs_file = i2s::load_dacs().ok();
+    let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
+        .as_ref()
+        .map(|d| i2s::dac_list_for_profile(d, &profile))
+        .unwrap_or_default();
+    let catalog = alsa_cards::AlsaCardCatalog::load_optional();
+
     let mut cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
         Ok(Ok(c)) => c,
         Ok(Err(e)) => {
@@ -460,15 +470,14 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
         });
     }
 
-    let settings = state.alsa.read().await.clone();
+    let cards = alsa_cards::prepare_playback_cards(
+        cards,
+        &settings,
+        &catalog,
+        dacs_file.as_ref(),
+        &profile,
+    );
     let settings = alsa::coerce_selection(&cards, settings);
-
-    let i2s_dacs: Vec<i2s::DacEntry> = i2s::load_dacs()
-        .map(|d| i2s::dac_list_for_profile(&d, &i2s::hardware_profile()))
-        .unwrap_or_else(|e| {
-            tracing::warn!("dacs.json unavailable: {}", e);
-            vec![]
-        });
 
     let params = alsa::PlaybackOptionsUiParams {
         cards: &cards,
@@ -668,6 +677,15 @@ async fn get_extended_output_devices(s: SocketRef) {
 
 /// ALSA device list for wizard / Playback (Node: alsa_controller getAudioDevices -> pushOutputDevices).
 async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
+    let settings = state.alsa.read().await.clone();
+    let profile = i2s::hardware_profile();
+    let dacs_file = i2s::load_dacs().ok();
+    let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
+        .as_ref()
+        .map(|d| i2s::dac_list_for_profile(d, &profile))
+        .unwrap_or_default();
+    let catalog = alsa_cards::AlsaCardCatalog::load_optional();
+
     let cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
         Ok(Ok(c)) => c,
         Ok(Err(e)) => {
@@ -685,11 +703,14 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
             }]
         }
     };
-    let settings = state.alsa.read().await.clone();
+    let cards = alsa_cards::prepare_playback_cards(
+        cards,
+        &settings,
+        &catalog,
+        dacs_file.as_ref(),
+        &profile,
+    );
     let settings = alsa::coerce_selection(&cards, settings);
-    let i2s_dacs: Vec<i2s::DacEntry> = i2s::load_dacs()
-        .map(|d| i2s::dac_list_for_profile(&d, &i2s::hardware_profile()))
-        .unwrap_or_default();
     let payload = alsa::push_output_devices_json(&cards, &settings, &i2s_dacs);
     s.emit("pushOutputDevices", &payload).ok();
 }

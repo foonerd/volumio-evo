@@ -4,7 +4,8 @@ set -euo pipefail
 # CANONICAL FULL-STACK INSTALL (on device): this script only.
 # Re-run this script; by default it installs the prebuilt backend from layer/binaries/<triple>/
 # (no rustup). Pass --build or EVO_BUILD_FROM_SOURCE=1 to compile on device (rustup + cargo).
-# Copies static UI from layer/web/, configures MPD/systemd/nginx. Set EVO_REPO_UPDATE=0 only
+# Copies static UI from layer/web/, configures MPD/systemd/nginx. Installs ALSA JSON under
+# /usr/share/volumio-evo/alsa/ (dacs.json, cards.json). Set EVO_REPO_UPDATE=0 only
 # for offline or pinned checkouts.
 #
 # One-shot tester install for Debian / Raspberry Pi OS Lite. Run as root.
@@ -70,8 +71,8 @@ Usage:
 Modes (default: full):
   (none) | --full     Full install: clone/update repo, backend, static UI, MPD, nginx, validate.
   --reset             Same as --full, but stops volumio-evo first (clean reinstall from repo).
-  --upgrade-evo       Clone/pull repo, stop service, replace binary, restart (no UI/nginx/mpd).
-  --upgrade-nginx     Re-read [ui] active_layout, rewrite nginx, reload (alias: --apply-ui-only).
+  --upgrade-evo       Clone/pull repo, stop service, replace binary, refresh dacs.json, restart (no UI/nginx/mpd).
+  --upgrade-nginx     Refresh dacs.json, re-read [ui] active_layout, rewrite nginx, reload (alias: --apply-ui-only).
 
   --build             Compile volumio-evo on the device with cargo (installs rustup). Default is
                       to install the prebuilt binary from layer/binaries/<arch-triple>/ only.
@@ -372,6 +373,73 @@ install_evo_binary() {
 
 # Stock Evo ships the same assets as Node's miscellanea/albumart (SVG/PNG under plugins/), not Font Awesome.
 # GET /albumart?icon=music serves plugins/icons/music.svg. Install from repo when present; else minimal SVGs only.
+# I2S DAC catalogue (same source as stock Volumio). Installed to /usr/share/volumio-evo/alsa/dacs.json.
+# Always overwrites the install path on success so every bootstrap mode keeps the device in sync with the tree.
+install_dacs_catalog() {
+  mkdir -p /usr/share/volumio-evo/alsa
+  local evo="${EVO_REPO_DIR}/layer/config/alsa/dacs.json"
+  local script="${SCRIPT_REPO_DIR}/layer/config/alsa/dacs.json"
+  local src=""
+  # Prefer the git checkout (EVO_REPO_DIR); use the script tree only if its copy is strictly newer (local edit).
+  if [[ -f "${evo}" && -f "${script}" ]]; then
+    if [[ "${script}" -nt "${evo}" ]]; then
+      src="${script}"
+    else
+      src="${evo}"
+    fi
+  elif [[ -f "${evo}" ]]; then
+    src="${evo}"
+  elif [[ -f "${script}" ]]; then
+    src="${script}"
+  fi
+  if [[ -n "${src}" ]]; then
+    echo "Updating I2S DAC catalogue (always): ${src} -> /usr/share/volumio-evo/alsa/dacs.json"
+    cp -f "${src}" /usr/share/volumio-evo/alsa/dacs.json
+    chmod 644 /usr/share/volumio-evo/alsa/dacs.json
+    return 0
+  fi
+  echo "WARN: layer/config/alsa/dacs.json not found under EVO_REPO_DIR or script repo; I2S DAC list in Playback Options will be empty."
+  echo "      Copy dacs.json to /usr/share/volumio-evo/alsa/dacs.json or set VOLUMIO_EVO_DACS_JSON in systemd."
+}
+
+# ALSA card name → pretty labels + I2S detection (Node `alsa_controller/cards.json` → cards.json).
+install_alsa_cards_json() {
+  mkdir -p /usr/share/volumio-evo/alsa
+  local evo="${EVO_REPO_DIR}/layer/config/alsa/cards.json"
+  local script="${SCRIPT_REPO_DIR}/layer/config/alsa/cards.json"
+  local src=""
+  if [[ -f "${evo}" && -f "${script}" ]]; then
+    if [[ "${script}" -nt "${evo}" ]]; then
+      src="${script}"
+    else
+      src="${evo}"
+    fi
+  elif [[ -f "${evo}" ]]; then
+    src="${evo}"
+  elif [[ -f "${script}" ]]; then
+    src="${script}"
+  fi
+  if [[ -n "${src}" ]]; then
+    echo "Updating ALSA card catalogue (always): ${src} -> /usr/share/volumio-evo/alsa/cards.json"
+    cp -f "${src}" /usr/share/volumio-evo/alsa/cards.json
+    chmod 644 /usr/share/volumio-evo/alsa/cards.json
+    return 0
+  fi
+  echo "WARN: layer/config/alsa/cards.json not found; output device names may stay as raw aplay strings."
+}
+
+# Pre-bootstrap layouts dropped dacs/cards next to the plugins dir; Evo only reads /usr/share/volumio-evo/alsa/*.
+# Delete stale files so an old path can never shadow the catalogue after a rename upstream.
+remove_legacy_alsa_share_data_files() {
+  local f
+  for f in /usr/share/volumio-evo/dacs.json /usr/share/volumio-evo/alsa_cards.json; do
+    if [[ -e "${f}" ]]; then
+      rm -f "${f}"
+      echo "Removed obsolete file (use /usr/share/volumio-evo/alsa/ only): ${f}"
+    fi
+  done
+}
+
 install_bundled_plugins_assets() {
   mkdir -p /usr/share/volumio-evo/plugins
   local src="" d
@@ -495,10 +563,9 @@ build_and_install_evo() {
   fi
 
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart
-  if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/dacs.json" ]]; then
-    cp -f "${EVO_REPO_DIR}/layer/config/dacs.json" /usr/share/volumio-evo/dacs.json
-    chmod 644 /usr/share/volumio-evo/dacs.json
-  fi
+  install_dacs_catalog
+  install_alsa_cards_json
+  remove_legacy_alsa_share_data_files
   install_bundled_plugins_assets
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
     if [[ ! -f /etc/volumio-evo/config.toml ]]; then
@@ -542,6 +609,7 @@ ExecStart=/usr/local/bin/volumio-evo
 Restart=on-failure
 RestartSec=5
 Environment=VOLUMIO_EVO_CONFIG=/etc/volumio-evo/config.toml
+Environment=VOLUMIO_EVO_ALSA_DIR=/usr/share/volumio-evo/alsa
 
 [Install]
 WantedBy=multi-user.target
@@ -716,6 +784,9 @@ main() {
 
   if [[ "${BOOTSTRAP_MODE}" == "upgrade-nginx" ]]; then
     need_root
+    install_dacs_catalog
+    install_alsa_cards_json
+    remove_legacy_alsa_share_data_files
     apply_ui_dist_dir_from_config
     ensure_nginx_access
     configure_nginx

@@ -10,10 +10,17 @@ use std::io::Write;
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 /// Same banner as `volumio3-backend/.../i2s_dacs/index.js` (`i2sOverlayBanner` + `\n`).
 pub const I2S_BANNER_LINE: &str = "#### Volumio i2s setting below: do not alter ####\n";
+
+/// Packaged ALSA-related JSON (`dacs.json`, `cards.json`) under this directory on device.
+/// Override with `VOLUMIO_EVO_ALSA_DIR`, or set `VOLUMIO_EVO_DACS_JSON` to point at `dacs.json` directly.
+pub const DEFAULT_ALSA_SHARE_DIR: &str = "/usr/share/volumio-evo/alsa";
+
+/// Banner line + following `dtoverlay=` line (full Volumio I2S block).
+const I2S_MANAGED_BLOCK_REGEX: &str = r"(?m)^#### Volumio i2s setting below: do not alter ####\r?\n\s*dtoverlay=[^\r\n]*\r?\n";
 
 #[derive(Debug, Deserialize)]
 pub struct DacsFile {
@@ -37,8 +44,28 @@ pub struct DacEntry {
     pub alsanum: String,
     #[serde(default)]
     pub needsreboot: String,
-    #[serde(default)]
+    /// Stock `dacs.json` uses `""` or, in some device rows, a JSON array of module names.
+    #[serde(default, deserialize_with = "deserialize_modules_loose")]
     pub modules: String,
+}
+
+fn deserialize_modules_loose<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(deserializer)?;
+    Ok(match v {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Array(a) => a
+            .into_iter()
+            .filter_map(|x| x.as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+            .join(","),
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Object(_) => String::new(),
+    })
 }
 
 impl DacEntry {
@@ -51,10 +78,11 @@ impl DacEntry {
     }
 }
 
-fn default_dacs_path() -> std::path::PathBuf {
-    std::env::var("VOLUMIO_EVO_DACS_JSON")
+fn canonical_dacs_json_path() -> std::path::PathBuf {
+    let alsa_dir = std::env::var("VOLUMIO_EVO_ALSA_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/share/volumio-evo/dacs.json"))
+        .unwrap_or_else(|_| std::path::PathBuf::from(DEFAULT_ALSA_SHARE_DIR));
+    alsa_dir.join("dacs.json")
 }
 
 /// Hardware profile key in `dacs.json` → `devices[].name` (e.g. `Raspberry PI`).
@@ -64,25 +92,31 @@ pub fn hardware_profile() -> String {
 }
 
 pub fn load_dacs() -> Result<DacsFile> {
-    let path = default_dacs_path();
-    let raw = if path.exists() {
-        std::fs::read_to_string(&path)
-            .with_context(|| format!("read {}", path.display()))?
-    } else {
-        // Dev / unpackaged: try next to repo layer
-        let fallback = std::path::PathBuf::from("layer/config/dacs.json");
-        if fallback.exists() {
-            std::fs::read_to_string(&fallback)
-                .with_context(|| format!("read {}", fallback.display()))?
-        } else {
-            bail!(
-                "dacs.json not found at {} or layer/config/dacs.json; set VOLUMIO_EVO_DACS_JSON",
-                path.display()
-            );
+    if let Ok(p) = std::env::var("VOLUMIO_EVO_DACS_JSON") {
+        if !p.is_empty() {
+            let path = std::path::PathBuf::from(p);
+            let raw = std::fs::read_to_string(&path)
+                .with_context(|| format!("read {}", path.display()))?;
+            return serde_json::from_str(&raw).context("parse dacs.json");
         }
-    };
-    let parsed: DacsFile = serde_json::from_str(&raw).context("parse dacs.json")?;
-    Ok(parsed)
+    }
+    let primary = canonical_dacs_json_path();
+    if primary.exists() {
+        let raw = std::fs::read_to_string(&primary)
+            .with_context(|| format!("read {}", primary.display()))?;
+        return serde_json::from_str(&raw).context("parse dacs.json");
+    }
+    // Unpackaged dev: git checkout only (same tree as bootstrap installs on device).
+    let dev = std::path::PathBuf::from("layer/config/alsa/dacs.json");
+    if dev.exists() {
+        let raw = std::fs::read_to_string(&dev)
+            .with_context(|| format!("read {}", dev.display()))?;
+        return serde_json::from_str(&raw).context("parse dacs.json");
+    }
+    bail!(
+        "dacs.json not found at {} (or layer/config/alsa/dacs.json for dev); run bootstrap or set VOLUMIO_EVO_DACS_JSON",
+        primary.display()
+    );
 }
 
 pub fn dac_list_for_profile(dacs: &DacsFile, profile: &str) -> Vec<DacEntry> {
@@ -142,6 +176,27 @@ fn read_boot_config() -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+fn regex_i2s_managed_block() -> Regex {
+    Regex::new(I2S_MANAGED_BLOCK_REGEX).expect("I2S managed block regex")
+}
+
+/// Remove the Volumio banner + `dtoverlay=` line only (text in memory).
+fn strip_volumio_i2s_block(txt: &str) -> String {
+    regex_i2s_managed_block()
+        .replace_all(txt, "")
+        .to_string()
+}
+
+/// Remove every standalone `dtoverlay=<overlay>` line (e.g. duplicate under `[all]`).
+fn strip_duplicate_dtoverlay_lines(txt: &str, overlay: &str) -> Result<String> {
+    let pat = format!(
+        r"(?m)^\s*dtoverlay=\s*{}\s*\r?\n",
+        regex::escape(overlay)
+    );
+    let re = Regex::new(&pat).context("dtoverlay dedupe regex")?;
+    Ok(re.replace_all(txt, "").to_string())
+}
+
 fn write_boot_config(content: &str) -> Result<()> {
     let path = resolved_boot_config_path();
     let mut child = Command::new("sudo")
@@ -162,31 +217,25 @@ fn write_boot_config(content: &str) -> Result<()> {
 }
 
 /// Set or replace the Volumio I2S `dtoverlay=` block (Node `writeI2SDAC`).
+///
+/// If the same `dtoverlay=<overlay>` already appears elsewhere (e.g. under `[all]` from an image or
+/// manual edit), those lines are removed so the overlay is only defined once — in the Volumio block
+/// at the end of the file.
 pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
     if overlay.is_empty() {
         bail!("module-based I2S (empty overlay) is not implemented in Evo yet");
     }
     validate_overlay_token(overlay)?;
     let mut txt = read_boot_config()?;
-    let block = format!("{}dtoverlay={}\n", I2S_BANNER_LINE, overlay);
-
-    let re = Regex::new(
-        r"(?m)^#### Volumio i2s setting below: do not alter ####\r?\n\s*dtoverlay=[^\r\n]*\r?\n",
-    )
-    .expect("i2s block regex");
-
-    let new_txt = if re.is_match(&txt) {
-        re.replace(&txt, block.as_str()).to_string()
-    } else {
-        if !txt.ends_with('\n') {
-            txt.push('\n');
-        }
+    txt = strip_volumio_i2s_block(&txt);
+    txt = strip_duplicate_dtoverlay_lines(&txt, overlay)?;
+    if !txt.ends_with('\n') {
         txt.push('\n');
-        txt.push_str(&block);
-        txt
-    };
+    }
+    txt.push('\n');
+    txt.push_str(&format!("{}dtoverlay={}\n", I2S_BANNER_LINE, overlay));
 
-    write_boot_config(&new_txt)?;
+    write_boot_config(&txt)?;
     tracing::info!(
         "I2S dtoverlay written to {} (reboot usually required)",
         resolved_boot_config_path()
@@ -197,11 +246,7 @@ pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
 /// Remove the Volumio I2S block (`disableI2SDAC`).
 pub fn disable_i2s_overlay() -> Result<()> {
     let txt = read_boot_config()?;
-    let re = Regex::new(
-        r"(?m)^#### Volumio i2s setting below: do not alter ####\r?\n\s*dtoverlay=[^\r\n]*\r?\n",
-    )
-    .expect("i2s block regex");
-    let new_txt = re.replace_all(&txt, "").to_string();
+    let new_txt = strip_volumio_i2s_block(&txt);
     if new_txt != txt {
         write_boot_config(&new_txt)?;
         tracing::info!("I2S dtoverlay removed from {}", resolved_boot_config_path());
@@ -218,5 +263,48 @@ mod tests {
         assert!(validate_overlay_token("hifiberry-dac").is_ok());
         assert!(validate_overlay_token("hifiberry-dacplus-std,slave").is_ok());
         assert!(validate_overlay_token("bad path").is_err());
+    }
+
+    #[test]
+    fn enable_removes_duplicate_dtoverlay_before_banner() {
+        let sample = r#"[cm5]
+dtoverlay=dwc2,dr_mode=host
+
+[all]
+dtoverlay=hifiberry-dacplushd
+
+#### Volumio i2s setting below: do not alter ####
+dtoverlay=hifiberry-dacplushd
+"#;
+        let mut t = strip_volumio_i2s_block(sample);
+        t = strip_duplicate_dtoverlay_lines(&t, "hifiberry-dacplushd").unwrap();
+        assert_eq!(
+            t.matches("dtoverlay=hifiberry-dacplushd").count(),
+            0,
+            "all duplicate lines removed before append"
+        );
+        if !t.ends_with('\n') {
+            t.push('\n');
+        }
+        t.push('\n');
+        t.push_str(&format!("{}dtoverlay=hifiberry-dacplushd\n", I2S_BANNER_LINE));
+        assert_eq!(t.matches("dtoverlay=hifiberry-dacplushd").count(), 1);
+        assert!(t.contains(I2S_BANNER_LINE.trim_end()));
+        assert!(t.contains("dtoverlay=dwc2"));
+    }
+
+    /// Regression: full stock `dacs.json` must parse (some rows use `modules` as a JSON array).
+    #[test]
+    fn layer_dacs_json_parses() {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../layer/config/alsa/dacs.json");
+        let raw = std::fs::read_to_string(&p).expect("read layer/config/alsa/dacs.json");
+        let parsed: DacsFile = serde_json::from_str(&raw).expect("parse dacs.json");
+        assert!(
+            parsed
+                .devices
+                .iter()
+                .any(|d| d.name == "Raspberry PI" && !d.data.is_empty()),
+            "expected Raspberry PI section"
+        );
     }
 }

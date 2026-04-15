@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod alsa;
+mod alsa_cards;
 mod albumart;
 mod i2s;
 mod api;

@@ -8,6 +8,7 @@ ExecStart=/usr/local/bin/volumio-evo
 Restart=on-failure
 RestartSec=5
 Environment=VOLUMIO_EVO_CONFIG=/etc/volumio-evo/config.toml
+Environment=VOLUMIO_EVO_ALSA_DIR=/usr/share/volumio-evo/alsa
 
 [Install]
 WantedBy=multi-user.target

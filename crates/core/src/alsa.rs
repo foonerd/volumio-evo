@@ -3,6 +3,8 @@
 //! Full MPD/ALSA apply pipeline (asound, modular snippets) is deferred; we persist the user choice
 //! and expose the same Socket.IO / UI shapes as `audio_interface/alsa_controller` on Node.
 //! I2S DAC list comes from `dacs.json` (see `crate::i2s`); boot `dtoverlay` uses `sudo` like Node.
+//! Output device labels and I2S vs integrated filtering follow Node `alsa_controller/cards.json`
+//! (`crate::alsa_cards`).
 
 use std::path::PathBuf;
 
@@ -324,23 +326,30 @@ pub fn playback_options_ui_config(p: &PlaybackOptionsUiParams<'_>) -> serde_json
         vec![serde_json::json!("output_device")]
     };
 
-    let mut content: Vec<serde_json::Value> = vec![
-        serde_json::json!({
-            "id": "output_device",
-            "element": "select",
-            "doc": "Local outputs from aplay (HDMI, headphone, USB, …). Shown when I2S DAC is off.",
-            "label": "Output device",
-            "value": {
-                "value": p.settings.output_device_id,
-                "label": p.settings.output_device_label
-            },
-            "visibleIf": {
-                "field": "i2s",
-                "value": false
-            },
-            "options": output_options
-        }),
-    ];
+    // `visibleIf` resolves against other `section.content` items by id. Only reference `i2s` when
+    // that switch exists (I2S catalogue loaded); otherwise the UI hides the output row — empty page.
+    let mut output_device = serde_json::json!({
+        "id": "output_device",
+        "element": "select",
+        "doc": "Local outputs from aplay (HDMI, headphone, USB, …). Shown when I2S DAC is off.",
+        "label": "Output device",
+        "value": {
+            "value": p.settings.output_device_id,
+            "label": p.settings.output_device_label
+        },
+        "options": output_options
+    });
+    if show_i2s {
+        output_device
+            .as_object_mut()
+            .expect("object")
+            .insert(
+                "visibleIf".to_string(),
+                serde_json::json!({ "field": "i2s", "value": false }),
+            );
+    }
+
+    let mut content: Vec<serde_json::Value> = vec![output_device];
 
     if show_i2s {
         content.push(serde_json::json!({
