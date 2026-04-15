@@ -19,8 +19,10 @@ fn mpd_config(state: &AppState) -> MpdConfig {
 
 /// Emit pushBrowseLibrary and store in state for getLastPushedBrowseLibrary.
 async fn push_browse_and_store(s: &SocketRef, state: &AppState, resp: &BrowseResponse) {
-    s.emit("pushBrowseLibrary", resp).ok();
-    if let Ok(v) = serde_json::to_value(resp) {
+    let mut resp = resp.clone();
+    mpd::browse_response_fill_meta_from_artist(&mut resp);
+    s.emit("pushBrowseLibrary", &resp).ok();
+    if let Ok(v) = serde_json::to_value(&resp) {
         state.set_last_browse(v).await;
     }
 }
@@ -707,6 +709,7 @@ async fn browse_library(
                             "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
                         ),
                         icon: None,
+                        meta: None,
                     })
                     .collect();
                 let resp = BrowseResponse {
@@ -753,6 +756,7 @@ async fn browse_library(
                             duration: None,
                             albumart,
                             icon: None,
+                            meta: None,
                         }
                     })
                     .collect();
@@ -1408,6 +1412,7 @@ async fn delete_playlist(
                             "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
                         ),
                         icon: None,
+                        meta: None,
                     })
                     .collect();
                 let resp = BrowseResponse {
@@ -1504,6 +1509,7 @@ async fn remove_from_playlist(
                             duration: None,
                             albumart,
                             icon: None,
+                            meta: None,
                         }
                     })
                     .collect();

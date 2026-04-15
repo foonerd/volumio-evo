@@ -55,18 +55,25 @@ pub fn folder_has_browse_cover_file(music_root: &Path, volumio_uri: &str) -> boo
 }
 
 /// Resolve path param to an absolute folder path under music_root (for a file, its parent).
+///
+/// If the track file path does not exist on disk (stale MPD path, mount mismatch), we still try the
+/// **parent directory** when it exists so `folder.jpg` / `cover.jpg` in the album folder are found.
 fn path_to_folder(music_root: &Path, path_param: &str) -> Option<PathBuf> {
     let rel = sanitize_path(path_param)?;
     let full = music_root.join(&rel);
     if full.exists() {
         if full.is_dir() {
-            Some(full)
-        } else {
-            full.parent().map(Path::to_path_buf)
+            return Some(full);
         }
-    } else {
-        None
+        return full.parent().map(Path::to_path_buf);
     }
+    // File missing or wrong root — album folder may still exist with user-placed art.
+    if let Some(parent) = full.parent() {
+        if parent.is_dir() {
+            return Some(parent.to_path_buf());
+        }
+    }
+    None
 }
 
 /// Check folder cache: albumart_root/folder/<rel>/extralarge.jpeg

@@ -385,7 +385,10 @@ pub async fn browse(
         return Json(mpd::browse_favourites_stub()).into_response();
     }
     match mpd::browse_connected(&config, &state.config.music_sources.music_root, uri).await {
-        Ok(resp) => Json(resp).into_response(),
+        Ok(mut resp) => {
+            mpd::browse_response_fill_meta_from_artist(&mut resp);
+            Json(resp).into_response()
+        }
         Err(e) => {
             tracing::warn!("browse {} MPD error: {}", uri, e);
             (

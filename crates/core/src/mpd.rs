@@ -9,12 +9,13 @@ use std::path::Path;
 use urlencoding::decode;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, Move, Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd,
-        SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume, Song,
-        SongPosition, Status, Stop, Update,
+        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue, Rescan,
+        Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume,
+        Song, SongPosition, Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
+    tag::Tag,
     Client,
 };
 use std::io;
@@ -250,30 +251,73 @@ pub struct BrowseItem {
     pub albumart: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<String>,
 }
 
 /// Response for GET /api/v1/browse. Matches Volumio navigation structure.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BrowseResponse {
     pub navigation: BrowseNavigation,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BrowseNavigation {
     pub prev: BrowsePrev,
     pub lists: Vec<BrowseList>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BrowsePrev {
     pub uri: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowseList {
     pub available_list_views: Vec<&'static str>,
     pub items: Vec<BrowseItem>,
+}
+
+/// Grid layouts read `meta` for the subtitle; list views often use `artist`. Copy `artist` → `meta` when
+/// `meta` is unset, except where a second line would duplicate the title.
+///
+/// **Browse → Albums** (`albums://<artist>/<album>`): `title` is the album name, so it can equal the artist
+/// string (self-titled releases). Still set `meta` whenever `artist` is present — unlike genre → artist rows
+/// where `title` and `artist` are the same field.
+pub fn browse_response_fill_meta_from_artist(resp: &mut BrowseResponse) {
+    for list in &mut resp.navigation.lists {
+        for item in &mut list.items {
+            if item.meta.is_some() {
+                continue;
+            }
+            let Some(ref a) = item.artist else {
+                continue;
+            };
+            if a.trim().is_empty() {
+                continue;
+            }
+            if is_albums_artist_album_browse_uri(&item.uri) {
+                item.meta = Some(a.clone());
+                continue;
+            }
+            if a == &item.title {
+                continue;
+            }
+            item.meta = Some(a.clone());
+        }
+    }
+}
+
+/// `albums://Artist/Album` rows from the tag library (Node `listAlbums`). Not flat `albums://Album` fallback.
+fn is_albums_artist_album_browse_uri(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("albums://") else {
+        return false;
+    };
+    // Two segments: `encode(artist)/encode(album)`. Reject `albums:///Album` (empty first segment).
+    rest.contains('/')
+        && !rest.starts_with('/')
+        && rest.splitn(2, '/').next().is_some_and(|first| !first.is_empty())
 }
 
 /// In-progress file entry while parsing lsinfo.
@@ -303,6 +347,7 @@ fn flush_file_item(current: &mut Option<FileEntry>, items: &mut Vec<BrowseItem>)
             duration: f.duration,
             albumart,
             icon: None,
+            meta: None,
         });
     }
 }
@@ -384,6 +429,7 @@ fn parse_lsinfo_frame(
                     duration: None,
                     albumart,
                     icon,
+                    meta: None,
                 });
             }
             "file" => {
@@ -694,6 +740,7 @@ pub fn music_library_root_response() -> BrowseResponse {
             duration: None,
             albumart: Some(music_source_albumart(path_segment).to_string()),
             icon: None,
+            meta: None,
         })
         .collect();
     BrowseResponse {
@@ -869,6 +916,8 @@ async fn list_albums_for_artist_tag(
 
 #[derive(Default)]
 struct PendingAlbumSongTags {
+    /// MPD `file:` value for this block (representative path for album-art `path=`, like Node `getParentFolder`).
+    file_path: Option<String>,
     album: Option<String>,
     albumartist: Option<String>,
     artist: Option<String>,
@@ -879,23 +928,27 @@ struct PendingAlbumSongTags {
 /// `list album group albumartist` collapses homonym album titles to an arbitrary `groups[0]`.
 fn parse_node_style_album_rows_from_frame(
     frame: &mpd_client::protocol::response::Frame,
-) -> Vec<(String, String)> {
+) -> Vec<(String, String, Option<String>)> {
     let mut seen: HashSet<String> = HashSet::new();
-    let mut rows: Vec<(String, String)> = Vec::new();
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
 
     let mut flush = |p: PendingAlbumSongTags| {
         let album_name = p.album.unwrap_or_default();
+        // Node `listAlbums`: missing tags → `''`, not `*` (`*` is only for orphaned tracks with no album).
         let artist_name = p
             .albumartist
             .or(p.artist)
             .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "*".to_string());
+            .unwrap_or_default();
         if album_name.trim().is_empty() {
             return;
         }
         let album_id = format!("{}{}", album_name, artist_name);
         if seen.insert(album_id) {
-            rows.push((album_name, artist_name));
+            let rep = p.file_path.as_ref().map(|fp| {
+                format!("music-library/{}", fp.trim_start_matches('/'))
+            });
+            rows.push((album_name, artist_name, rep));
         }
     };
 
@@ -906,7 +959,10 @@ fn parse_node_style_album_rows_from_frame(
                 if let Some(p) = current.take() {
                     flush(p);
                 }
-                current = Some(PendingAlbumSongTags::default());
+                current = Some(PendingAlbumSongTags {
+                    file_path: Some(value.to_string()),
+                    ..Default::default()
+                });
             }
             "album" => {
                 if let Some(ref mut c) = current {
@@ -934,8 +990,11 @@ fn parse_node_style_album_rows_from_frame(
     rows
 }
 
-/// Same source as Node `listAlbums` (`search album ""`).
-async fn list_albums_via_search_album_empty(config: &MpdConfig) -> Result<Vec<(String, String)>> {
+/// Same source as Node `listAlbums` (`search album ""`). Third tuple element is a representative
+/// `music-library/...` file URI for `/albumart?path=` (first track per album), matching Node.
+async fn list_albums_via_search_album_empty(
+    config: &MpdConfig,
+) -> Result<Vec<(String, String, Option<String>)>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
     let raw = RawCommand::new("search")
@@ -943,6 +1002,58 @@ async fn list_albums_via_search_album_empty(config: &MpdConfig) -> Result<Vec<(S
         .argument("");
     let frame = client.raw_command(raw).await?;
     Ok(parse_node_style_album_rows_from_frame(&frame))
+}
+
+/// Fallback when [`list_albums_via_search_album_empty`] is empty (some MPD builds/configs return no rows).
+/// Matches pre-search Evo + MPD **`list album group albumartist`** / **`list album group artist`** —
+/// no per-album `path=` (third tuple `None`); `web=` still gets artist/album for online art.
+async fn list_album_artist_pairs_via_list_group(
+    config: &MpdConfig,
+) -> Result<Vec<(String, String, Option<String>)>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut rows: Vec<(String, String, Option<String>)> = Vec::new();
+
+    let mut push_pair = |album: &str, artist: &str| {
+        let ar = artist.trim();
+        let al = album.trim();
+        if al.is_empty() || ar.is_empty() {
+            return;
+        }
+        let key = (al.to_string(), ar.to_string());
+        if seen.insert(key.clone()) {
+            rows.push((key.0, key.1, None));
+        }
+    };
+
+    if let Ok(list) = client
+        .command(MpdListCmd::new(Tag::Album).group_by([Tag::AlbumArtist]))
+        .await
+    {
+        for (album, groups) in list.grouped_values() {
+            if let Some(g0) = groups.first() {
+                push_pair(album, g0);
+            }
+        }
+    }
+    if let Ok(list) = client
+        .command(MpdListCmd::new(Tag::Album).group_by([Tag::Artist]))
+        .await
+    {
+        for (album, groups) in list.grouped_values() {
+            if let Some(g0) = groups.first() {
+                push_pair(album, g0);
+            }
+        }
+    }
+
+    rows.sort_by(|x, y| {
+        x.0.to_lowercase()
+            .cmp(&y.0.to_lowercase())
+            .then_with(|| x.1.to_lowercase().cmp(&y.1.to_lowercase()))
+    });
+    Ok(rows)
 }
 
 /// All artists (`artists://` root). Matches Node default `artistsort`: **`list albumartist`**, not `list artist`.
@@ -968,6 +1079,7 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
             duration: None,
             albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
+            meta: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -983,29 +1095,51 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
     })
 }
 
-/// All distinct albums (`albums://` root). Rows are `albums://artist/album` (like Node); subtitle uses `artist`.
+/// All distinct albums (`albums://` root). Rows are `albums://artist/album` (like Node). Set `artist` from
+/// tags; [`browse_response_fill_meta_from_artist`] adds `meta` for grid layouts (including self-titled albums).
+///
+/// **Order:** Node `search album ""` (with `path=` when possible) → MPD `list album group …` → last resort
+/// flat `list Album` (no per-album artist; synthetic Various Artists art only).
 async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
-    let pairs = list_albums_via_search_album_empty(config).await.unwrap_or_else(|e| {
-        tracing::warn!("albums browse: search album \"\" failed (falling back to flat list): {}", e);
+    let mut pairs = list_albums_via_search_album_empty(config).await.unwrap_or_else(|e| {
+        tracing::warn!("albums browse: search album \"\" failed: {}", e);
         Vec::new()
     });
+    if pairs.is_empty() {
+        match list_album_artist_pairs_via_list_group(config).await {
+            Ok(p) if !p.is_empty() => {
+                tracing::info!("albums browse: using list album group fallback ({} rows)", p.len());
+                pairs = p;
+            }
+            Ok(_) => tracing::warn!("albums browse: list album group returned empty; trying flat Album list"),
+            Err(e) => tracing::warn!("albums browse: list album group failed: {}", e),
+        }
+    }
     let items: Vec<BrowseItem> = if !pairs.is_empty() {
         pairs
             .into_iter()
-            .map(|(album, artist)| BrowseItem {
-                item_type: "folder".to_string(),
-                title: album.clone(),
-                uri: format!(
-                    "albums://{}/{}",
-                    urlencoding::encode(artist.as_str()),
-                    urlencoding::encode(album.as_str())
-                ),
-                service: "mpd".to_string(),
-                artist: Some(artist.clone()),
-                album: None,
-                duration: None,
-                albumart: Some(browse_album_list_albumart_url(artist.as_str(), album.as_str())),
-                icon: None,
+            .map(|(album, artist, rep_path)| {
+                let artist_for_item = (!artist.is_empty()).then(|| artist.clone());
+                BrowseItem {
+                    item_type: "folder".to_string(),
+                    title: album.clone(),
+                    uri: format!(
+                        "albums://{}/{}",
+                        urlencoding::encode(artist.as_str()),
+                        urlencoding::encode(album.as_str())
+                    ),
+                    service: "mpd".to_string(),
+                    artist: artist_for_item,
+                    album: None,
+                    duration: None,
+                    albumart: Some(browse_album_list_albumart_url(
+                        rep_path.as_deref(),
+                        artist.as_str(),
+                        album.as_str(),
+                    )),
+                    icon: None,
+                    meta: None,
+                }
             })
             .collect()
     } else {
@@ -1026,6 +1160,7 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
                     "dot-circle-o",
                 )),
                 icon: None,
+                meta: None,
             })
             .collect()
     };
@@ -1082,6 +1217,7 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
             duration: None,
             albumart: Some(browse_virtual_folder_albumart_url(None, None)),
             icon: None,
+            meta: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1134,6 +1270,7 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
             duration: None,
             albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
+            meta: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1183,6 +1320,7 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
                 Some(album.as_str()),
             )),
             icon: None,
+            meta: Some(artist.to_string()),
         })
         .collect();
     Ok(BrowseResponse {
@@ -1223,6 +1361,12 @@ async fn browse_album_songs_connected(
             .argument(artist);
         let frame2 = client.raw_command(raw_ar).await?;
         items = parse_lsinfo_frame(frame2, "albums://find-tracks", music_root);
+    }
+    // Missing artist tags are not always the same as empty-string tags in MPD.
+    if items.is_empty() && artist.is_empty() {
+        let raw_album_only = RawCommand::new("find").argument("Album").argument(album);
+        let frame3 = client.raw_command(raw_album_only).await?;
+        items = parse_lsinfo_frame(frame3, "albums://find-tracks", music_root);
     }
     Ok(BrowseResponse {
         navigation: BrowseNavigation {
@@ -1295,7 +1439,7 @@ pub async fn resolve_uri_for_queue(
         if let Some((a, b)) = rest_dec.split_once('/') {
             let artist = a.trim();
             let album = b.trim();
-            if !artist.is_empty() && !album.is_empty() {
+            if !album.is_empty() {
                 let resp = browse_album_songs_connected(config, music_root, artist, album).await?;
                 return Ok(song_uris_from_browse(&resp));
             }
@@ -1437,7 +1581,7 @@ pub async fn browse_connected(
         if let Some((a, b)) = rest_dec.split_once('/') {
             let artist = a.trim();
             let album = b.trim();
-            if !artist.is_empty() && !album.is_empty() {
+            if !album.is_empty() {
                 return browse_album_songs_connected(config, music_root, artist, album).await;
             }
         }
@@ -1680,9 +1824,26 @@ fn browse_virtual_albumart_url_with_icon(
     url
 }
 
-/// `albums://` root grid rows (Node `miscellanea/albumart`: `dot-circle-o` when no thumbnail yet).
-pub fn browse_album_list_albumart_url(artist: &str, album: &str) -> String {
-    browse_virtual_albumart_url_with_icon(Some(artist), Some(album), "dot-circle-o")
+/// `albums://` root grid rows (Node `getAlbumArt` from `listAlbums`): `metadata=true` + `path=` from a
+/// representative track (folder/embed art), plus `web=` for online fallback, then `dot-circle-o` icon.
+/// When `representative_music_library_uri` is None, omits `path`/`metadata` (same as web-only virtual rows).
+pub fn browse_album_list_albumart_url(
+    representative_music_library_uri: Option<&str>,
+    artist: &str,
+    album: &str,
+) -> String {
+    let artist_web = artist_normalize::normalize_for_art_lookup(artist);
+    let web_inner = format!("{}/{}/extralarge", artist_web, album.trim());
+    let mut url = String::from("/albumart?");
+    if let Some(path) = representative_music_library_uri {
+        url.push_str("metadata=true&path=");
+        url.push_str(&urlencoding::encode(path));
+        url.push_str("&");
+    }
+    url.push_str("web=");
+    url.push_str(&urlencoding::encode(&web_inner));
+    url.push_str("&icon=dot-circle-o");
+    url
 }
 
 /// `albums://`, genres, album-under-artist folders, etc. — fallback `folder-o` (Node miscellanea/albumart).
