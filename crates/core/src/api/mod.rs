@@ -1,13 +1,14 @@
 //! HTTP and Socket.IO API.
 
 mod http;
+mod playback_clock;
 mod pushstate_log;
 mod socketio;
 mod v1;
 
 use crate::alsa::AlsaSettings;
 use crate::config::Config;
-use crate::mpd::{self, MpdConfig};
+use crate::mpd::{self, MpdConfig, VolumioState};
 use crate::playback_options::PlaybackOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,6 +25,8 @@ pub struct RouterState {
     pub last_browse: Arc<tokio::sync::RwLock<Option<serde_json::Value>>>,
     /// Serializes ALSA + MPD volume so startup (multi-control Hardware path) cannot race UI/REST `setvol`.
     pub volume_apply: tokio::sync::Mutex<()>,
+    /// RAM clock: MPD `seek` + wall time between sparse `pushState` (Node `currentSeek` pattern).
+    pub playback_clock: Arc<tokio::sync::RwLock<playback_clock::PlaybackClock>>,
 }
 
 impl RouterState {
@@ -40,6 +43,11 @@ impl RouterState {
     /// Read last browse response (clone).
     pub async fn get_last_browse(&self) -> Option<serde_json::Value> {
         self.last_browse.read().await.clone()
+    }
+
+    /// Reseed RAM clock from MPD (broadcast resync, Socket/REST `getState`).
+    pub async fn store_mpd_snapshot(&self, s: &VolumioState) {
+        self.playback_clock.write().await.sync_from_mpd(s);
     }
 }
 

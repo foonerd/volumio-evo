@@ -395,6 +395,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         albumart_clear_tx: tx,
         last_browse: Arc::new(tokio::sync::RwLock::new(None)),
         volume_apply: tokio::sync::Mutex::new(()),
+        playback_clock: Arc::new(tokio::sync::RwLock::new(crate::api::playback_clock::PlaybackClock::default())),
     });
 
     let (socket_layer, io) = SocketIo::builder()

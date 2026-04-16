@@ -26,7 +26,14 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     let master = read_master_volume_percent(&state).await;
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
-        Ok(s) => {
+        Ok(mut s) => {
+            state.store_mpd_snapshot(&s).await;
+            s.seek = state
+                .playback_clock
+                .read()
+                .await
+                .interpolated_seek_ms()
+                .or(s.seek);
             pushstate_log::debug_volumio_state("REST GET /api/v1/getState (response body)", &s);
             Json::<VolumioState>(s).into_response()
         }

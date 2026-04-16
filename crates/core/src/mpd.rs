@@ -58,6 +58,19 @@ pub async fn get_queue_connected(config: &MpdConfig) -> Result<Vec<QueueItem>> {
     get_queue(&mut client).await
 }
 
+/// One TCP session: full state then queue (Node-like: fewer connects per poll cycle).
+pub async fn get_state_and_queue_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+    master_volume_from_alsa: Option<u8>,
+) -> Result<(VolumioState, Vec<QueueItem>)> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (mut client, _) = Client::connect(stream).await?;
+    let s = get_state(&mut client, music_root, master_volume_from_alsa).await?;
+    let q = get_queue(&mut client).await?;
+    Ok((s, q))
+}
+
 /// Connect to MPD, run run_command, then close.
 pub async fn run_command_connected(
     config: &MpdConfig,
@@ -1796,7 +1809,7 @@ pub async fn browse_connected(
 }
 
 /// Volumio-style state JSON (matches what the UI expects from getState).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VolumioState {
     pub status: Option<String>,
     pub position: Option<u32>,

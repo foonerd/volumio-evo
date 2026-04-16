@@ -45,3 +45,9 @@ Work is split so transport, UI contract, and efficiency can be reasoned about se
 - **Configurable** minimum interval for full broadcast (state + queue), tuned with Phases 2–3.
 
 **Anti-pattern:** High-frequency `pushState` that resets the UI timer every tick (breaks Phase 2).
+
+---
+
+## Implementation note (Evo, Node-like)
+
+RAM **`PlaybackClock`** (`crates/core/src/api/playback_clock.rs`) advances `seek` between MPD samples when playing; **sparse** `pushState` (~2.2s) + single **`get_state_and_queue_connected`** per tick. **Do not** emit `pushState` at high frequency — the stock UI fills gaps with its own 1s timer.
