@@ -30,4 +30,5 @@ pub const EVO_API: &str = "EVO API -->";
 pub const EVO_OUTPUT: &str = "EVO OUTPUT -->";
 pub const EVO_UI: &str = "EVO UI -->";
 pub const EVO_DB: &str = "EVO DB -->";
+#[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 pub const EVO_PLUGIN: &str = "EVO PLUGIN -->";
