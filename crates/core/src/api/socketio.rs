@@ -150,13 +150,11 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let master = read_master_volume_percent(&state).await;
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(mut payload) => {
+            payload.seek = {
+                let clock = state.playback_clock.read().await;
+                clock.seek_for_emit_before_resync(&payload)
+            };
             state.store_mpd_snapshot(&payload).await;
-            payload.seek = state
-                .playback_clock
-                .read()
-                .await
-                .interpolated_seek_ms()
-                .or(payload.seek);
             match s.emit("pushState", &payload) {
                 Ok(()) => {
                     pushstate_log::debug_socket_push_state_after_emit("handler getState", &payload, true);
@@ -2191,35 +2189,32 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
     }
 }
 
-/// Wall-clock period between **full** `pushState`/`pushQueue` broadcasts.
-/// Must stay **> ~1 s** (ideally **> ~2 s**) so the stock Volumio2-UI `$interval(1000)` can run (`startSeek` cancels on each `pushState`).
-const BROADCAST_INTERVAL: Duration = Duration::from_millis(2200);
+const STATE_BROADCAST_INTERVAL: Duration = Duration::from_millis(2_010);
+const QUEUE_BROADCAST_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Poll MPD on one TCP connection, reseed the RAM [`PlaybackClock`], then broadcast.
-/// **Does not** emit at high frequency: gaps between polls are filled in the UI by the client timer, like Node `currentSeek` vs `volumioPushState`.
 pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) {
     let config = mpd_config(&state);
     let music_root = state.config.music_sources.music_root.clone();
 
-    let mut interval = tokio::time::interval(BROADCAST_INTERVAL);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut state_tick = tokio::time::interval(STATE_BROADCAST_INTERVAL);
+    let mut queue_tick = tokio::time::interval(QUEUE_BROADCAST_INTERVAL);
+    state_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    queue_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-    async fn do_resync(
+    async fn emit_push_state(
         state: &AppState,
         io: &socketioxide::SocketIo,
         config: &MpdConfig,
         music_root: &std::path::Path,
     ) {
         let master = read_master_volume_percent(state).await;
-        match mpd::get_state_and_queue_connected(config, music_root, master).await {
-            Ok((mut s, items)) => {
+        match mpd::get_state_connected(config, music_root, master).await {
+            Ok(mut s) => {
+                s.seek = {
+                    let clock = state.playback_clock.read().await;
+                    clock.seek_for_emit_before_resync(&s)
+                };
                 state.store_mpd_snapshot(&s).await;
-                s.seek = state
-                    .playback_clock
-                    .read()
-                    .await
-                    .interpolated_seek_ms()
-                    .or(s.seek);
                 match io.emit("pushState", &s).await {
                     Ok(()) => pushstate_log::debug_broadcast_push_state_after_emit(&s, true),
                     Err(e) => {
@@ -2227,6 +2222,14 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
                         pushstate_log::warn_broadcast_push_state_emit(e);
                     }
                 }
+            }
+            Err(e) => pushstate_log::warn_broadcast_get_state(e),
+        }
+    }
+
+    async fn emit_push_queue(io: &socketioxide::SocketIo, config: &MpdConfig) {
+        match mpd::get_queue_connected(config).await {
+            Ok(items) => {
                 let len = items.len();
                 let payload = serde_json::json!({ "queue": items });
                 match io.emit("pushQueue", &payload).await {
@@ -2237,15 +2240,23 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
                     }
                 }
             }
-            Err(e) => pushstate_log::warn_broadcast_resync(e),
+            Err(e) => pushstate_log::warn_broadcast_get_queue(e),
         }
     }
 
-    interval.tick().await;
-    do_resync(&state, &io, &config, &music_root).await;
+    state_tick.tick().await;
+    queue_tick.tick().await;
+    emit_push_state(&state, &io, &config, &music_root).await;
+    emit_push_queue(&io, &config).await;
 
     loop {
-        interval.tick().await;
-        do_resync(&state, &io, &config, &music_root).await;
+        tokio::select! {
+            _ = state_tick.tick() => {
+                emit_push_state(&state, &io, &config, &music_root).await;
+            }
+            _ = queue_tick.tick() => {
+                emit_push_queue(&io, &config).await;
+            }
+        }
     }
 }

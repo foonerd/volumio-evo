@@ -50,4 +50,4 @@ Work is split so transport, UI contract, and efficiency can be reasoned about se
 
 ## Implementation note (Evo, Node-like)
 
-RAM **`PlaybackClock`** (`crates/core/src/api/playback_clock.rs`) advances `seek` between MPD samples when playing; **sparse** `pushState` (~2.2s) + single **`get_state_and_queue_connected`** per tick. **Do not** emit `pushState` at high frequency — the stock UI fills gaps with its own 1s timer.
+RAM **`PlaybackClock`** (`crates/core/src/api/playback_clock.rs`) advances `seek` between MPD samples when playing. The broadcast loop uses **split intervals**: **`pushState`** every **2.01 s** (`get_state_connected`), **`pushQueue`** every **5 s** (`get_queue_connected`), plus both once at startup — fewer large queue payloads than tying queue to every state tick. **`get_state_and_queue_connected`** remains in `mpd` for callers that want one TCP round-trip. **Do not** emit `pushState` at high frequency — the stock UI fills gaps with its own 1s timer.

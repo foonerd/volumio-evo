@@ -19,7 +19,7 @@ The example config documents this in **`layer/config/volumio-evo.toml.example`**
 
 ## Default filter (when `RUST_LOG` is unset)
 
-[`LogLevel::env_filter_directive`](../crates/core/src/config.rs) adds dependency-specific clamps so **`log_level = "info"`** stays readable. In particular **`mpd_protocol=warn`** hides per-connection **INFO** lines (`connected successfully`) from the MPD client stack, which would otherwise appear on every MPD connect opened by the **`pushState`** poll (default **2s** interval). Override explicitly if needed, e.g. **`RUST_LOG=info,mpd_protocol=info`**.
+[`LogLevel::env_filter_directive`](../crates/core/src/config.rs) adds dependency-specific clamps so **`log_level = "info"`** stays readable. In particular **`mpd_protocol=warn`** hides per-connection **INFO** lines (`connected successfully`) from the MPD client stack, which would otherwise appear on every MPD connect opened by the **`pushState`** poll (default **2.01 s**; queue poll is **5 s**). Override explicitly if needed, e.g. **`RUST_LOG=info,mpd_protocol=info`**.
 
 ## Examples
 

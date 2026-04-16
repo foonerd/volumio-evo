@@ -58,7 +58,8 @@ pub async fn get_queue_connected(config: &MpdConfig) -> Result<Vec<QueueItem>> {
     get_queue(&mut client).await
 }
 
-/// One TCP session: full state then queue (Node-like: fewer connects per poll cycle).
+/// One TCP session: full state then queue (e.g. single round-trip when callers need both).
+#[allow(dead_code)]
 pub async fn get_state_and_queue_connected(
     config: &MpdConfig,
     music_root: &Path,
