@@ -1820,6 +1820,7 @@ async fn call_method(
         && payload.method.as_deref() == Some("saveVolumeOptions")
     {
         let alsa = state.alsa.read().await.clone();
+        let prev = state.playback.read().await.clone();
         let mut pb = state.playback.write().await;
         pb.merge_volume_section(&payload.data);
         pb.apply_volume_sanity(&alsa);
@@ -1828,6 +1829,133 @@ async fn call_method(
         }
         let after = pb.clone();
         drop(pb);
+
+        let log_curve = after
+            .volumecurvemode
+            .trim()
+            .eq_ignore_ascii_case("logarithmic");
+
+        // Hardware → Software: ALSA before fragment, restart MPD, `volume` (single gain stage), then
+        // optional SoftMaster HW ramp — order avoids stacking SoftMaster % with MPD % (~pct²).
+        let hw_to_sw = prev.mixer_type == "Hardware" && after.mixer_type == "Software";
+        if hw_to_sw {
+            let soft = alsa::alsa_softmaster_control_present(&alsa);
+            let prev_hw = prev.mixer.clone();
+            let alsa_c = alsa.clone();
+            let prev_hw_arg = prev_hw.clone();
+            let handoff = tokio::task::spawn_blocking(move || {
+                alsa::transition_hardware_to_software_before_mpd(&alsa_c, &prev_hw_arg, log_curve)
+            })
+            .await;
+            match handoff {
+                Ok(Ok(pct)) => {
+                    let capped = after.clamp_volume_percent(pct);
+                    if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
+                        tracing::warn!("saveVolumeOptions MPD: {}", e);
+                    }
+                    let config = mpd_config(&state);
+                    if let Err(e) = mpd::run_command_connected(
+                        &config,
+                        "volume",
+                        Some(capped),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        tracing::warn!("saveVolumeOptions MPD setvol (hardware→software): {}", e);
+                    }
+                    if soft {
+                        let alsa_c2 = alsa.clone();
+                        let prev_hw2 = prev_hw.clone();
+                        let finish = tokio::task::spawn_blocking(move || {
+                            alsa::transition_hardware_to_software_after_mpd_softmaster(
+                                &alsa_c2,
+                                &prev_hw2,
+                                log_curve,
+                            )
+                        })
+                        .await;
+                        match finish {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => tracing::warn!(
+                                "saveVolumeOptions ALSA (hardware→software after MPD): {}",
+                                e
+                            ),
+                            Err(e) => tracing::warn!(
+                                "saveVolumeOptions task (hardware→software after MPD): {}",
+                                e
+                            ),
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!("saveVolumeOptions ALSA (hardware→software): {}", e);
+                    if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
+                        tracing::warn!("saveVolumeOptions MPD: {}", e2);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("saveVolumeOptions task (hardware→software): {}", e);
+                    if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
+                        tracing::warn!("saveVolumeOptions MPD: {}", e2);
+                    }
+                }
+            }
+            emit_playback_options_ui(&s, &state).await;
+            return;
+        }
+
+        // Software → Hardware: ALSA hand-off, then MPD `volume`, then fragment.
+        let sw_to_hw = prev.mixer_type == "Software" && after.mixer_type == "Hardware";
+        if sw_to_hw {
+            let soft = alsa::alsa_softmaster_control_present(&alsa);
+            let mpd_vol_if_no_softmaster = if !soft {
+                let config = mpd_config(&state);
+                mpd::get_state_connected(
+                    &config,
+                    &state.config.music_sources.music_root,
+                    None,
+                )
+                .await
+                .ok()
+                .and_then(|s| s.volume)
+            } else {
+                None
+            };
+            let alsa_c = alsa.clone();
+            let nh = after.mixer.clone();
+            let handoff = tokio::task::spawn_blocking(move || {
+                alsa::transition_software_to_hardware_handoff(
+                    &alsa_c,
+                    &nh,
+                    log_curve,
+                    mpd_vol_if_no_softmaster,
+                )
+            })
+            .await;
+            match handoff {
+                Ok(Ok(pct)) => {
+                    let capped = after.clamp_volume_percent(pct);
+                    let config = mpd_config(&state);
+                    if let Err(e) = mpd::run_command_connected(
+                        &config,
+                        "volume",
+                        Some(capped),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        tracing::warn!("saveVolumeOptions MPD setvol (software→hardware): {}", e);
+                    }
+                }
+                Ok(Err(e)) => tracing::warn!("saveVolumeOptions ALSA (software→hardware): {}", e),
+                Err(e) => tracing::warn!("saveVolumeOptions task (software→hardware): {}", e),
+            }
+        }
 
         if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
             tracing::warn!("saveVolumeOptions MPD: {}", e);

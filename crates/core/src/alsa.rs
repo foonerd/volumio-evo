@@ -21,6 +21,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::thread;
+use std::time::Duration;
 
 use anyhow::Context;
 use regex::Regex;
@@ -542,6 +544,131 @@ pub fn get_system_volume_percent(
         }
     }
     best
+}
+
+/// Whether the output card lists a **`SoftMaster`** playback control (Volumio softvol / `asound`).
+pub fn alsa_softmaster_control_present(alsa: &AlsaSettings) -> bool {
+    list_playback_mixer_controls(alsa.output_device_id.trim())
+        .iter()
+        .any(|n| n.split(',').next().unwrap_or(n).trim() == "SoftMaster")
+}
+
+/// ALSA switch mute: `amixer set -c CARD CONTROL mute|unmute` (no `-M`). Best-effort for transitions.
+pub fn set_playback_switch_mute(
+    alsa: &AlsaSettings,
+    mixer_type: &str,
+    mixer_name: &str,
+    mute: bool,
+) -> Result<(), String> {
+    if mixer_type == "None" {
+        return Err("mixer_type is None".into());
+    }
+    let Some(card) = amixer_card_index(alsa.output_device_id.trim()) else {
+        return Err("no ALSA output card for amixer".into());
+    };
+    let mixer = playback_mixer_control_name(alsa, mixer_type, mixer_name)?;
+    let sw = if mute { "mute" } else { "unmute" };
+    let out = Command::new("amixer")
+        .args(["set", "-c", card, mixer.as_str(), sw])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!(
+            "amixer mute: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// **Software → Hardware** mixer hand-off: apply the **named hardware control** (`hardware_mixer_name`,
+/// same as `playback_options.mixer`) to the carried level, max out **SoftMaster** when it exists so
+/// MPD hardware mixer is not stacked with a low soft stage.
+///
+/// Carried level: **SoftMaster** read when [`alsa_softmaster_control_present`], otherwise
+/// `mpd_volume_when_no_softmaster` (MPD `status.volume` — e.g. MPD-only software volume on `hw:`).
+///
+/// Call **before** updating MPD to `mixer_type hardware` / [`crate::playback_options::PlaybackOptions::write_fragment_and_restart_mpd`].
+pub fn transition_software_to_hardware_handoff(
+    alsa: &AlsaSettings,
+    hardware_mixer_name: &str,
+    volumecurve_logarithmic: bool,
+    mpd_volume_when_no_softmaster: Option<u8>,
+) -> Result<u8, String> {
+    let log = volumecurve_logarithmic;
+    let pct = if alsa_softmaster_control_present(alsa) {
+        get_system_volume_percent(alsa, "Software", "SoftMaster", log).unwrap_or(50)
+    } else {
+        mpd_volume_when_no_softmaster.unwrap_or_else(|| {
+            tracing::warn!(
+                "Software→Hardware: no ALSA SoftMaster; missing MPD volume, defaulting carried level to 50%"
+            );
+            50
+        })
+    };
+
+    let _ = set_playback_switch_mute(alsa, "Software", "", true);
+    let _ = set_playback_switch_mute(alsa, "Hardware", hardware_mixer_name, true);
+    set_system_volume_percent(alsa, "Hardware", hardware_mixer_name, log, pct)?;
+    if alsa_softmaster_control_present(alsa) {
+        set_system_volume_percent(alsa, "Software", "SoftMaster", log, 100)?;
+    }
+    let _ = set_playback_switch_mute(alsa, "Hardware", hardware_mixer_name, false);
+    let _ = set_playback_switch_mute(alsa, "Software", "", false);
+    Ok(pct)
+}
+
+/// **Hardware → Software** (phase 1): read level from the **hardware** control, then either
+/// (**SoftMaster** present) mute, **hardware → 0%**, **SoftMaster → 100%** (unity — same role as
+/// [`transition_software_to_hardware_handoff`], which maxes SoftMaster so level is not stacked); or
+/// (**no SoftMaster**) set **hardware → 100%** so MPD software volume is not stacked with a low DAC
+/// stage.
+///
+/// The carried percentage is returned for **MPD `setvol` only** after restart (caller should apply it
+/// **before** [`transition_hardware_to_software_after_mpd_softmaster`] when SoftMaster exists).
+///
+/// Call **before** [`crate::playback_options::PlaybackOptions::write_fragment_and_restart_mpd`].
+pub fn transition_hardware_to_software_before_mpd(
+    alsa: &AlsaSettings,
+    prev_hardware_mixer: &str,
+    volumecurve_logarithmic: bool,
+) -> Result<u8, String> {
+    let log = volumecurve_logarithmic;
+    let pct = get_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log).unwrap_or(50);
+
+    if alsa_softmaster_control_present(alsa) {
+        let _ = set_playback_switch_mute(alsa, "Hardware", prev_hardware_mixer, true);
+        let _ = set_playback_switch_mute(alsa, "Software", "", true);
+        set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, 0)?;
+        set_system_volume_percent(alsa, "Software", "SoftMaster", log, 100)?;
+        thread::sleep(Duration::from_millis(150));
+    } else {
+        set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, 100)?;
+    }
+    Ok(pct)
+}
+
+/// **Hardware → Software** (phase 2, SoftMaster only): after MPD software volume is set to the
+/// carried level, ramp the **hardware** line **0% → 100%** so the DAC is fully open and attenuation
+/// stays in MPD (SoftMaster remains at 100% from phase 1).
+pub fn transition_hardware_to_software_after_mpd_softmaster(
+    alsa: &AlsaSettings,
+    prev_hardware_mixer: &str,
+    volumecurve_logarithmic: bool,
+) -> Result<(), String> {
+    if !alsa_softmaster_control_present(alsa) {
+        return Ok(());
+    }
+    let log = volumecurve_logarithmic;
+    const STEPS: usize = 8;
+    for i in 1..=STEPS {
+        let p = ((i * 100 / STEPS).min(100)) as u8;
+        set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, p)?;
+        thread::sleep(Duration::from_millis(12));
+    }
+    let _ = set_playback_switch_mute(alsa, "Hardware", prev_hardware_mixer, false);
+    let _ = set_playback_switch_mute(alsa, "Software", "", false);
+    Ok(())
 }
 
 /// `pushOutputDevices` body (wizard + internal consistency); matches Node `getAudioDevices` shape.

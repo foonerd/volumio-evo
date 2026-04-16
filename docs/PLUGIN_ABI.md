@@ -16,6 +16,8 @@ Contract between the host (Rust core) and guest (WASM plugin).
 
 When `has_alsa_contribution` returns `1`, the host reads `memory[ptr .. ptr+len]` and parses JSON matching `AlsaContribution` in `crates/plugin-sdk/src/abi.rs`: `abi_version` (must match host), `fragments[]` with `id`, `order`, and `asound_snippet`. The host merges snippets in order; plugins must not write ALSA files on disk directly.
 
+**Host merge + rebuild:** specified here; **implementation is high-priority and not yet complete** — see [`PRIORITY_ALSA_AAMPP.md`](./PRIORITY_ALSA_AAMPP.md).
+
 ## Host imports (core provides)
 
 | Name | Signature   | Description                          |
