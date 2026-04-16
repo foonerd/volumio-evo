@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::metavolumio::{metavolumio_response, PluginEndpointBody};
 use crate::mpd::{self, MpdConfig, VolumioState};
 
+use super::pushstate_log;
 use super::{read_master_volume_percent, AppState};
 
 pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
@@ -25,7 +26,10 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     let master = read_master_volume_percent(&state).await;
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
-        Ok(s) => Json::<VolumioState>(s).into_response(),
+        Ok(s) => {
+            pushstate_log::debug_volumio_state("REST GET /api/v1/getState (response body)", &s);
+            Json::<VolumioState>(s).into_response()
+        }
         Err(e) => {
             tracing::warn!("{} getState MPD error: {}", crate::log_tags::EVO_STATE, e);
             (
@@ -164,7 +168,10 @@ pub async fn commands(
 pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     match mpd::get_queue_connected(&config).await {
-        Ok(items) => Json(serde_json::json!({ "queue": items })).into_response(),
+        Ok(items) => {
+            pushstate_log::debug_queue_snapshot("REST GET /api/v1/getQueue (response body)", items.len());
+            Json(serde_json::json!({ "queue": items })).into_response()
+        }
         Err(e) => {
             tracing::warn!("{} getQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
             (

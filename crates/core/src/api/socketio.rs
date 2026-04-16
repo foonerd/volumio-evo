@@ -12,6 +12,7 @@ use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
 use std::time::Instant;
 
+use super::pushstate_log;
 use super::{read_master_volume_percent, AppState};
 
 fn mpd_config(state: &AppState) -> MpdConfig {
@@ -149,7 +150,15 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let master = read_master_volume_percent(&state).await;
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(payload) => {
-            s.emit("pushState", &payload).ok();
+            match s.emit("pushState", &payload) {
+                Ok(()) => {
+                    pushstate_log::debug_socket_push_state_after_emit("handler getState", &payload, true);
+                }
+                Err(e) => {
+                    pushstate_log::debug_socket_push_state_after_emit("handler getState", &payload, false);
+                    pushstate_log::warn_socket_push_state_emit("handler getState", e);
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("{} getState MPD error: {}", crate::log_tags::EVO_STATE, e);
@@ -161,8 +170,17 @@ async fn get_queue(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     match mpd::get_queue_connected(&config).await {
         Ok(items) => {
+            let len = items.len();
             let payload = serde_json::json!({ "queue": items });
-            s.emit("pushQueue", &payload).ok();
+            match s.emit("pushQueue", &payload) {
+                Ok(()) => {
+                    pushstate_log::debug_socket_push_queue_after_emit("handler getQueue", len, true);
+                }
+                Err(e) => {
+                    pushstate_log::debug_socket_push_queue_after_emit("handler getQueue", len, false);
+                    pushstate_log::warn_socket_push_queue_emit("handler getQueue", e);
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("{} getQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
@@ -2175,16 +2193,31 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
     loop {
         interval.tick().await;
         let master = read_master_volume_percent(&state).await;
-        if let Ok(s) = mpd::get_state_connected(&config, &music_root, master).await {
-            if io.emit("pushState", &s).await.is_err() {
-                tracing::debug!("{} pushState broadcast error (connection closed?)", crate::log_tags::EVO_SOCKET);
+        match mpd::get_state_connected(&config, &music_root, master).await {
+            Ok(s) => {
+                match io.emit("pushState", &s).await {
+                    Ok(()) => pushstate_log::debug_broadcast_push_state_after_emit(&s, true),
+                    Err(e) => {
+                        pushstate_log::debug_broadcast_push_state_after_emit(&s, false);
+                        pushstate_log::warn_broadcast_push_state_emit(e);
+                    }
+                }
             }
+            Err(e) => pushstate_log::warn_broadcast_get_state(e),
         }
-        if let Ok(items) = mpd::get_queue_connected(&config).await {
-            let payload = serde_json::json!({ "queue": items });
-            if io.emit("pushQueue", &payload).await.is_err() {
-                tracing::debug!("{} pushQueue broadcast error (connection closed?)", crate::log_tags::EVO_SOCKET);
+        match mpd::get_queue_connected(&config).await {
+            Ok(items) => {
+                let len = items.len();
+                let payload = serde_json::json!({ "queue": items });
+                match io.emit("pushQueue", &payload).await {
+                    Ok(()) => pushstate_log::debug_broadcast_push_queue_after_emit(len, true),
+                    Err(e) => {
+                        pushstate_log::debug_broadcast_push_queue_after_emit(len, false);
+                        pushstate_log::warn_broadcast_push_queue_emit(e);
+                    }
+                }
             }
+            Err(e) => pushstate_log::warn_broadcast_get_queue(e),
         }
     }
 }

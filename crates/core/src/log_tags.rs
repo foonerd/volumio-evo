@@ -23,6 +23,9 @@ pub const EVO_PLAY: &str = "EVO PLAY -->";
 pub const EVO_SEARCH: &str = "EVO SEARCH -->";
 pub const EVO_PLAYLIST: &str = "EVO PLAYLIST -->";
 pub const EVO_STATE: &str = "EVO STATE -->";
+/// UI-bound `pushState` / `getState` observability (`journalctl | grep -F 'EVO PUSHSTATE'`).
+pub const EVO_PUSHSTATE: &str = "EVO PUSHSTATE -->";
+#[allow(dead_code)]
 pub const EVO_SOCKET: &str = "EVO SOCKET -->";
 #[allow(dead_code)]
 pub const EVO_HTTP: &str = "EVO HTTP -->";

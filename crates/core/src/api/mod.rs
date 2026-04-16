@@ -1,6 +1,7 @@
 //! HTTP and Socket.IO API.
 
 mod http;
+mod pushstate_log;
 mod socketio;
 mod v1;
 
