@@ -426,6 +426,8 @@ audio_buffer_size		"{buf}"
             globals.push_str(&format!("\t\tmixer_control\t\"{mixer_ctl}\"\n"));
             globals.push_str("\t\tmixer_type\t\"hardware\"\n");
         } else if let Some(t) = mixer_type_single {
+            let ctl = crate::alsa::mpd_alsa_ctl_mixer_device(alsa);
+            globals.push_str(&format!("\t\tmixer_device\t\"{ctl}\"\n"));
             globals.push_str(&format!("\t\tmixer_type\t\"{t}\"\n"));
         }
         if !fmt.is_empty() {

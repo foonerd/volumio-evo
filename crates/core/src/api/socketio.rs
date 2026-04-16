@@ -10,6 +10,7 @@ use crate::mpd::{
 };
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
+use std::time::Instant;
 
 use super::{read_master_volume_percent, AppState};
 
@@ -1225,17 +1226,21 @@ async fn apply_volume_to_system(state: &AppState, v: u8) {
         .volumecurvemode
         .trim()
         .eq_ignore_ascii_case("logarithmic");
-    let alsa_c = alsa.clone();
-    let mt = pb.mixer_type.clone();
-    let mn = pb.mixer.clone();
-    match tokio::task::spawn_blocking(move || {
-        alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, v)
-    })
-    .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => tracing::warn!("ALSA volume (amixer, Node alsavolume path): {}", e),
-        Err(e) => tracing::warn!("ALSA volume task join: {}", e),
+    let use_alsa = pb.mixer_type != "Software"
+        || alsa::alsa_softmaster_control_present(&alsa);
+    if use_alsa {
+        let alsa_c = alsa.clone();
+        let mt = pb.mixer_type.clone();
+        let mn = pb.mixer.clone();
+        match tokio::task::spawn_blocking(move || {
+            alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, v)
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("ALSA volume (amixer, Node alsavolume path): {}", e),
+            Err(e) => tracing::warn!("ALSA volume task join: {}", e),
+        }
     }
 
     let config = mpd_config(state);
@@ -1835,24 +1840,46 @@ async fn call_method(
             .trim()
             .eq_ignore_ascii_case("logarithmic");
 
-        // Hardware → Software: ALSA before fragment, restart MPD, `volume` (single gain stage), then
-        // optional SoftMaster HW ramp — order avoids stacking SoftMaster % with MPD % (~pct²).
+        // Hardware → Software: ALSA before fragment, restart MPD, `volume`, then open gain stage:
+        // SoftMaster path — HW ramp; no SoftMaster — HW 100% only **after** setvol (never while MPD
+        // still used HW volume — avoids full-scale burst).
         let hw_to_sw = prev.mixer_type == "Hardware" && after.mixer_type == "Software";
         if hw_to_sw {
+            let hw_sw_t0 = Instant::now();
+            alsa::mixer_hw_sw_trace(
+                Some(hw_sw_t0),
+                "async_begin",
+                "saveVolumeOptions Hardware→Software (single timeline, ms)",
+            );
             let soft = alsa::alsa_softmaster_control_present(&alsa);
             let prev_hw = prev.mixer.clone();
             let alsa_c = alsa.clone();
             let prev_hw_arg = prev_hw.clone();
             let handoff = tokio::task::spawn_blocking(move || {
-                alsa::transition_hardware_to_software_before_mpd(&alsa_c, &prev_hw_arg, log_curve)
+                alsa::transition_hardware_to_software_before_mpd(
+                    &alsa_c,
+                    &prev_hw_arg,
+                    log_curve,
+                    Some(hw_sw_t0),
+                )
             })
             .await;
             match handoff {
                 Ok(Ok(pct)) => {
                     let capped = after.clamp_volume_percent(pct);
+                    alsa::mixer_hw_sw_trace(
+                        Some(hw_sw_t0),
+                        "async_after_phase1_blocking",
+                        "before_mpd spawn_blocking returned",
+                    );
                     if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
                         tracing::warn!("saveVolumeOptions MPD: {}", e);
                     }
+                    alsa::mixer_hw_sw_trace(
+                        Some(hw_sw_t0),
+                        "async_after_fragment_restart",
+                        "write_fragment_and_restart_mpd finished",
+                    );
                     let config = mpd_config(&state);
                     if let Err(e) = mpd::run_command_connected(
                         &config,
@@ -1866,6 +1893,11 @@ async fn call_method(
                     {
                         tracing::warn!("saveVolumeOptions MPD setvol (hardware→software): {}", e);
                     }
+                    alsa::mixer_hw_sw_trace(
+                        Some(hw_sw_t0),
+                        "async_after_setvol",
+                        &format!("mpd_volume_pct={capped}"),
+                    );
                     if soft {
                         let alsa_c2 = alsa.clone();
                         let prev_hw2 = prev_hw.clone();
@@ -1874,6 +1906,7 @@ async fn call_method(
                                 &alsa_c2,
                                 &prev_hw2,
                                 log_curve,
+                                Some(hw_sw_t0),
                             )
                         })
                         .await;
@@ -1888,7 +1921,35 @@ async fn call_method(
                                 e
                             ),
                         }
+                    } else {
+                        let alsa_c2 = alsa.clone();
+                        let prev_hw2 = prev_hw.clone();
+                        let finish = tokio::task::spawn_blocking(move || {
+                            alsa::transition_hardware_to_software_after_mpd_no_softmaster(
+                                &alsa_c2,
+                                &prev_hw2,
+                                log_curve,
+                                Some(hw_sw_t0),
+                            )
+                        })
+                        .await;
+                        match finish {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => tracing::warn!(
+                                "saveVolumeOptions ALSA (hardware→software no SoftMaster after MPD): {}",
+                                e
+                            ),
+                            Err(e) => tracing::warn!(
+                                "saveVolumeOptions task (hardware→software no SoftMaster): {}",
+                                e
+                            ),
+                        }
                     }
+                    alsa::mixer_hw_sw_trace(
+                        Some(hw_sw_t0),
+                        "async_end",
+                        "saveVolumeOptions hw→sw finished",
+                    );
                 }
                 Ok(Err(e)) => {
                     tracing::warn!("saveVolumeOptions ALSA (hardware→software): {}", e);

@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use regex::Regex;
@@ -353,6 +353,23 @@ pub fn mpd_playback_device(alsa: &AlsaSettings) -> String {
     direct_hw_playback_device(id)
 }
 
+/// ALSA **control** string for MPD when it must **`snd_ctl_open`** the mixer (card only).
+///
+/// Playback [`mpd_playback_device`] may use **`hw:N,0`**; that form is **invalid** for the control
+/// interface and triggers MPD **`Invalid CTL hw:N,0`** / **`Failed to open mixer`** when MPD defaults
+/// `mixer_device` to the same string as `device`. Software / none mixer types should set
+/// `mixer_device` explicitly to this value (see [`crate::playback_options::PlaybackOptions::render_mpd_fragment`]).
+pub fn mpd_alsa_ctl_mixer_device(alsa: &AlsaSettings) -> String {
+    let id = alsa.output_device_id.trim();
+    if id.is_empty() || id == "nodev" {
+        return "default".to_string();
+    }
+    let Some(card) = amixer_card_index(id) else {
+        return "default".to_string();
+    };
+    format!("hw:{card}")
+}
+
 /// MPD `mixer_device` for hardware / softvol (Node `createMPDFile` `mixerdev`).
 pub fn mixer_device_for_mpd(alsa: &AlsaSettings) -> String {
     let id = alsa.output_device_id.trim();
@@ -618,56 +635,140 @@ pub fn transition_software_to_hardware_handoff(
     Ok(pct)
 }
 
+/// Tracing target for **hardware → software** mixer transition timelines. Filter logs, e.g.
+/// `RUST_LOG=volumio_evo::mixer_hw_sw=info`.
+pub const MIXER_HW_SW_TRACE_TARGET: &str = "volumio_evo::mixer_hw_sw";
+
+/// Settle after phase-1 ALSA mute/zero (SoftMaster path), ms.
+const HW_SW_PHASE1_SETTLE_MS: u64 = 150;
+/// Ramp steps opening hardware 0→100% after MPD (SoftMaster path).
+const HW_SW_RAMP_STEPS: usize = 8;
+/// Even spacing between ramp steps, ms.
+const HW_SW_RAMP_STEP_MS: u64 = 12;
+
+#[inline]
+pub(crate) fn mixer_hw_sw_trace(t0: Option<Instant>, stage: &'static str, detail: &str) {
+    let Some(start) = t0 else {
+        return;
+    };
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    tracing::info!(
+        target: MIXER_HW_SW_TRACE_TARGET,
+        elapsed_ms,
+        stage,
+        detail,
+        "mixer_hw_sw hw→sw"
+    );
+}
+
 /// **Hardware → Software** (phase 1): read level from the **hardware** control, then either
 /// (**SoftMaster** present) mute, **hardware → 0%**, **SoftMaster → 100%** (unity — same role as
 /// [`transition_software_to_hardware_handoff`], which maxes SoftMaster so level is not stacked); or
-/// (**no SoftMaster**) set **hardware → 100%** so MPD software volume is not stacked with a low DAC
-/// stage.
+/// (**no SoftMaster**) **do not** change the hardware mixer here — opening it to 100% while MPD is
+/// still in **hardware** volume mode caused a **full-scale burst**. Caller runs
+/// [`transition_hardware_to_software_after_mpd_no_softmaster`] **after** MPD software `setvol`.
 ///
 /// The carried percentage is returned for **MPD `setvol` only** after restart (caller should apply it
 /// **before** [`transition_hardware_to_software_after_mpd_softmaster`] when SoftMaster exists).
 ///
 /// Call **before** [`crate::playback_options::PlaybackOptions::write_fragment_and_restart_mpd`].
+///
+/// `timeline_t0`: pass [`Some`] ([`Instant::now`] from the caller) for **millisecond** timeline logs
+/// on target [`MIXER_HW_SW_TRACE_TARGET`]; [`None`] disables those lines.
 pub fn transition_hardware_to_software_before_mpd(
     alsa: &AlsaSettings,
     prev_hardware_mixer: &str,
     volumecurve_logarithmic: bool,
+    timeline_t0: Option<Instant>,
 ) -> Result<u8, String> {
     let log = volumecurve_logarithmic;
+    mixer_hw_sw_trace(timeline_t0, "phase1_begin", "enter before_mpd");
     let pct = get_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log).unwrap_or(50);
+    mixer_hw_sw_trace(
+        timeline_t0,
+        "phase1_read_hw",
+        &format!("hardware_pct={pct} softmaster={}", alsa_softmaster_control_present(alsa)),
+    );
 
     if alsa_softmaster_control_present(alsa) {
         let _ = set_playback_switch_mute(alsa, "Hardware", prev_hardware_mixer, true);
         let _ = set_playback_switch_mute(alsa, "Software", "", true);
+        mixer_hw_sw_trace(timeline_t0, "phase1_muted", "hw+sw switches");
         set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, 0)?;
+        mixer_hw_sw_trace(timeline_t0, "phase1_hw_zero", "hardware 0%");
         set_system_volume_percent(alsa, "Software", "SoftMaster", log, 100)?;
-        thread::sleep(Duration::from_millis(150));
+        mixer_hw_sw_trace(timeline_t0, "phase1_softmaster_unity", "SoftMaster 100%");
+        thread::sleep(Duration::from_millis(HW_SW_PHASE1_SETTLE_MS));
+        mixer_hw_sw_trace(
+            timeline_t0,
+            "phase1_settle_done",
+            &format!("slept_ms={HW_SW_PHASE1_SETTLE_MS}"),
+        );
     } else {
-        set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, 100)?;
+        mixer_hw_sw_trace(
+            timeline_t0,
+            "phase1_no_softmaster_hold_hw",
+            "leave hardware at current % until MPD is on software volume (avoid blast)",
+        );
     }
+    mixer_hw_sw_trace(timeline_t0, "phase1_end", "before_mpd complete");
     Ok(pct)
+}
+
+/// **Hardware → Software** (no SoftMaster): after MPD is on **software** volume and **`setvol`**
+/// has been applied, set the **hardware** mixer to **100%** so gain is not stacked (MPD × low HW).
+///
+/// Call **only** when [`alsa_softmaster_control_present`] is **false**; the SoftMaster path uses
+/// [`transition_hardware_to_software_after_mpd_softmaster`] instead.
+pub fn transition_hardware_to_software_after_mpd_no_softmaster(
+    alsa: &AlsaSettings,
+    prev_hardware_mixer: &str,
+    volumecurve_logarithmic: bool,
+    timeline_t0: Option<Instant>,
+) -> Result<(), String> {
+    if alsa_softmaster_control_present(alsa) {
+        return Ok(());
+    }
+    let log = volumecurve_logarithmic;
+    set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, 100)?;
+    mixer_hw_sw_trace(
+        timeline_t0,
+        "phase2_hw_unity_no_softmaster",
+        "hardware 100% after MPD software+setvol",
+    );
+    Ok(())
 }
 
 /// **Hardware → Software** (phase 2, SoftMaster only): after MPD software volume is set to the
 /// carried level, ramp the **hardware** line **0% → 100%** so the DAC is fully open and attenuation
 /// stays in MPD (SoftMaster remains at 100% from phase 1).
+///
+/// `timeline_t0`: same as [`transition_hardware_to_software_before_mpd`] (one continuous timeline).
 pub fn transition_hardware_to_software_after_mpd_softmaster(
     alsa: &AlsaSettings,
     prev_hardware_mixer: &str,
     volumecurve_logarithmic: bool,
+    timeline_t0: Option<Instant>,
 ) -> Result<(), String> {
     if !alsa_softmaster_control_present(alsa) {
         return Ok(());
     }
     let log = volumecurve_logarithmic;
-    const STEPS: usize = 8;
-    for i in 1..=STEPS {
-        let p = ((i * 100 / STEPS).min(100)) as u8;
+    mixer_hw_sw_trace(timeline_t0, "phase2_ramp_begin", &format!("steps={HW_SW_RAMP_STEPS} step_ms={HW_SW_RAMP_STEP_MS}"));
+    for i in 1..=HW_SW_RAMP_STEPS {
+        let p = ((i * 100 / HW_SW_RAMP_STEPS).min(100)) as u8;
         set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, p)?;
-        thread::sleep(Duration::from_millis(12));
+        thread::sleep(Duration::from_millis(HW_SW_RAMP_STEP_MS));
+        mixer_hw_sw_trace(
+            timeline_t0,
+            "phase2_ramp_step",
+            &format!("step={i}/{HW_SW_RAMP_STEPS} hw_pct={p} after_step_sleep_ms={HW_SW_RAMP_STEP_MS}"),
+        );
     }
     let _ = set_playback_switch_mute(alsa, "Hardware", prev_hardware_mixer, false);
     let _ = set_playback_switch_mute(alsa, "Software", "", false);
+    mixer_hw_sw_trace(timeline_t0, "phase2_unmute_done", "hw+sw unmuted");
+    mixer_hw_sw_trace(timeline_t0, "phase2_end", "after_mpd_softmaster complete");
     Ok(())
 }
 
@@ -919,6 +1020,20 @@ mod tests {
         assert!(!volumio_pcm_listed_in_aplay_l(
             "default\n    Default Audio Device\n"
         ));
+    }
+
+    #[test]
+    fn mpd_ctl_mixer_device_is_hw_card_only_never_subdevice() {
+        let a = AlsaSettings {
+            output_device_id: "2".into(),
+            ..Default::default()
+        };
+        assert_eq!(mpd_alsa_ctl_mixer_device(&a), "hw:2");
+        let a2 = AlsaSettings {
+            output_device_id: "2,0".into(),
+            ..Default::default()
+        };
+        assert_eq!(mpd_alsa_ctl_mixer_device(&a2), "hw:2");
     }
 
     #[test]

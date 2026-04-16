@@ -43,11 +43,16 @@ impl RouterState {
 pub type AppState = Arc<RouterState>;
 
 /// **Master fader** level 0–100 from ALSA (same control as [`crate::alsa::set_system_volume_percent`]),
-/// or `None` when mixer type is **None** or `amixer get` failed — [`mpd::get_state_connected`] then uses MPD.
+/// or `None` when mixer type is **None**, **Software** without a **`SoftMaster`** control on the card,
+/// or `amixer get` failed — [`mpd::get_state_connected`] then uses MPD.
 pub async fn read_master_volume_percent(state: &AppState) -> Option<u8> {
     let alsa = state.alsa.read().await.clone();
     let pb = state.playback.read().await.clone();
     if pb.mixer_type == "None" {
+        return None;
+    }
+    // Software maps to ALSA **`SoftMaster`** only when present; else callers use MPD (see doc).
+    if pb.mixer_type == "Software" && !crate::alsa::alsa_softmaster_control_present(&alsa) {
         return None;
     }
     let log = pb
@@ -102,17 +107,27 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
         .volumecurvemode
         .trim()
         .eq_ignore_ascii_case("logarithmic");
-    let alsa_c = alsa.clone();
-    let mt = pb.mixer_type.clone();
-    let mn = pb.mixer.clone();
-    match tokio::task::spawn_blocking(move || {
-        crate::alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, vol)
-    })
-    .await
-    {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => tracing::warn!("startup volume ALSA (amixer): {}", e),
-        Err(e) => tracing::warn!("startup volume ALSA task: {}", e),
+    // `mixer_type` Software maps ALSA to **`SoftMaster`** only when that control exists (Volumio
+    // softvol / modular asound). MPD-only software volume on `hw:` has no SoftMaster — use MPD only.
+    let use_alsa = pb.mixer_type != "Software"
+        || crate::alsa::alsa_softmaster_control_present(&alsa);
+    if use_alsa {
+        let alsa_c = alsa.clone();
+        let mt = pb.mixer_type.clone();
+        let mn = pb.mixer.clone();
+        match tokio::task::spawn_blocking(move || {
+            crate::alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, vol)
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("startup volume ALSA (amixer): {}", e),
+            Err(e) => tracing::warn!("startup volume ALSA task: {}", e),
+        }
+    } else {
+        tracing::debug!(
+            "startup volume: Software mixer, no ALSA SoftMaster — applying MPD setvol only"
+        );
     }
 
     let mpd = MpdConfig {
