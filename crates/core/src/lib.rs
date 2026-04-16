@@ -1,5 +1,7 @@
 pub mod alsa;
 pub mod alsa_cards;
+pub mod paths;
+pub mod playback_options;
 pub mod albumart;
 pub mod i2s;
 pub mod api;

@@ -146,7 +146,7 @@ fn validate_overlay_token(overlay: &str) -> Result<()> {
     Ok(())
 }
 
-/// Prefer Bookworm/Pi layout, then legacy `/boot/config.txt` (often a symlink).
+/// Prefer Bookworm/Pi layout (`/boot/firmware/config.txt`), then `/boot/config.txt` when present.
 pub fn resolved_boot_config_path() -> &'static str {
     if Path::new("/boot/firmware/config.txt").exists() {
         "/boot/firmware/config.txt"

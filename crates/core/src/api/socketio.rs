@@ -11,7 +11,7 @@ use crate::mpd::{
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
 
-use super::AppState;
+use super::{read_master_volume_percent, AppState};
 
 fn mpd_config(state: &AppState) -> MpdConfig {
     MpdConfig {
@@ -145,7 +145,8 @@ async fn on_connect(s: SocketRef) {
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    match mpd::get_state_connected(&config, &state.config.music_sources.music_root).await {
+    let master = read_master_volume_percent(&state).await;
+    match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(payload) => {
             s.emit("pushState", &payload).ok();
         }
@@ -443,8 +444,18 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
     }
 }
 
+async fn emit_playback_options_ui(s: &SocketRef, state: &AppState) {
+    match build_playback_options_ui(state).await {
+        Ok(v) => {
+            s.emit("pushUiConfig", &v).ok();
+        }
+        Err(e) => tracing::warn!("refresh Playback Options UI: {}", e),
+    }
+}
+
 async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
     let settings = state.alsa.read().await.clone();
+    let playback = state.playback.read().await.clone();
     let profile = i2s::hardware_profile();
     let dacs_file = i2s::load_dacs().ok();
     let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
@@ -479,10 +490,25 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
     );
     let settings = alsa::coerce_selection(&cards, settings);
 
+    let card_for_mixers = settings.output_device_id.clone();
+    let mixer_controls = match tokio::task::spawn_blocking(move || {
+        alsa::list_playback_mixer_controls(&card_for_mixers)
+    })
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("mixer probe task: {}", e);
+            vec![]
+        }
+    };
+
     let params = alsa::PlaybackOptionsUiParams {
         cards: &cards,
         settings: &settings,
         i2s_dacs: &i2s_dacs,
+        playback: &playback,
+        mixer_controls: &mixer_controls,
     };
     Ok(alsa::playback_options_ui_config(&params))
 }
@@ -1182,6 +1208,42 @@ async fn remove_from_queue(
     }
 }
 
+/// Stock Volumio drives volume with **ALSA `amixer`** (`volumecontrol.js`); Evo matches that, then
+/// **MPD `setvol`** so `getState` / `pushState` stay aligned when MPD accepts the command.
+async fn apply_volume_to_system(state: &AppState, v: u8) {
+    let alsa = state.alsa.read().await.clone();
+    let pb = state.playback.read().await.clone();
+
+    if pb.mixer_type == "None" {
+        tracing::debug!("volume: mixer_type None, ignoring (Node: disableVolumeControl)");
+        return;
+    }
+
+    let v = pb.clamp_volume_percent(v);
+
+    let log_curve = pb
+        .volumecurvemode
+        .trim()
+        .eq_ignore_ascii_case("logarithmic");
+    let alsa_c = alsa.clone();
+    let mt = pb.mixer_type.clone();
+    let mn = pb.mixer.clone();
+    match tokio::task::spawn_blocking(move || {
+        alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, v)
+    })
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("ALSA volume (amixer, Node alsavolume path): {}", e),
+        Err(e) => tracing::warn!("ALSA volume task join: {}", e),
+    }
+
+    let config = mpd_config(state);
+    if let Err(e) = mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await {
+        tracing::warn!("MPD setvol (state sync): {}", e);
+    }
+}
+
 async fn volume(
     _s: SocketRef,
     State(state): State<AppState>,
@@ -1197,10 +1259,10 @@ async fn volume(
             }
         })
         .and_then(|v| u8::try_from(v).ok());
-    if let Some(v) = vol {
-        let config = mpd_config(&state);
-        let _ = mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await;
-    }
+    let Some(v) = vol else {
+        return;
+    };
+    apply_volume_to_system(&state, v).await;
 }
 
 #[derive(Debug, Deserialize)]
@@ -1365,8 +1427,10 @@ async fn play_next(
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
+            let master = read_master_volume_percent(&state).await;
             if let Ok(st) =
-                mpd::get_state_connected(&config, &state.config.music_sources.music_root).await
+                mpd::get_state_connected(&config, &state.config.music_sources.music_root, master)
+                    .await
             {
                 s.emit("pushState", &st).ok();
             }
@@ -1695,7 +1759,7 @@ struct CallMethodPayload {
     data: serde_json::Value,
 }
 
-/// callMethod: miscellanea/albumart clearAlbumartCache; audio ALSA save (Playback Options).
+/// callMethod: albumart clear; ALSA / MPD playback saves (stock Playback Options sections).
 async fn call_method(
     s: SocketRef,
     State(state): State<AppState>,
@@ -1717,7 +1781,76 @@ async fn call_method(
             Err(e) => tracing::warn!("saveAlsaOptions: {}", e),
         }
         drop(guard);
-        get_output_devices(s, State(state.clone())).await;
+        let alsa = state.alsa.read().await.clone();
+        {
+            let mut pb = state.playback.write().await;
+            pb.apply_volume_sanity(&alsa);
+            if let Err(e) = pb.save() {
+                tracing::warn!("save playback after ALSA volume sanity: {}", e);
+            }
+        }
+        let pb = state.playback.read().await.clone();
+        if let Err(e) = pb.write_fragment_and_restart_mpd(&alsa).await {
+            tracing::warn!("MPD fragment after ALSA save: {}", e);
+        }
+        get_output_devices(s.clone(), State(state.clone())).await;
+        emit_playback_options_ui(&s, &state).await;
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("music_service/mpd")
+        && payload.method.as_deref() == Some("savePlaybackOptions")
+    {
+        let mut pb = state.playback.write().await;
+        pb.merge_playback_section(&payload.data);
+        if let Err(e) = pb.save() {
+            tracing::warn!("save playback state: {}", e);
+        }
+        let pb_clone = pb.clone();
+        drop(pb);
+        let alsa = state.alsa.read().await.clone();
+        if let Err(e) = pb_clone.write_fragment_and_restart_mpd(&alsa).await {
+            tracing::warn!("savePlaybackOptions MPD: {}", e);
+        }
+        emit_playback_options_ui(&s, &state).await;
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("audio_interface/alsa_controller")
+        && payload.method.as_deref() == Some("saveVolumeOptions")
+    {
+        let alsa = state.alsa.read().await.clone();
+        let mut pb = state.playback.write().await;
+        pb.merge_volume_section(&payload.data);
+        pb.apply_volume_sanity(&alsa);
+        if let Err(e) = pb.save() {
+            tracing::warn!("save playback state: {}", e);
+        }
+        let after = pb.clone();
+        drop(pb);
+
+        if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
+            tracing::warn!("saveVolumeOptions MPD: {}", e);
+        }
+        emit_playback_options_ui(&s, &state).await;
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("audio_interface/alsa_controller")
+        && payload.method.as_deref() == Some("saveResamplingOpts")
+    {
+        let mut pb = state.playback.write().await;
+        pb.merge_resampling_section(&payload.data);
+        if let Err(e) = pb.save() {
+            tracing::warn!("save playback state: {}", e);
+        }
+        let pb_clone = pb.clone();
+        drop(pb);
+        let alsa = state.alsa.read().await.clone();
+        if let Err(e) = pb_clone.write_fragment_and_restart_mpd(&alsa).await {
+            tracing::warn!("saveResamplingOpts MPD: {}", e);
+        }
+        emit_playback_options_ui(&s, &state).await;
     }
 }
 
@@ -1752,14 +1885,12 @@ async fn get_last_pushed_browse_library(s: SocketRef, State(state): State<AppSta
 }
 
 async fn mute(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "volume", Some(0), None, None, None).await;
+    apply_volume_to_system(&state, 0).await;
 }
 
 async fn unmute(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    // Restore to 80% if no pre-mute volume stored
-    let _ = mpd::run_command_connected(&config, "volume", Some(80), None, None, None).await;
+    // Restore to 80% if no pre-mute volume stored (stub; Node uses premutevolume)
+    apply_volume_to_system(&state, 80).await;
 }
 
 async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
@@ -1792,7 +1923,8 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
     loop {
         interval.tick().await;
-        if let Ok(s) = mpd::get_state_connected(&config, &music_root).await {
+        let master = read_master_volume_percent(&state).await;
+        if let Ok(s) = mpd::get_state_connected(&config, &music_root, master).await {
             if io.emit("pushState", &s).await.is_err() {
                 tracing::debug!("pushState broadcast error (connection closed?)");
             }

@@ -37,10 +37,18 @@ impl MpdConfig {
 }
 
 /// Connect to MPD, run get_state, then close. Avoids closure lifetime issues.
-pub async fn get_state_connected(config: &MpdConfig, music_root: &Path) -> Result<VolumioState> {
+///
+/// **`master_volume_from_alsa`:** when `Some`, used as the **master fader** level for `pushState`
+/// (same ALSA control as [`crate::alsa::get_system_volume_percent`]). When `None`, uses MPD
+/// `status.volume` (e.g. mixer type **None** or ALSA read failed).
+pub async fn get_state_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+    master_volume_from_alsa: Option<u8>,
+) -> Result<VolumioState> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
-    get_state(&mut client, music_root).await
+    get_state(&mut client, music_root, master_volume_from_alsa).await
 }
 
 /// Connect to MPD, run get_queue, then close.
@@ -2065,7 +2073,11 @@ pub fn browse_song_albumart_path_only(volumio_uri: &str) -> String {
     volumio_albumart_url(volumio_uri, &None, &None, true)
 }
 
-pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<VolumioState> {
+pub async fn get_state(
+    client: &mut Client,
+    music_root: &Path,
+    master_volume_from_alsa: Option<u8>,
+) -> Result<VolumioState> {
     let status = client.command(Status).await?;
 
     let seek_ms = status
@@ -2119,12 +2131,14 @@ pub async fn get_state(client: &mut Client, music_root: &Path) -> Result<Volumio
         PlayState::Stopped => Some("stop".to_string()),
     };
 
+    let volume = master_volume_from_alsa.or(Some(status.volume));
+
     Ok(VolumioState {
         status: status_str,
         position,
         seek: seek_ms,
         duration: duration_secs,
-        volume: Some(status.volume),
+        volume,
         repeat: Some(status.repeat),
         random: Some(status.random),
         title,

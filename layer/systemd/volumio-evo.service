@@ -9,6 +9,9 @@ Restart=on-failure
 RestartSec=5
 Environment=VOLUMIO_EVO_CONFIG=/etc/volumio-evo/config.toml
 Environment=VOLUMIO_EVO_ALSA_DIR=/usr/share/volumio-evo/alsa
+Environment=VOLUMIO_EVO_SETTINGS_DIR=/var/lib/volumio-evo/settings
+# Match stock Volumio Node: MPD uses logical PCM `volumio` and mixer_device rules from createMPDFile.
+Environment=MODULAR_ALSA_PIPELINE=true
 
 [Install]
 WantedBy=multi-user.target

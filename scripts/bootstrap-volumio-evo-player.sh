@@ -395,6 +395,7 @@ ensure_default_evo_mpd_fragment() {
   fi
   cat > "${EVO_MPD_FRAGMENT}" <<'EOF'
 # Managed by volumio-evo (bootstrap default; Evo may replace on Playback Options save).
+# Evo uses pcm "volumio" for MPD only when `aplay -L` lists it; otherwise direct hw (see mpd_playback_device).
 # If you also define audio_output in /etc/mpd_local.conf, remove one copy to avoid duplicate MPD outputs.
 
 audio_output {
@@ -497,18 +498,6 @@ install_alsa_cards_json() {
     return 0
   fi
   echo "WARN: layer/config/alsa/cards.json not found; output device names may stay as raw aplay strings."
-}
-
-# Pre-bootstrap layouts dropped dacs/cards next to the plugins dir; Evo only reads /usr/share/volumio-evo/alsa/*.
-# Delete stale files so an old path can never shadow the catalogue after a rename upstream.
-remove_legacy_alsa_share_data_files() {
-  local f
-  for f in /usr/share/volumio-evo/dacs.json /usr/share/volumio-evo/alsa_cards.json; do
-    if [[ -e "${f}" ]]; then
-      rm -f "${f}"
-      echo "Removed obsolete file (use /usr/share/volumio-evo/alsa/ only): ${f}"
-    fi
-  done
 }
 
 install_bundled_plugins_assets() {
@@ -633,10 +622,10 @@ build_and_install_evo() {
     install_evo_binary "${EVO_BINARY_PATH}"
   fi
 
-  mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart
+  mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart \
+    /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd
   install_dacs_catalog
   install_alsa_cards_json
-  remove_legacy_alsa_share_data_files
   install_bundled_plugins_assets
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
     if [[ ! -f /etc/volumio-evo/config.toml ]]; then
@@ -681,6 +670,8 @@ Restart=on-failure
 RestartSec=5
 Environment=VOLUMIO_EVO_CONFIG=/etc/volumio-evo/config.toml
 Environment=VOLUMIO_EVO_ALSA_DIR=/usr/share/volumio-evo/alsa
+Environment=VOLUMIO_EVO_SETTINGS_DIR=/var/lib/volumio-evo/settings
+Environment=MODULAR_ALSA_PIPELINE=true
 
 [Install]
 WantedBy=multi-user.target
@@ -746,7 +737,7 @@ ensure_nginx_access() {
 
 configure_nginx() {
   local site="/etc/nginx/sites-available/volumio-evo-player"
-  # Remove legacy site names from earlier bootstrap attempts to avoid
+  # Remove superseded site names from older bootstrap attempts to avoid
   # duplicate "default_server" listeners on port 80.
   rm -f /etc/nginx/sites-enabled/volumio-evo-ui-test
   rm -f /etc/nginx/sites-available/volumio-evo-ui-test
@@ -857,7 +848,6 @@ main() {
     need_root
     install_dacs_catalog
     install_alsa_cards_json
-    remove_legacy_alsa_share_data_files
     apply_ui_dist_dir_from_config
     ensure_nginx_access
     configure_nginx

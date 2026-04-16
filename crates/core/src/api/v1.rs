@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::metavolumio::{metavolumio_response, PluginEndpointBody};
 use crate::mpd::{self, MpdConfig, VolumioState};
 
-use super::AppState;
+use super::{read_master_volume_percent, AppState};
 
 pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
     MpdConfig {
@@ -23,7 +23,8 @@ pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
 /// GET /api/v1/getState
 pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
-    match mpd::get_state_connected(&config, &state.config.music_sources.music_root).await {
+    let master = read_master_volume_percent(&state).await;
+    match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(s) => Json::<VolumioState>(s).into_response(),
         Err(e) => {
             tracing::warn!("getState MPD error: {}", e);

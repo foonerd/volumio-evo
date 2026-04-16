@@ -2,13 +2,30 @@
 //!
 //! Full MPD/ALSA apply pipeline (asound, modular snippets) is deferred; we persist the user choice
 //! and expose the same Socket.IO / UI shapes as `audio_interface/alsa_controller` on Node.
+//!
+//! `list_playback_mixer_controls` mirrors Node `getMixerControls` (`amixer -c N scontents`, Playback
+//! controls only) so hardware mixer names match stock Volumio and MPD `mixer_control` lines.
+//!
+//! **Modular ALSA pipeline** (Node `MODULAR_ALSA_PIPELINE=true`, stock Volumio OS): when
+//! `aplay -L` lists PCM **`volumio`**, MPD uses that logical device (see `/etc/asound.conf`). If the
+//! flag is on but **`volumio` is missing** (plain Pi OS, dev kit), Evo falls back to **direct `hw:…`**
+//! so MPD does not fail with `Unknown PCM volumio`. `mixer_device` for hardware volume still follows
+//! the modular rules (`hw:N,0` / `hw:N,M`, or **`SoftMaster`** when software volume is enabled). Set
+//! `MODULAR_ALSA_PIPELINE=false` for the legacy path (`mixer_device` = `hw:N` without `,0` for
+//! single-card). When the variable is **unset**, Evo defaults to **modular**; see
+//! `modular_alsa_pipeline_enabled`.
 //! I2S DAC list comes from `dacs.json` (see `crate::i2s`); boot `dtoverlay` uses `sudo` like Node.
 //! Output device labels and I2S vs integrated filtering follow Node `alsa_controller/cards.json`
 //! (`crate::alsa_cards`).
 
 use std::path::PathBuf;
+use std::process::Command;
+use std::sync::OnceLock;
 
 use anyhow::Context;
+use regex::Regex;
+
+use crate::paths;
 use serde::{Deserialize, Serialize};
 
 use crate::i2s::DacEntry;
@@ -25,6 +42,9 @@ pub struct AplayCard {
 pub struct AlsaSettings {
     pub output_device_id: String,
     pub output_device_label: String,
+    /// When `true`, volume goes through the softvol / **`SoftMaster`** path (Node `softvolume`).
+    #[serde(default)]
+    pub softvolume: bool,
     #[serde(default)]
     pub i2s_enabled: bool,
     #[serde(default)]
@@ -38,6 +58,7 @@ impl Default for AlsaSettings {
         Self {
             output_device_id: "0".to_string(),
             output_device_label: "Default".to_string(),
+            softvolume: false,
             i2s_enabled: false,
             i2s_dac_id: None,
             i2s_dac_label: String::new(),
@@ -48,11 +69,48 @@ impl Default for AlsaSettings {
 fn state_path() -> PathBuf {
     std::env::var("VOLUMIO_EVO_ALSA_STATE")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/var/lib/volumio-evo/alsa-state.toml"))
+        .unwrap_or_else(|_| paths::default_alsa_state_path())
+}
+
+/// Earlier Evo builds used `settings/alsa-state.toml` at the root of `settings/`; relocate to `settings/alsa/state.toml`.
+fn migrate_intermediate_alsa_flat_file_if_needed() {
+    if std::env::var("VOLUMIO_EVO_ALSA_STATE").is_ok() {
+        return;
+    }
+    let new_path = paths::default_alsa_state_path();
+    if new_path.exists() {
+        return;
+    }
+    let old = paths::settings_dir().join("alsa-state.toml");
+    if !old.is_file() {
+        return;
+    }
+    if let Some(parent) = new_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::rename(&old, &new_path) {
+        Ok(()) => tracing::info!(
+            from = %old.display(),
+            to = %new_path.display(),
+            "relocated ALSA state into settings/alsa/"
+        ),
+        Err(e) => {
+            tracing::warn!(
+                "could not rename {} to {}: {}; trying copy",
+                old.display(),
+                new_path.display(),
+                e
+            );
+            if std::fs::copy(&old, &new_path).is_ok() {
+                let _ = std::fs::remove_file(&old);
+            }
+        }
+    }
 }
 
 impl AlsaSettings {
     pub fn load() -> Self {
+        migrate_intermediate_alsa_flat_file_if_needed();
         let path = state_path();
         let Ok(raw) = std::fs::read_to_string(&path) else {
             return Self::default();
@@ -209,6 +267,283 @@ pub fn coerce_selection(cards: &[AplayCard], mut settings: AlsaSettings) -> Alsa
     settings
 }
 
+/// Card index for `amixer -c` (Node `getMixerControls`: use only the number before `,`).
+fn amixer_card_index(output_device_id: &str) -> Option<&str> {
+    let id = output_device_id.trim();
+    if id.is_empty() || id == "nodev" {
+        return None;
+    }
+    Some(id.split_once(',').map(|(a, _)| a).unwrap_or(id))
+}
+
+/// `MODULAR_ALSA_PIPELINE` (Node / Volumio OS). When unset or empty, **true** so Evo matches stock
+/// Volumio; set to `false` / `0` / `no` / `off` for the legacy MPD device path.
+pub fn modular_alsa_pipeline_enabled() -> bool {
+    match std::env::var("MODULAR_ALSA_PIPELINE") {
+        Ok(s) => {
+            let t = s.trim().to_ascii_lowercase();
+            if t.is_empty() {
+                return true;
+            }
+            !matches!(t.as_str(), "false" | "0" | "no" | "off")
+        }
+        Err(_) => true,
+    }
+}
+
+/// `aplay -L` lists PCM names on non-indented lines. Returns whether the **`volumio`** PCM exists
+/// (stock Volumio `/etc/asound.conf`). If modular mode is on but this is false, MPD must not use
+/// `device "volumio"` or playback fails with `Unknown PCM volumio`.
+pub(crate) fn volumio_pcm_listed_in_aplay_l(stdout: &str) -> bool {
+    for line in stdout.lines() {
+        if line.starts_with(char::is_whitespace) {
+            continue;
+        }
+        let Some(first) = line.split_whitespace().next() else {
+            continue;
+        };
+        let name = first.split(':').next().unwrap_or(first);
+        if name == "volumio" {
+            return true;
+        }
+    }
+    false
+}
+
+fn pcm_volumio_available() -> bool {
+    let out = Command::new("/usr/bin/aplay")
+        .args(["-L"])
+        .output()
+        .or_else(|_| Command::new("aplay").args(["-L"]).output());
+    let Ok(out) = out else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    volumio_pcm_listed_in_aplay_l(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn direct_hw_playback_device(id: &str) -> String {
+    if id.contains(',') {
+        format!("hw:{id}")
+    } else {
+        format!("hw:{id},0")
+    }
+}
+
+/// MPD `audio_output` `device` string. Modular: **`volumio`** only if that PCM exists (`aplay -L`);
+/// otherwise **direct `hw:…`** (Pi OS / dev trees without Volumio asound). Legacy: always direct `hw:…`.
+pub fn mpd_playback_device(alsa: &AlsaSettings) -> String {
+    let id = alsa.output_device_id.trim();
+    if id.is_empty() || id == "nodev" {
+        return "default".to_string();
+    }
+    if modular_alsa_pipeline_enabled() && pcm_volumio_available() {
+        return "volumio".to_string();
+    }
+    if modular_alsa_pipeline_enabled() {
+        tracing::info!(
+            "MODULAR_ALSA_PIPELINE is set but ALSA PCM \"volumio\" not in aplay -L; using direct {} for MPD (install Volumio asound or define pcm.volumio)",
+            direct_hw_playback_device(id)
+        );
+    }
+    direct_hw_playback_device(id)
+}
+
+/// MPD `mixer_device` for hardware / softvol (Node `createMPDFile` `mixerdev`).
+pub fn mixer_device_for_mpd(alsa: &AlsaSettings) -> String {
+    let id = alsa.output_device_id.trim();
+    if id.is_empty() || id == "nodev" {
+        return "default".to_string();
+    }
+    if alsa.softvolume {
+        return "SoftMaster".to_string();
+    }
+    if modular_alsa_pipeline_enabled() {
+        if id.contains(',') {
+            format!("hw:{id}")
+        } else {
+            format!("hw:{id},0")
+        }
+    } else if id.contains(',') {
+        format!("hw:{id}")
+    } else {
+        format!("hw:{id}")
+    }
+}
+
+const INVALID_MIXER_SUBSTR: [&str; 3] = ["Clock Validity", "Tx Source", "Internal Validity"];
+
+fn mixer_name_is_valid(name: &str) -> bool {
+    !INVALID_MIXER_SUBSTR
+        .iter()
+        .any(|bad| name.contains(bad))
+}
+
+/// Parse `amixer scontents` like Node `getMixerControls`: Playback simple controls, de-duped with
+/// `,1`, `,2`, … suffixes.
+pub(crate) fn parse_amixer_scontents(stdout: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for chunk in stdout.split("Simple mixer control") {
+        if !chunk.contains("Playback") {
+            continue;
+        }
+        let first_line = chunk.lines().next().unwrap_or("");
+        let before_comma = first_line.split(',').next().unwrap_or("");
+        let stripped = before_comma.replace('\'', "");
+        let base = stripped.trim().to_string();
+        if base.is_empty() || !mixer_name_is_valid(&base) {
+            continue;
+        }
+        let mut candidate = base.clone();
+        let mut n = 0u32;
+        while out.iter().any(|e| e == &candidate) {
+            n += 1;
+            candidate = format!("{base},{n}");
+        }
+        out.push(candidate);
+    }
+    out
+}
+
+/// ALSA playback mixer control names for the selected output card (Node `getMixerControls`).
+pub fn list_playback_mixer_controls(output_device_id: &str) -> Vec<String> {
+    let Some(card) = amixer_card_index(output_device_id) else {
+        return Vec::new();
+    };
+    let Ok(out) = Command::new("amixer")
+        .args(["-c", card, "scontents"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        tracing::warn!(
+            stderr = %String::from_utf8_lossy(&out.stderr),
+            "amixer scontents failed for card {}",
+            card
+        );
+        return Vec::new();
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_amixer_scontents(&stdout)
+}
+
+/// Resolve the simple mixer control name for **Software** / **Hardware** (same rules as volume set/get).
+fn playback_mixer_control_name(
+    alsa: &AlsaSettings,
+    mixer_type: &str,
+    mixer_name: &str,
+) -> Result<String, String> {
+    match mixer_type {
+        "Software" => Ok("SoftMaster".into()),
+        "Hardware" => {
+            let t = mixer_name.trim();
+            if !t.is_empty() {
+                return Ok(t.into());
+            }
+            let Some(card) = amixer_card_index(alsa.output_device_id.trim()) else {
+                return Err("no ALSA output card for amixer".into());
+            };
+            list_playback_mixer_controls(&alsa.output_device_id)
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    format!(
+                        "no Playback mixer controls on card {} (Hardware mixer name empty)",
+                        card
+                    )
+                })
+        }
+        _ => Err(format!("unsupported mixer_type {:?}", mixer_type)),
+    }
+}
+
+/// Set ALSA volume like Node `CoreVolumeController.setVolume` (`amixer` / `alsavolume`): **Hardware**
+/// uses the named Playback control (or the first from [`list_playback_mixer_controls`] if empty);
+/// **Software** uses **`SoftMaster`**. Logarithmic curve adds **`-M`**, matching `volumecontrol.js`.
+///
+/// Call this for Evo UI volume when stock Volumio would use ALSA rather than relying on MPD `setvol`
+/// alone (same path as **alsamixer**).
+pub fn set_system_volume_percent(
+    alsa: &AlsaSettings,
+    mixer_type: &str,
+    mixer_name: &str,
+    volumecurve_logarithmic: bool,
+    percent: u8,
+) -> Result<(), String> {
+    if mixer_type == "None" {
+        return Err("mixer_type is None".into());
+    }
+    let Some(card) = amixer_card_index(alsa.output_device_id.trim()) else {
+        return Err("no ALSA output card for amixer".into());
+    };
+    let p = percent.min(100);
+    let mixer = playback_mixer_control_name(alsa, mixer_type, mixer_name)?;
+
+    let pct = format!("{p}%");
+    let mut cmd = Command::new("amixer");
+    if volumecurve_logarithmic {
+        cmd.arg("-M");
+    }
+    cmd.args(["set", "-c", card, mixer.as_str(), "unmute", &pct]);
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(format!(
+            "amixer: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Regex for `amixer get` lines like `Front Left: Playback 204 [85%]` (Node `volumecontrol` `reInfo`).
+fn amixer_playback_percent_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i):\s*Playback\s+[0-9-]+\s+\[(\d+)%\]")
+            .expect("amixer playback percent regex")
+    })
+}
+
+/// Read current **master** level 0–100 from ALSA for the same control as
+/// [`set_system_volume_percent`] (Node `getInfo` / `retrievevolume`). Returns `None` if unavailable
+/// or unparsed — caller should fall back to MPD `status.volume`.
+pub fn get_system_volume_percent(
+    alsa: &AlsaSettings,
+    mixer_type: &str,
+    mixer_name: &str,
+    volumecurve_logarithmic: bool,
+) -> Option<u8> {
+    if mixer_type == "None" {
+        return None;
+    }
+    let card = amixer_card_index(alsa.output_device_id.trim())?;
+    let mixer = playback_mixer_control_name(alsa, mixer_type, mixer_name).ok()?;
+
+    let mut cmd = Command::new("amixer");
+    if volumecurve_logarithmic {
+        cmd.arg("-M");
+    }
+    cmd.args(["get", "-c", card, mixer.as_str()]);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let re = amixer_playback_percent_re();
+    let mut best: Option<u8> = None;
+    for cap in re.captures_iter(&stdout) {
+        if let Ok(n) = cap[1].parse::<u32>() {
+            let v = (n.min(100)) as u8;
+            best = Some(v);
+            break;
+        }
+    }
+    best
+}
+
 /// `pushOutputDevices` body (wizard + internal consistency); matches Node `getAudioDevices` shape.
 pub fn push_output_devices_json(
     cards: &[AplayCard],
@@ -271,6 +606,9 @@ pub struct PlaybackOptionsUiParams<'a> {
     pub cards: &'a [AplayCard],
     pub settings: &'a AlsaSettings,
     pub i2s_dacs: &'a [DacEntry],
+    pub playback: &'a crate::playback_options::PlaybackOptions,
+    /// `list_playback_mixer_controls(settings.output_device_id)` for the mixer name dropdown.
+    pub mixer_controls: &'a [String],
 }
 
 /// Stock plugin UI for `audio_interface/alsa_controller` (output device + optional I2S DAC model).
@@ -377,34 +715,164 @@ pub fn playback_options_ui_config(p: &PlaybackOptionsUiParams<'_>) -> serde_json
         }));
     }
 
+    let mut sections: Vec<serde_json::Value> = vec![serde_json::json!({
+        "id": "alsa_options",
+        "element": "section",
+        "label": "Audio output",
+        "icon": "fa-volume-up",
+        "onSave": {"type": "controller", "endpoint": "audio_interface/alsa_controller", "method": "saveAlsaOptions"},
+        "saveButton": {
+            "label": "Save",
+            "data": save_fields
+        },
+        "value": {
+            "value": p.settings.output_device_id,
+            "label": p.settings.output_device_label
+        },
+        "content": content
+    })];
+    sections.extend(crate::playback_options::playback_mpd_ui_sections(
+        p.playback,
+        p.mixer_controls,
+    ));
+
     serde_json::json!({
         "page": {
             "label": "Playback options"
         },
-        "sections": [
-            {
-                "id": "alsa_options",
-                "element": "section",
-                "label": "Audio output",
-                "icon": "fa-volume-up",
-                "onSave": {"type": "controller", "endpoint": "audio_interface/alsa_controller", "method": "saveAlsaOptions"},
-                "saveButton": {
-                    "label": "Save",
-                    "data": save_fields
-                },
-                "value": {
-                    "value": p.settings.output_device_id,
-                    "label": p.settings.output_device_label
-                },
-                "content": content
-            }
-        ]
+        "sections": sections
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// `MODULAR_ALSA_PIPELINE` is process-global; serialize tests that mutate it.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn modular_mpd_uses_volumio_or_hw_fallback_and_hw_n_0_mixer() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("MODULAR_ALSA_PIPELINE");
+        let a = AlsaSettings {
+            output_device_id: "2".into(),
+            ..Default::default()
+        };
+        assert!(modular_alsa_pipeline_enabled());
+        let dev = mpd_playback_device(&a);
+        assert!(
+            dev == "volumio" || dev == "hw:2,0",
+            "with modular ALSA, MPD device is volumio when pcm exists, else direct hw; got {dev:?}"
+        );
+        assert_eq!(mixer_device_for_mpd(&a), "hw:2,0");
+    }
+
+    #[test]
+    fn modular_subdevice_mixer_hw_nm() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("MODULAR_ALSA_PIPELINE");
+        let a = AlsaSettings {
+            output_device_id: "1,1".into(),
+            ..Default::default()
+        };
+        let dev = mpd_playback_device(&a);
+        assert!(
+            dev == "volumio" || dev == "hw:1,1",
+            "expected volumio or hw:1,1, got {dev:?}"
+        );
+        assert_eq!(mixer_device_for_mpd(&a), "hw:1,1");
+    }
+
+    #[test]
+    fn aplay_l_detects_volumio_pcm_line() {
+        let sample = "null\n    Discard all samples (playback)\nvolumio\n    Volumio device\n";
+        assert!(volumio_pcm_listed_in_aplay_l(sample));
+        assert!(!volumio_pcm_listed_in_aplay_l(
+            "default\n    Default Audio Device\n"
+        ));
+    }
+
+    #[test]
+    fn legacy_mpd_uses_direct_hw_strings() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::set_var("MODULAR_ALSA_PIPELINE", "false");
+        let a = AlsaSettings {
+            output_device_id: "2".into(),
+            ..Default::default()
+        };
+        assert!(!modular_alsa_pipeline_enabled());
+        assert_eq!(mpd_playback_device(&a), "hw:2,0");
+        assert_eq!(mixer_device_for_mpd(&a), "hw:2");
+        std::env::remove_var("MODULAR_ALSA_PIPELINE");
+    }
+
+    #[test]
+    fn softvolume_requests_softmaster_mixer_device() {
+        let _g = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("MODULAR_ALSA_PIPELINE");
+        let a = AlsaSettings {
+            output_device_id: "1".into(),
+            softvolume: true,
+            ..Default::default()
+        };
+        assert_eq!(mixer_device_for_mpd(&a), "SoftMaster");
+    }
+
+    #[test]
+    fn amixer_get_parses_playback_percent_like_alsamixer() {
+        let sample = "\
+Simple mixer control 'DAC',0
+  Capabilities: pvolume
+  Front Left: Playback 204 [85%] [-18.00dB]
+  Front Right: Playback 204 [85%] [-18.00dB]
+";
+        let re = amixer_playback_percent_re();
+        let cap = re.captures(sample).expect("playback line");
+        assert_eq!(cap.get(1).unwrap().as_str(), "85");
+    }
+
+    #[test]
+    fn parse_amixer_scontents_matches_node_shape() {
+        let sample = r"
+Simple mixer control 'PCM',0
+  Capabilities: pvolume pswitch
+  Playback channels: Front Left - Front Right
+Simple mixer control 'Mic',0
+  Capabilities: cvolume cswitch
+  Capture channels: Mono
+Simple mixer control 'Digital',0
+  Capabilities: pvolume
+  Playback channels: Mono
+";
+        let v = parse_amixer_scontents(sample);
+        assert_eq!(v, vec!["PCM", "Digital"]);
+    }
+
+    #[test]
+    fn parse_amixer_skips_invalid_mixers() {
+        let sample = r"
+Simple mixer control 'Clock Validity',0
+  Playback channels: Mono
+Simple mixer control 'PCM',0
+  Playback channels: Mono
+";
+        let v = parse_amixer_scontents(sample);
+        assert_eq!(v, vec!["PCM"]);
+    }
+
+    #[test]
+    fn parse_amixer_duplicate_playback_names_get_suffix() {
+        let sample = r"
+Simple mixer control 'PCM',0
+  Playback channels: Front Left - Front Right
+Simple mixer control 'PCM',0
+  Playback channels: Front Left - Front Right
+";
+        let v = parse_amixer_scontents(sample);
+        assert_eq!(v, vec!["PCM", "PCM,1"]);
+    }
 
     #[test]
     fn parse_aplay_sample() {

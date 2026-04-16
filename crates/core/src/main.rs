@@ -5,6 +5,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod alsa;
 mod alsa_cards;
+mod paths;
+mod playback_options;
 mod albumart;
 mod i2s;
 mod api;
@@ -32,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Arc::new(config);
     let (app, io, state) = api::router(config);
     tokio::spawn(api::push_state_queue_loop(state.clone(), io));
+    tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
     tracing::info!("listening on {}", state.config.bind);
 
