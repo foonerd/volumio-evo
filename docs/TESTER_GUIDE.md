@@ -6,7 +6,7 @@ Use this on a **fresh** Raspberry Pi OS (including **Raspberry Pi OS Lite**), De
 
 **Full-stack install and test on the device are defined only by `scripts/bootstrap-volumio-evo-player.sh`.**
 
-Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or rebuild: it clones or pulls **volumio-evo**, installs rustup, builds the Rust backend, copies static UI from **`layer/web/`**, and configures services. There is **no** npm/gulp or Volumio2-UI clone on device.
+Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or reinstall: it clones or pulls **volumio-evo**, copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and installs the backend. **By default** (no **`--build`**) the script installs the **prebuilt** **`volumio-evo`** from **`layer/binaries/<arch-triple>/`** when that file exists and matches **`uname -m`** — no **rustup/cargo** on the device. Pass **`--build`** (or set **`EVO_BUILD_FROM_SOURCE=1`**) to compile the Rust binary on the device (**installs rustup**; slow on a Pi). There is **no** npm/gulp or Volumio2-UI clone on device.
 
 [BUILD_GUIDE.md](BUILD_GUIDE.md) is for cross-compiling or host-side binaries — **not** a substitute for on-device verification with bootstrap.
 
@@ -14,7 +14,7 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-
 
 ## Run bootstrap (only command that matters)
 
-As **root**, run the script (path to the script only matters for finding it; the checkout lives at **`EVO_REPO_DIR`**, default **`/opt/volumio/volumio-evo`**). The script **always tries to clone or git pull** that repo — it does **not** skip cloning just because a binary already exists under **`/usr/local/bin`**.
+As **root**, run the script (path to the script only matters for finding it; the checkout lives at **`EVO_REPO_DIR`**, default **`/opt/volumio/volumio-evo`**). The script **always tries to clone or git pull** that repo — it does **not** skip cloning just because a binary already exists under **`/usr/local/bin`**. The **backend binary** for normal runs comes from **`layer/binaries/<triple>/volumio-evo`** inside that checkout unless you use **`--build`**.
 
 The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`index.html`** in each, **or** set **`UI_DIST_SOURCE`** to a single prebuilt **`dist/`** (see **`--help`**). Air-gapped installs can use **`EVO_ALLOW_BINARY_FALLBACK=1`** (not recommended for a full UI).
 
@@ -32,15 +32,15 @@ Then:
 2. Select a track in the UI
 3. Press Play and confirm audio from the speaker
 
-The script installs packages, builds the backend (Rust), installs UI assets, configures MPD/systemd/nginx, and serves the web app on port **80**. **`GET /api/host`** is proxied to Evo so the UI gets a current Socket.IO base URL when the IP changes.
+The script installs packages, installs the backend (prebuilt binary by default, or **`cargo`** build with **`--build`**), installs UI assets, configures MPD/systemd/nginx, and serves the web app on port **80**. Evo listens on **`3000`**; **`GET /api/host`** is proxied by nginx so the UI gets a current Socket.IO base URL when the IP changes (the Socket.IO client still connects to **`http://<ip>:3000`** per that response; nginx does not proxy **`/socket.io`** by default — see [PORTING.md](PORTING.md)).
 
 ---
 
 ## What you need
 
-1. **Network** on the device (for git and rustup/cargo crates unless you use fully offline mirrors and disable pulls).
+1. **Network** on the device (for **`git clone`** / **`git pull`** of the repo). **rustup/cargo** are only needed if you pass **`--build`** (or otherwise force on-device compile).
 2. **Root** (`sudo`).
-3. **Optional:** `EVO_BINARY_PATH` if you are not building from source — normally the script builds from the cloned repo.
+3. **Checkout** must contain **`layer/binaries/<triple>/volumio-evo`** for your architecture when **not** using **`--build`** (see [BUILD_GUIDE.md](BUILD_GUIDE.md) and **`layer/binaries/README.md`**). If git is unavailable, **`EVO_ALLOW_BINARY_FALLBACK=1`** and a pre-placed **`EVO_BINARY_PATH`** are documented in the script **`--help`** (limited; not a full UI install).
 
 You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or **`UI_DIST_SOURCE`**) and nginx serves it.
 
@@ -75,7 +75,7 @@ You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or
   Music lives under `/var/lib/volumio-evo/music/` with subfolders **INTERNAL**, **USB**, **NAS**, **SMB** — put files in one of them, then `sudo systemctl restart mpd` and optionally `sudo systemctl restart volumio-evo`.
 
 - **Backend fails to start**  
-  `journalctl -u volumio-evo -n 50 --no-pager` — send the last lines to the developer.
+  `journalctl -u volumio-evo -n 100 --no-pager` — send the last lines to the developer. Filter to Evo-formatted lines: `journalctl -u volumio-evo -n 200 --no-pager | grep -F '[EVO]'` (see [OBSERVABILITY.md](OBSERVABILITY.md)).
 
 - **Git / Rust / missing UI**  
   Do not “fix” by running random `git pull` or `cargo` yourself and declaring success. Capture the **full bootstrap log** and the script version (commit) from the **`volumio-evo`** checkout the script used. Ensure **`layer/web`** is populated or set **`UI_DIST_SOURCE`**.

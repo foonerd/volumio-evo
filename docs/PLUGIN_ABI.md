@@ -2,6 +2,8 @@
 
 Contract between the host (Rust core) and guest (WASM plugin).
 
+**Feature flag:** The WASM plugin host is built only when the **`wasm`** crate feature is enabled (default on **aarch64** / **x86_64**). **armv7** / **armhf** release builds use **`--no-default-features`**, so there is **no** plugin loader — ABI applies when that feature is on. See [BUILD_GUIDE.md](BUILD_GUIDE.md).
+
 ## Guest exports (plugin implements)
 
 | Name                | Signature   | Description                    |

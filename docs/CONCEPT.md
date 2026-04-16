@@ -29,3 +29,8 @@
 ## 5. One-line summary
 
 **Stock minimal OS + Volumio layer (Rust + WASM backend, existing UI); no debootstrap, no Node; plugins as sandboxed WASM.**
+
+## 6. Operations
+
+- **Logs:** [OBSERVABILITY.md](OBSERVABILITY.md) — journald, `[EVO]` prefix, grep patterns.
+- **Shipped binaries:** [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`** — refresh prebuilts for bootstrap.

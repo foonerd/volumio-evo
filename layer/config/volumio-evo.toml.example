@@ -4,6 +4,7 @@
 #
 # Logging: error | warn | info | verbose | debug | trace
 # Default filter when RUST_LOG is unset. Override: RUST_LOG (full directive) or VOLUMIO_EVO_LOG_LEVEL.
+# Journal: every line starts with "[EVO] "; see docs/OBSERVABILITY.md
 log_level = "info"
 
 bind = "0.0.0.0:3000"

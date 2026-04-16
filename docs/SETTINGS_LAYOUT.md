@@ -30,6 +30,10 @@ Full default paths (when no env override):
 
 Generated system config that Evo writes but does not treat as the source of truth (e.g. `/etc/volumio-evo/mpd.conf` fragment) is documented with the feature; it is not stored under `settings/`.
 
+## Logging (not under `settings/`)
+
+Log level and **`journalctl`** filtering are documented in **[OBSERVABILITY.md](OBSERVABILITY.md)** (`RUST_LOG`, **`[EVO]`** prefix, domain tags). They do not use paths under **`settings/`**.
+
 ## Environment overrides
 
 | Variable | Effect |

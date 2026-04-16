@@ -16,6 +16,11 @@ Rust **release** builds checked in for offline / fast bootstrap. Layout matches 
 ( cd "$(dirname "$0")" && sha256sum -c SHA256SUMS )
 ```
 
-**Refreshing:** Rebuild per [docs/BUILD_GUIDE.md](../../docs/BUILD_GUIDE.md), copy `target/<triple>/release/volumio-evo` here, update `SHA256SUMS`.
+**Refreshing:** Rebuild per [docs/BUILD_GUIDE.md](../../docs/BUILD_GUIDE.md), copy `target/<triple>/release/volumio-evo` to **`layer/binaries/<triple>/volumio-evo`**, then regenerate **`SHA256SUMS`**:
 
-Bootstrap prefers **`layer/binaries/<triple>/volumio-evo`** when it matches **`uname -m`** (see `EVO_USE_LAYER_BINARY` in `scripts/bootstrap-volumio-evo-player.sh`).
+```bash
+cd layer/binaries
+sha256sum aarch64-unknown-linux-gnu/volumio-evo armv7-unknown-linux-gnueabihf/volumio-evo x86_64-unknown-linux-gnu/volumio-evo > SHA256SUMS
+```
+
+**Bootstrap:** When the repo is available and **`--build`** is not used, `scripts/bootstrap-volumio-evo-player.sh` maps **`uname -m`** to a Rust triple (`host_rust_triple`) and installs **`layer/binaries/${triple}/volumio-evo`** if that file is executable; otherwise it errors unless you pass **`--build`**.

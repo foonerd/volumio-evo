@@ -13,17 +13,21 @@ See [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md)
 
 - **Persisted settings on disk:** [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) — namespace under `/var/lib/volumio-evo/settings/` (`alsa/`, `mpd/`, future `network/`, `mounts/`, …), env overrides, secrets guidance.
 
-- **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — step-by-step from a plain OS (Raspberry Pi OS, Debian Trixie, Ubuntu 24.04) to a working setup and validation (no source needed; use a pre-built binary).
-- **One-command full player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — installs dependencies, clones/builds Evo + UI, configures services, and exposes a tester-ready player on port 80.
-- **Build the binary:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — build `volumio-evo` for each architecture (native, arm64, amd64, armhf) so you can provide it to testers.
+- **Logs and journald:** [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) — `[EVO]` line prefix, domain tags (`EVO VOLUME -->`, …), `RUST_LOG` / config precedence, `journalctl` examples.
+
+- **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — step-by-step from a plain OS (Raspberry Pi OS, Debian Trixie, Ubuntu 24.04) to a working setup and validation. By default the bootstrap script installs the **prebuilt** binary from **`layer/binaries/<triple>/`** when the repo checkout is present; use **`--build`** to compile on the device instead.
+- **One-command full player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — installs dependencies, clones or updates the repo, installs the backend (prebuilt from **`layer/binaries/`** by default, or **`cargo`** with **`--build`**), copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and serves the UI on port **80** (Evo API on **3000**).
+- **Build the binary:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — build `volumio-evo` for each architecture (native, arm64, amd64, armhf) and optionally refresh **`layer/binaries/`** for shipping.
 
 ## Build
 
+From the repo root (workspace):
+
 ```bash
-cargo build --release
+cargo build --release -p volumio-evo-core
 ```
 
-Binary: `target/release/volumio-evo`.
+**Binary:** `target/release/volumio-evo`. Using **`-p volumio-evo-core`** builds only the main binary; plain **`cargo build --release`** builds all workspace members (including the example WASM plugin crate).
 
 ### Cross-compile (arm64 / amd64 / armhf)
 
@@ -39,13 +43,13 @@ Use [cross](https://github.com/cross-rs/cross) or the [CI workflow](.github/work
 
 ```bash
 # arm64 (Pi OS 64-bit, Debian arm64)
-cross build --release --target aarch64-unknown-linux-gnu
+cross build --release -p volumio-evo-core --target aarch64-unknown-linux-gnu
 
 # amd64 (Debian x86_64; native on x86_64 host)
-cross build --release --target x86_64-unknown-linux-gnu
+cross build --release -p volumio-evo-core --target x86_64-unknown-linux-gnu
 
 # armhf (32-bit Pi OS): core only, no WASM (wasmtime doesn't build for 32-bit ARM)
-cross build --release --target armv7-unknown-linux-gnueabihf -p volumio-evo-core --no-default-features
+cross build --release -p volumio-evo-core --target armv7-unknown-linux-gnueabihf --no-default-features
 ```
 
 On armhf the core runs without the WASM plugin layer. For full plugin support use arm64 (e.g. Pi Zero 2 W with 64-bit Pi OS).
@@ -69,6 +73,20 @@ Browse root `GET /api/v1/browse?uri=music-library` returns these four sources wi
 ## Layer
 
 Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [layer/README.md](layer/README.md).
+
+## More documentation
+
+| Document | Topic |
+|----------|--------|
+| [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) | On-device bootstrap (canonical test) |
+| [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) | Cross-compilation, `layer/binaries/` |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | `journalctl`, `[EVO]` prefix, `RUST_LOG` |
+| [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) | Paths under `/var/lib/volumio-evo/settings/` |
+| [docs/PORTING.md](docs/PORTING.md) | volumio3-backend inventory vs Evo |
+| [docs/UI_GAP.md](docs/UI_GAP.md) | Optional Volumio2-UI adjustments |
+| [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md) | WASM plugin contract |
+| [docs/PRIORITY_ALSA_AAMPP.md](docs/PRIORITY_ALSA_AAMPP.md) | ALSA/AAMPP plugin pipeline (not done) |
+| [docs/ALBUMART_PROVIDERS.md](docs/ALBUMART_PROVIDERS.md) | Online album-art providers |
 
 ## License
 
