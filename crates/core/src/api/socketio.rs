@@ -1222,8 +1222,10 @@ async fn remove_from_queue(
     }
 }
 
-/// Stock Volumio drives volume with **ALSA `amixer`** (`volumecontrol.js`); Evo matches that, then
-/// **MPD `setvol`** so `getState` / `pushState` stay aligned when MPD accepts the command.
+/// Stock Volumio drives volume with **ALSA `amixer`** (`volumecontrol.js`). Evo matches that, then
+/// **MPD `setvol`** when MPD uses **software** volume so `status.volume` and `pushState` stay aligned.
+/// If MPD is configured with a **hardware** mixer on the same ALSA control, **`setvol` is omitted**
+/// (same as Node — duplicate control would overwrite the level Evo just set, often to 0).
 async fn apply_volume_to_system(state: &AppState, v: u8) {
     let pb = state.playback.read().await.clone();
     if pb.mixer_type == "None" {
@@ -1258,7 +1260,17 @@ async fn apply_volume_to_system(state: &AppState, v: u8) {
         }
     }
 
+    let skip_mpd = pb.mixer_type == "Hardware" && pb.mpd_shares_alsa_hardware_mixer(&alsa);
     let config = mpd_config(state);
+    if skip_mpd {
+        tracing::info!(
+            "{} volume applied (ALSA only; MPD shares hardware mixer — skip setvol) vol={}",
+            crate::log_tags::EVO_VOLUME,
+            v
+        );
+        return;
+    }
+
     match mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await {
         Ok(()) => {
             tracing::info!(

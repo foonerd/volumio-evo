@@ -333,6 +333,15 @@ impl PlaybackOptions {
 
     /// Node `createMPDFile`: `mixer_device` / `mixer_control` / `mixer_type "hardware"` only when
     /// `mixer.length > 0 && mpdvolume`. Otherwise `${mixer}` is empty — no implicit PCM default.
+    ///
+    /// When this is true, MPD's **`setvol`** drives the **same** ALSA Playback control as Evo's
+    /// Hardware mixer path (`amixer`). Calling both back-to-back makes MPD fight the level Evo just
+    /// set (often resetting to 0). Stock Volumio applies Hardware volume via **ALSA only**
+    /// (`volumecontrol.js`); Evo skips redundant `setvol` in that configuration.
+    pub fn mpd_shares_alsa_hardware_mixer(&self, alsa: &AlsaSettings) -> bool {
+        self.mpd_use_hardware_mixer_block(alsa).is_some()
+    }
+
     fn mpd_use_hardware_mixer_block(&self, alsa: &AlsaSettings) -> Option<(String, String)> {
         if self.mixer_type != "Hardware" || !self.mpdvolume {
             if self.mixer_type == "Hardware" && !self.mpdvolume {

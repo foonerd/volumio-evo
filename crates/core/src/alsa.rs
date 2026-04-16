@@ -638,12 +638,14 @@ pub fn get_system_volume_percent(
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
     let re = amixer_playback_percent_re();
+    // Use the **maximum** across all `Playback … [n%]` lines. Some cards list a channel at 0% or
+    // ordering differs; taking only the first match made pushState report 0 while another channel
+    // held the real level (UI flicker on Hardware mixer).
     let mut best: Option<u8> = None;
     for cap in re.captures_iter(&stdout) {
         if let Ok(n) = cap[1].parse::<u32>() {
             let v = (n.min(100)) as u8;
-            best = Some(v);
-            break;
+            best = Some(best.map_or(v, |b| b.max(v)));
         }
     }
     best
@@ -1161,6 +1163,23 @@ Simple mixer control 'DAC',0
         let re = amixer_playback_percent_re();
         let cap = re.captures(sample).expect("playback line");
         assert_eq!(cap.get(1).unwrap().as_str(), "85");
+    }
+
+    #[test]
+    fn amixer_get_max_playback_percent_across_channels() {
+        let sample = "\
+Simple mixer control 'PCM',0
+  Front Left: Playback 0 [0%] [off]
+  Front Right: Playback 200 [78%] [-8.00dB]
+";
+        let re = amixer_playback_percent_re();
+        let max_pct: u8 = re
+            .captures_iter(sample)
+            .filter_map(|c| c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()))
+            .map(|n| (n.min(100)) as u8)
+            .max()
+            .expect("at least one percent");
+        assert_eq!(max_pct, 78);
     }
 
     #[test]

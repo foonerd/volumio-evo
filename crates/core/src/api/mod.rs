@@ -178,7 +178,7 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
             {
                 Ok(Ok(())) => tracing::info!(
                     vol = v,
-                    "{} startup volume (Hardware): sibling faders unity, primary to volumestart, then MPD setvol",
+                    "{} startup volume (Hardware): ALSA apply (sibling faders unity, primary to volumestart)",
                     crate::log_tags::EVO_VOLUME
                 ),
                 Ok(Err(e)) => tracing::warn!(
@@ -207,6 +207,15 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
                 crate::log_tags::EVO_VOLUME
             );
         }
+    }
+
+    if pb.mixer_type == "Hardware" && pb.mpd_shares_alsa_hardware_mixer(&alsa) {
+        tracing::info!(
+            vol,
+            "{} applied default startup volume (ALSA only; MPD shares hardware mixer — skip setvol)",
+            crate::log_tags::EVO_VOLUME
+        );
+        return;
     }
 
     let mpd = MpdConfig {
