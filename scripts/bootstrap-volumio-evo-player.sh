@@ -4,7 +4,9 @@ set -euo pipefail
 # CANONICAL FULL-STACK INSTALL (on device): this script only.
 # Re-run this script; by default it installs the prebuilt backend from layer/binaries/<triple>/
 # (no rustup). Pass --build or EVO_BUILD_FROM_SOURCE=1 to compile on device (rustup + cargo).
-# Copies static UI from layer/web/, configures MPD/systemd/nginx. Installs ALSA JSON under
+# Copies static UI from layer/web/, configures MPD/systemd/nginx. MPD: sets music_directory,
+# idempotently appends include_optional for EVO_MPD_FRAGMENT (default /etc/volumio-evo/mpd.conf).
+# Installs ALSA JSON under
 # /usr/share/volumio-evo/alsa/ (dacs.json, cards.json). Set EVO_REPO_UPDATE=0 only
 # for offline or pinned checkouts.
 #
@@ -49,6 +51,8 @@ UI_DIST_SOURCE="${UI_DIST_SOURCE:-}"
 # Set when UI trees installed (all three roots need nginx ACLs).
 EVO_UI_INSTALLED_ALL_LAYOUTS=0
 MUSIC_ROOT="${MUSIC_ROOT:-/var/lib/volumio-evo/music}"
+# Evo-owned MPD fragment; main /etc/mpd.conf must include this (bootstrap adds include_optional if missing).
+EVO_MPD_FRAGMENT="${EVO_MPD_FRAGMENT:-/etc/volumio-evo/mpd.conf}"
 EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 # 1: compile on device with cargo (slow). Default 0: install from layer/binaries/<triple>/ only.
 EVO_BUILD_FROM_SOURCE="${EVO_BUILD_FROM_SOURCE:-0}"
@@ -94,6 +98,7 @@ Environment (common):
   UI_ROOT_CONTEMPORARY=/srv/volumio-ui
   UI_ROOT_CLASSIC=/srv/volumio-ui-classic
   MUSIC_ROOT=/var/lib/volumio-evo/music
+  EVO_MPD_FRAGMENT=/etc/volumio-evo/mpd.conf   # Evo-owned MPD snippet; bootstrap ensures include_optional in /etc/mpd.conf
   EVO_BINARY_PATH=/usr/local/bin/volumio-evo
   EVO_BUILD_FROM_SOURCE=0   # or 1 to force cargo like --build
 
@@ -349,12 +354,78 @@ clone_or_update_repo() {
   fi
 }
 
+# True if /etc/mpd.conf already references EVO_MPD_FRAGMENT on an include / include_optional line (non-comment).
+mpd_main_config_includes_evo_fragment() {
+  local main="${1:-/etc/mpd.conf}"
+  [[ -f "${main}" ]] || return 1
+  local rel="${EVO_MPD_FRAGMENT#/etc/}"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+    [[ "${line}" != *"${EVO_MPD_FRAGMENT}"* && "${line}" != *"${rel}"* ]] && continue
+    [[ "${line}" =~ ^[[:space:]]*include(_optional)?[[:space:]] ]] && return 0
+  done < "${main}"
+  return 1
+}
+
+# Ensure stock /etc/mpd.conf loads EVO_MPD_FRAGMENT (idempotent). Does not remove other includes (e.g. mpd_local.conf).
+ensure_mpd_conf_includes_evo_fragment() {
+  local main="/etc/mpd.conf"
+  [[ -f "${main}" ]] || {
+    echo "WARN: ${main} missing; install mpd or create config before relying on playback."
+    return 0
+  }
+  if mpd_main_config_includes_evo_fragment "${main}"; then
+    echo "MPD: ${main} already includes ${EVO_MPD_FRAGMENT}"
+    return 0
+  fi
+  cat >> "${main}" <<EOF
+
+# volumio-evo: playback output fragment (bootstrap + backend). Edit ${EVO_MPD_FRAGMENT}, not this line.
+include_optional "${EVO_MPD_FRAGMENT}"
+EOF
+  echo "MPD: appended include_optional \"${EVO_MPD_FRAGMENT}\" to ${main}"
+}
+
+# Seed a minimal fragment once so include_optional succeeds before Evo writes ALSA/MPD pipeline on save.
+ensure_default_evo_mpd_fragment() {
+  mkdir -p "$(dirname "${EVO_MPD_FRAGMENT}")"
+  if [[ -f "${EVO_MPD_FRAGMENT}" ]]; then
+    echo "MPD: keeping existing ${EVO_MPD_FRAGMENT}"
+    return 0
+  fi
+  cat > "${EVO_MPD_FRAGMENT}" <<'EOF'
+# Managed by volumio-evo (bootstrap default; Evo may replace on Playback Options save).
+# If you also define audio_output in /etc/mpd_local.conf, remove one copy to avoid duplicate MPD outputs.
+
+audio_output {
+	type		"alsa"
+	name		"volumio-evo"
+	device		"default"
+	mixer_type	"software"
+}
+EOF
+  chmod 0644 "${EVO_MPD_FRAGMENT}"
+  echo "MPD: wrote default ${EVO_MPD_FRAGMENT}"
+}
+
 configure_mpd() {
   mkdir -p "${MUSIC_ROOT}"/{INTERNAL,USB,NAS,SMB}
-  if grep -q '^[[:space:]]*music_directory' /etc/mpd.conf; then
-    sed -i 's|^[[:space:]]*music_directory.*|music_directory "'"${MUSIC_ROOT}"'"|' /etc/mpd.conf
+  if [[ -f /etc/mpd.conf ]]; then
+    # Stock Debian/Raspberry Pi OS often ships only #music_directory (commented). Replace in place; avoid a duplicate at EOF.
+    if grep -qE '^[[:space:]]*music_directory[[:space:]]' /etc/mpd.conf; then
+      sed -i 's|^[[:space:]]*music_directory.*|music_directory "'"${MUSIC_ROOT}"'"|' /etc/mpd.conf
+    elif grep -qE '^[[:space:]]*#[[:space:]]*music_directory[[:space:]]' /etc/mpd.conf; then
+      sed -i 's|^[[:space:]]*#[[:space:]]*music_directory.*|music_directory "'"${MUSIC_ROOT}"'"|' /etc/mpd.conf
+    else
+      echo 'music_directory "'"${MUSIC_ROOT}"'"' >> /etc/mpd.conf
+    fi
   else
-    echo 'music_directory "'"${MUSIC_ROOT}"'"' >> /etc/mpd.conf
+    echo "WARN: /etc/mpd.conf not found; skipping music_directory and MPD include (install mpd first)."
+  fi
+  ensure_mpd_conf_includes_evo_fragment
+  ensure_default_evo_mpd_fragment
+  if [[ -f /etc/mpd_local.conf ]] && grep -E -q '^[[:space:]]*audio_output' /etc/mpd_local.conf 2>/dev/null; then
+    echo "WARN: /etc/mpd_local.conf defines audio_output; Evo uses ${EVO_MPD_FRAGMENT}. Remove duplicate audio_output from mpd_local.conf to avoid two ALSA outputs."
   fi
   systemctl enable mpd >/dev/null 2>&1 || true
   systemctl restart mpd
