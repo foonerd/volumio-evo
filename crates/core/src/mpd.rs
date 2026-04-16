@@ -1213,17 +1213,28 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
 /// flat `list Album` (no per-album artist; synthetic Various Artists art only).
 async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
     let mut pairs = list_albums_via_search_album_empty(config).await.unwrap_or_else(|e| {
-        tracing::warn!("albums browse: search album \"\" failed: {}", e);
+        tracing::warn!("{} albums browse: search album \"\" failed: {}", crate::log_tags::EVO_BROWSE, e);
         Vec::new()
     });
     if pairs.is_empty() {
         match list_album_artist_pairs_via_list_group(config).await {
             Ok(p) if !p.is_empty() => {
-                tracing::info!("albums browse: using list album group fallback ({} rows)", p.len());
+                tracing::info!(
+                    "{} albums browse: using list album group fallback ({} rows)",
+                    crate::log_tags::EVO_BROWSE,
+                    p.len()
+                );
                 pairs = p;
             }
-            Ok(_) => tracing::warn!("albums browse: list album group returned empty; trying flat Album list"),
-            Err(e) => tracing::warn!("albums browse: list album group failed: {}", e),
+            Ok(_) => tracing::warn!(
+                "{} albums browse: list album group returned empty; trying flat Album list",
+                crate::log_tags::EVO_BROWSE
+            ),
+            Err(e) => tracing::warn!(
+                "{} albums browse: list album group failed: {}",
+                crate::log_tags::EVO_BROWSE,
+                e
+            ),
         }
     }
     let items: Vec<BrowseItem> = if !pairs.is_empty() {

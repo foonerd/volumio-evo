@@ -237,7 +237,8 @@ pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
 
     write_boot_config(&txt)?;
     tracing::info!(
-        "I2S dtoverlay written to {} (reboot usually required)",
+        "{} I2S dtoverlay written to {} (reboot usually required)",
+        crate::log_tags::EVO_I2S,
         resolved_boot_config_path()
     );
     Ok(())
@@ -249,7 +250,11 @@ pub fn disable_i2s_overlay() -> Result<()> {
     let new_txt = strip_volumio_i2s_block(&txt);
     if new_txt != txt {
         write_boot_config(&new_txt)?;
-        tracing::info!("I2S dtoverlay removed from {}", resolved_boot_config_path());
+        tracing::info!(
+            "{} I2S dtoverlay removed from {}",
+            crate::log_tags::EVO_I2S,
+            resolved_boot_config_path()
+        );
     }
     Ok(())
 }

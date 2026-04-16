@@ -548,7 +548,12 @@ fn save_web_cache(
     let album_esc = album.map(sanitize_component).unwrap_or_else(|| "_".to_string());
     let dir = albumart_root.join("web").join(&artist_esc).join(&album_esc);
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::debug!("albumart web cache mkdir {:?}: {}", dir, e);
+        tracing::debug!(
+            "{} albumart web cache mkdir {:?}: {}",
+            crate::log_tags::EVO_ALBUMART,
+            dir,
+            e
+        );
         return None;
     }
     let ext = "jpeg";
@@ -606,7 +611,12 @@ pub fn extract_metadata_to_cache(
     let rel = folder.strip_prefix(music_root).ok()?;
     let meta_path = albumart_root.join("metadata").join(rel).join("metadata.jpeg");
     if let Err(e) = std::fs::create_dir_all(meta_path.parent()?) {
-        tracing::debug!("albumart metadata mkdir {:?}: {}", meta_path.parent(), e);
+        tracing::debug!(
+            "{} albumart metadata mkdir {:?}: {}",
+            crate::log_tags::EVO_ALBUMART,
+            meta_path.parent(),
+            e
+        );
         return None;
     }
     let extract = Command::new(exiftool_path)

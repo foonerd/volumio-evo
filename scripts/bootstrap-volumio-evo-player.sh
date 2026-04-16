@@ -201,6 +201,18 @@ EOF
   fi
 }
 
+# Evo default when RUST_LOG is unset; older installs lack this key.
+ensure_config_has_log_level() {
+  local cfg="/etc/volumio-evo/config.toml"
+  [[ -f "${cfg}" ]] || return 0
+  grep -qE '^[[:space:]]*log_level[[:space:]]*=' "${cfg}" && return 0
+  if grep -qE '^[[:space:]]*bind[[:space:]]*=' "${cfg}"; then
+    sed -i '/^[[:space:]]*bind[[:space:]]*=/i log_level = "info"' "${cfg}"
+  else
+    sed -i '1i log_level = "info"' "${cfg}"
+  fi
+}
+
 layer_web_trees_complete() {
   local repo="$1"
   local lw="${repo}/layer/web"
@@ -633,6 +645,7 @@ build_and_install_evo() {
     fi
   elif [[ ! -f /etc/volumio-evo/config.toml ]]; then
     cat > /etc/volumio-evo/config.toml <<EOF
+log_level = "info"
 bind = "0.0.0.0:3000"
 plugin_dir = "/usr/share/volumio-evo/plugins"
 mpd_host = "127.0.0.1"
@@ -645,6 +658,7 @@ EOF
   fi
 
   ensure_config_has_ui_section
+  ensure_config_has_log_level
 
   if grep -q '^[[:space:]]*music_root' /etc/volumio-evo/config.toml; then
     sed -i 's|^[[:space:]]*music_root.*|music_root = "'"${MUSIC_ROOT}"'"|' /etc/volumio-evo/config.toml
@@ -846,6 +860,7 @@ main() {
 
   if [[ "${BOOTSTRAP_MODE}" == "upgrade-nginx" ]]; then
     need_root
+    ensure_config_has_log_level
     install_dacs_catalog
     install_alsa_cards_json
     apply_ui_dist_dir_from_config

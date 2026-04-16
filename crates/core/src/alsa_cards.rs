@@ -84,7 +84,11 @@ impl AlsaCardCatalog {
         match Self::load() {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("ALSA cards.json catalog unavailable (playback names may be raw): {}", e);
+                tracing::warn!(
+                    "{} ALSA cards.json catalog unavailable (playback names may be raw): {}",
+                    crate::log_tags::EVO_ALSA,
+                    e
+                );
                 Self {
                     by_name: HashMap::new(),
                 }

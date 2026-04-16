@@ -84,7 +84,8 @@ pub async fn metavolumio_response(config: &Config, body: &PluginEndpointBody) ->
                 tracing::warn!(
                     artist_empty = artist.is_empty(),
                     album_empty = album.is_empty(),
-                    "metavolumio storyAlbum: missing artist or album in request body"
+                    "{} metavolumio storyAlbum: missing artist or album in request body",
+                    crate::log_tags::EVO_META
                 );
                 None
             } else {
@@ -113,7 +114,7 @@ pub async fn metavolumio_response(config: &Config, body: &PluginEndpointBody) ->
         }
         _ => {
             if !mode_raw.is_empty() {
-                tracing::warn!(%mode_raw, "metavolumio: unknown mode");
+                tracing::warn!(%mode_raw, "{} metavolumio: unknown mode", crate::log_tags::EVO_META);
             }
             None
         }
@@ -135,7 +136,8 @@ pub async fn metavolumio_response(config: &Config, body: &PluginEndpointBody) ->
             artist = ?body.data.artist,
             album = ?body.data.album,
             has_mbid = body.data.mbid.is_some(),
-            "metavolumio: no text — set VOLUMIO_EVO_LASTFM_API_KEY for best results; device needs HTTPS to Last.fm, MusicBrainz, and Wikipedia"
+            "{} metavolumio: no text — set VOLUMIO_EVO_LASTFM_API_KEY for best results; device needs HTTPS to Last.fm, MusicBrainz, and Wikipedia",
+            crate::log_tags::EVO_META
         );
     }
     out
@@ -710,7 +712,7 @@ async fn wikipedia_summary_by_title(client: &reqwest::Client, title: &str) -> Op
         .await
         .ok()?;
     if !sum.status().is_success() {
-        tracing::debug!(status = %sum.status(), "wikipedia summary by title HTTP error");
+        tracing::debug!(status = %sum.status(), "{} wikipedia summary by title HTTP error", crate::log_tags::EVO_META);
         return None;
     }
     let v: Value = sum.json().await.ok()?;

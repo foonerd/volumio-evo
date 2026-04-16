@@ -181,7 +181,8 @@ impl PlaybackOptions {
         if controls.is_empty() {
             tracing::warn!(
                 card = %alsa.output_device_id,
-                "Hardware mixer requested but this card exposes no ALSA Playback controls; switching mixer_type to Software (see Node getMixerControls)"
+                "{} Hardware mixer requested but this card exposes no ALSA Playback controls; switching mixer_type to Software (see Node getMixerControls)",
+                crate::log_tags::EVO_PLAYBACK
             );
             self.mixer_type = "Software".to_string();
             self.mixer.clear();
@@ -192,7 +193,8 @@ impl PlaybackOptions {
                 card = %alsa.output_device_id,
                 requested = %trimmed,
                 available = ?controls,
-                "Hardware mixer control name not found on card; switching mixer_type to Software"
+                "{} Hardware mixer control name not found on card; switching mixer_type to Software",
+                crate::log_tags::EVO_PLAYBACK
             );
             self.mixer_type = "Software".to_string();
             self.mixer.clear();
@@ -335,7 +337,8 @@ impl PlaybackOptions {
         if self.mixer_type != "Hardware" || !self.mpdvolume {
             if self.mixer_type == "Hardware" && !self.mpdvolume {
                 tracing::info!(
-                    "mixer_type Hardware but mpdvolume disabled: omitting hardware mixer block (matches Node createMPDFile)"
+                    "{} mixer_type Hardware but mpdvolume disabled: omitting hardware mixer block (matches Node createMPDFile)",
+                    crate::log_tags::EVO_PLAYBACK
                 );
             }
             return None;
@@ -343,7 +346,8 @@ impl PlaybackOptions {
         let control = self.mixer.trim();
         if control.is_empty() {
             tracing::warn!(
-                "mixer_type Hardware with mpdvolume but no mixer_control set; using MPD software volume"
+                "{} mixer_type Hardware with mpdvolume but no mixer_control set; using MPD software volume",
+                crate::log_tags::EVO_PLAYBACK
             );
             return None;
         }
@@ -353,7 +357,8 @@ impl PlaybackOptions {
                 card = %alsa.output_device_id,
                 control = %control,
                 available = ?available,
-                "hardware mixer_control not present on card; using MPD software volume (avoids default PCM lookup)"
+                "{} hardware mixer_control not present on card; using MPD software volume (avoids default PCM lookup)",
+                crate::log_tags::EVO_PLAYBACK
             );
             return None;
         }
@@ -426,8 +431,8 @@ audio_buffer_size		"{buf}"
             globals.push_str(&format!("\t\tmixer_control\t\"{mixer_ctl}\"\n"));
             globals.push_str("\t\tmixer_type\t\"hardware\"\n");
         } else if let Some(t) = mixer_type_single {
-            let ctl = crate::alsa::mpd_alsa_ctl_mixer_device(alsa);
-            globals.push_str(&format!("\t\tmixer_device\t\"{ctl}\"\n"));
+            // `mixer_device` / `mixer_control` are only for MPD’s **hardware** ALSA mixer plugin.
+            // With `mixer_type` `software` or `none`, MPD 0.24+ rejects `mixer_device` ("not recognized").
             globals.push_str(&format!("\t\tmixer_type\t\"{t}\"\n"));
         }
         if !fmt.is_empty() {

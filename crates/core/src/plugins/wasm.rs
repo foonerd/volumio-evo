@@ -73,7 +73,7 @@ pub fn load_plugin(path: &Path) -> Result<PluginHandle> {
 
     let mut linker = Linker::new(&engine);
     linker.func_wrap("env", "log", |_caller: Caller<'_, ()>, _ptr: i32, _len: i32| {
-        tracing::debug!("plugin log (stub)");
+        tracing::debug!("{} plugin log (stub)", crate::log_tags::EVO_PLUGIN);
     })?;
 
     let instance = linker.instantiate(&mut store, &module)?;
@@ -89,11 +89,17 @@ pub fn load_plugin(path: &Path) -> Result<PluginHandle> {
             tracing::debug!(
                 fragments = c.fragments.len(),
                 path = %path.display(),
-                "WASM plugin ALSA contribution"
+                "{} WASM plugin ALSA contribution",
+                crate::log_tags::EVO_PLUGIN
             );
         }
         Ok(None) => {}
-        Err(e) => tracing::warn!(error = %e, path = %path.display(), "WASM plugin ALSA probe failed"),
+        Err(e) => tracing::warn!(
+            error = %e,
+            path = %path.display(),
+            "{} WASM plugin ALSA probe failed",
+            crate::log_tags::EVO_PLUGIN
+        ),
     }
 
     Ok(PluginHandle {

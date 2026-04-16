@@ -152,7 +152,7 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
             s.emit("pushState", &payload).ok();
         }
         Err(e) => {
-            tracing::warn!("getState MPD error: {}", e);
+            tracing::warn!("{} getState MPD error: {}", crate::log_tags::EVO_STATE, e);
         }
     }
 }
@@ -165,7 +165,7 @@ async fn get_queue(s: SocketRef, State(state): State<AppState>) {
             s.emit("pushQueue", &payload).ok();
         }
         Err(e) => {
-            tracing::warn!("getQueue MPD error: {}", e);
+            tracing::warn!("{} getQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
         }
     }
 }
@@ -192,7 +192,7 @@ async fn search(
     let config = mpd_config(&state);
     match mpd::search_connected(&config, &state.config.music_sources.music_root, query).await {
         Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
-        Err(e) => tracing::warn!("search MPD error: {}", e),
+        Err(e) => tracing::warn!("{} search MPD error: {}", crate::log_tags::EVO_SEARCH, e),
     }
 }
 
@@ -211,7 +211,7 @@ async fn get_my_collection_stats(s: SocketRef, State(state): State<AppState>) {
         Ok(stats) => {
             s.emit("pushMyCollectionStats", &stats).ok();
         }
-        Err(e) => tracing::warn!("getMyCollectionStats MPD error: {}", e),
+        Err(e) => tracing::warn!("{} getMyCollectionStats MPD error: {}", crate::log_tags::EVO_DB, e),
     }
 }
 
@@ -224,7 +224,7 @@ async fn remove_queue_item(
     let pos = payload.value.saturating_sub(1);
     let config = mpd_config(&state);
     if let Err(e) = mpd::remove_from_queue_connected(&config, pos).await {
-        tracing::warn!("removeQueueItem MPD error: {}", e);
+        tracing::warn!("{} removeQueueItem MPD error: {}", crate::log_tags::EVO_QUEUE, e);
     }
 }
 
@@ -245,7 +245,7 @@ async fn add_queue_uids(
     }
     let config = mpd_config(&state);
     if let Err(e) = mpd::add_multiple_to_queue_connected(&config, &uris).await {
-        tracing::warn!("addQueueUids MPD error: {}", e);
+        tracing::warn!("{} addQueueUids MPD error: {}", crate::log_tags::EVO_QUEUE, e);
     }
 }
 
@@ -270,14 +270,14 @@ const SKIP_SECONDS: u64 = 10;
 async fn skip_backwards(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     if let Err(e) = mpd::skip_backwards_connected(&config, SKIP_SECONDS).await {
-        tracing::warn!("skipBackwards MPD error: {}", e);
+        tracing::warn!("{} skipBackwards MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
 async fn skip_forward(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     if let Err(e) = mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
-        tracing::warn!("skipForward MPD error: {}", e);
+        tracing::warn!("{} skipForward MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -436,7 +436,7 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
                 s.emit("pushUiConfig", &v).ok();
             }
             Err(e) => {
-                tracing::warn!("getUiConfig playback options: {}", e);
+                tracing::warn!("{} getUiConfig playback options: {}", crate::log_tags::EVO_UI, e);
                 s.emit("pushUiConfig", &empty_ui_config()).ok();
             }
         }
@@ -450,7 +450,7 @@ async fn emit_playback_options_ui(s: &SocketRef, state: &AppState) {
         Ok(v) => {
             s.emit("pushUiConfig", &v).ok();
         }
-        Err(e) => tracing::warn!("refresh Playback Options UI: {}", e),
+        Err(e) => tracing::warn!("{} refresh Playback Options UI: {}", crate::log_tags::EVO_UI, e),
     }
 }
 
@@ -468,14 +468,14 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
     let mut cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
         Ok(Ok(c)) => c,
         Ok(Err(e)) => {
-            tracing::warn!("aplay -l: {}", e);
+            tracing::warn!("{} aplay -l: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![]
         }
         Err(e) => return Err(anyhow::Error::new(e)),
     };
 
     if cards.is_empty() {
-        tracing::info!("no ALSA playback cards; Playback Options shows a placeholder device");
+        tracing::info!("{} no ALSA playback cards; Playback Options shows a placeholder device", crate::log_tags::EVO_OUTPUT);
         cards.push(alsa::AplayCard {
             id: "nodev".to_string(),
             name: "No playback device (is aplay installed?)".to_string(),
@@ -499,7 +499,7 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
     {
         Ok(v) => v,
         Err(e) => {
-            tracing::warn!("mixer probe task: {}", e);
+            tracing::warn!("{} mixer probe task: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![]
         }
     };
@@ -716,14 +716,14 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
     let cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
         Ok(Ok(c)) => c,
         Ok(Err(e)) => {
-            tracing::warn!("getOutputDevices aplay: {}", e);
+            tracing::warn!("{} getOutputDevices aplay: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![alsa::AplayCard {
                 id: "nodev".into(),
                 name: "No playback device".into(),
             }]
         }
         Err(e) => {
-            tracing::warn!("getOutputDevices join: {}", e);
+            tracing::warn!("{} getOutputDevices join: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![alsa::AplayCard {
                 id: "nodev".into(),
                 name: "No playback device".into(),
@@ -764,8 +764,8 @@ async fn set_experience_advanced_settings(_s: SocketRef, TryData(_data): TryData
 async fn set_output_devices(s: SocketRef, State(state): State<AppState>, Data(data): Data<serde_json::Value>) {
     let mut guard = state.alsa.write().await;
     match guard.apply_save_payload(&data) {
-        Ok(()) => tracing::info!("ALSA output saved: {:?}", *guard),
-        Err(e) => tracing::warn!("setOutputDevices: {}", e),
+        Ok(()) => tracing::info!("{} ALSA output saved: {:?}", crate::log_tags::EVO_ALSA, *guard),
+        Err(e) => tracing::warn!("{} setOutputDevices: {}", crate::log_tags::EVO_OUTPUT, e),
     }
     drop(guard);
     get_output_devices(s, State(state.clone())).await;
@@ -879,7 +879,7 @@ async fn browse_library(
                 push_browse_and_store(&s, &state, &resp).await;
             }
             Err(e) => {
-                tracing::warn!("browse playlists MPD error: {}", e);
+                tracing::warn!("{} browse playlists MPD error: {}", crate::log_tags::EVO_BROWSE, e);
                 push_browse_and_store(&s, &state, &mpd::empty_browse_response("music-library")).await;
             }
         }
@@ -928,7 +928,12 @@ async fn browse_library(
                 push_browse_and_store(&s, &state, &resp).await;
             }
             Err(e) => {
-                tracing::warn!("browse playlists/{} MPD error: {}", playlist_name, e);
+                tracing::warn!(
+                    "{} browse playlists/{} MPD error: {}",
+                    crate::log_tags::EVO_BROWSE,
+                    playlist_name,
+                    e
+                );
                 push_browse_and_store(&s, &state, &mpd::empty_browse_response("playlists")).await;
             }
         }
@@ -948,7 +953,7 @@ async fn browse_library(
             push_browse_and_store(&s, &state, &resp).await;
         }
         Err(e) => {
-            tracing::warn!("browse {} MPD error: {}", uri, e);
+            tracing::warn!("{} browse {} MPD error: {}", crate::log_tags::EVO_BROWSE, uri, e);
             push_browse_and_store(&s, &state, &mpd::empty_browse_response(prev_on_error)).await;
         }
     }
@@ -964,7 +969,11 @@ async fn add_to_queue(
     State(state): State<AppState>,
     Data(payload): Data<AddToQueuePayload>,
 ) {
-    tracing::info!("addToQueue received uri={:?}", payload.uri);
+    tracing::info!(
+        "{} addToQueue received uri={:?}",
+        crate::log_tags::EVO_QUEUE,
+        payload.uri
+    );
     if payload.uri.is_empty() {
         return;
     }
@@ -976,7 +985,7 @@ async fn add_to_queue(
     )
     .await
     {
-        tracing::warn!("addToQueue MPD error: {}", e);
+        tracing::warn!("{} addToQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
     }
 }
 
@@ -996,7 +1005,7 @@ async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
     if is_playlist {
         let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
         if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
-            tracing::warn!("replaceAndPlay (playlist) MPD error: {}", e);
+            tracing::warn!("{} replaceAndPlay (playlist) MPD error: {}", crate::log_tags::EVO_PLAY, e);
         }
     } else if let Err(e) = mpd::replace_and_play_resolved(
         &config,
@@ -1005,7 +1014,7 @@ async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
     )
     .await
     {
-        tracing::warn!("replaceAndPlay MPD error: {}", e);
+        tracing::warn!("{} replaceAndPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -1014,7 +1023,7 @@ async fn replace_and_play(
     State(state): State<AppState>,
     Data(payload): Data<ReplaceAndPlayPayload>,
 ) {
-    tracing::info!("replaceAndPlay received uri={:?} title={:?}", payload.uri, payload.title);
+    tracing::info!("{} replaceAndPlay received uri={:?} title={:?}", crate::log_tags::EVO_PLAY, payload.uri, payload.title);
     let uri = payload.uri.trim();
     if uri.is_empty() {
         return;
@@ -1053,7 +1062,7 @@ async fn go_to(
     };
     match mpd::browse_connected(&config, &state.config.music_sources.music_root, &uri).await {
         Ok(resp) => push_browse_and_store(&s, &state, &resp).await,
-        Err(e) => tracing::warn!("goTo {} MPD error: {}", uri, e),
+        Err(e) => tracing::warn!("{} goTo {} MPD error: {}", crate::log_tags::EVO_PLAY, uri, e),
     }
 }
 
@@ -1081,7 +1090,7 @@ async fn replace_and_play_cue(
     let config = mpd_config(&state);
     // Volumio: clear queue then add CUE entry; we have no CUE support -> clear + add uri (no play).
     if let Err(e) = mpd::clear_and_add_connected(&config, uri).await {
-        tracing::warn!("replaceAndPlayCue MPD error: {}", e);
+        tracing::warn!("{} replaceAndPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -1109,7 +1118,7 @@ async fn add_play_cue(
     let config = mpd_config(&state);
     // Volumio: add CUE entry to queue; we have no CUE support -> add single uri to queue.
     if let Err(e) = mpd::add_to_queue_connected(&config, uri).await {
-        tracing::warn!("addPlayCue MPD error: {}", e);
+        tracing::warn!("{} addPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -1140,7 +1149,11 @@ async fn play_items_list(
         if let Some(ref it) = payload.item {
             let uri = it.uri.trim();
             if !uri.is_empty() {
-                tracing::info!("playItemsList (item-only) uri={:?}", uri);
+                tracing::info!(
+                    "{} playItemsList (item-only) uri={:?}",
+                    crate::log_tags::EVO_PLAY,
+                    uri
+                );
                 mpd_replace_and_play_uri(&state, uri).await;
             }
         }
@@ -1162,7 +1175,7 @@ async fn play_items_list(
     }
     let config = mpd_config(&state);
     if let Err(e) = mpd::play_items_list_connected(&config, &uris, index).await {
-        tracing::warn!("playItemsList MPD error: {}", e);
+        tracing::warn!("{} playItemsList MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -1187,7 +1200,7 @@ async fn add_play(
     )
     .await
     {
-        tracing::warn!("addPlay MPD error: {}", e);
+        tracing::warn!("{} addPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
     }
 }
 
@@ -1205,20 +1218,22 @@ async fn remove_from_queue(
     let pos = payload.value.saturating_sub(1);
     let config = mpd_config(&state);
     if let Err(e) = mpd::remove_from_queue_connected(&config, pos).await {
-        tracing::warn!("removeFromQueue MPD error: {}", e);
+        tracing::warn!("{} removeFromQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
     }
 }
 
 /// Stock Volumio drives volume with **ALSA `amixer`** (`volumecontrol.js`); Evo matches that, then
 /// **MPD `setvol`** so `getState` / `pushState` stay aligned when MPD accepts the command.
 async fn apply_volume_to_system(state: &AppState, v: u8) {
-    let alsa = state.alsa.read().await.clone();
     let pb = state.playback.read().await.clone();
-
     if pb.mixer_type == "None" {
-        tracing::debug!("volume: mixer_type None, ignoring (Node: disableVolumeControl)");
+        tracing::debug!("{} volume: mixer_type None, ignoring (Node: disableVolumeControl)", crate::log_tags::EVO_VOLUME);
         return;
     }
+
+    let _vol_apply = state.volume_apply.lock().await;
+    let alsa = state.alsa.read().await.clone();
+    let pb = state.playback.read().await.clone();
 
     let v = pb.clamp_volume_percent(v);
 
@@ -1238,14 +1253,21 @@ async fn apply_volume_to_system(state: &AppState, v: u8) {
         .await
         {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!("ALSA volume (amixer, Node alsavolume path): {}", e),
-            Err(e) => tracing::warn!("ALSA volume task join: {}", e),
+            Ok(Err(e)) => tracing::warn!("{} ALSA volume (amixer, Node alsavolume path): {}", crate::log_tags::EVO_VOLUME, e),
+            Err(e) => tracing::warn!("{} ALSA volume task join: {}", crate::log_tags::EVO_VOLUME, e),
         }
     }
 
     let config = mpd_config(state);
-    if let Err(e) = mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await {
-        tracing::warn!("MPD setvol (state sync): {}", e);
+    match mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await {
+        Ok(()) => {
+            tracing::info!(
+                "{} volume applied (ALSA if enabled + MPD setvol) vol={}",
+                crate::log_tags::EVO_VOLUME,
+                v
+            );
+        }
+        Err(e) => tracing::warn!("{} MPD setvol (state sync): {}", crate::log_tags::EVO_VOLUME, e),
     }
 }
 
@@ -1403,7 +1425,7 @@ async fn move_queue(
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
         }
-        Err(e) => tracing::warn!("moveQueue MPD error: {}", e),
+        Err(e) => tracing::warn!("{} moveQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -1440,7 +1462,7 @@ async fn play_next(
                 s.emit("pushState", &st).ok();
             }
         }
-        Err(e) => tracing::warn!("playNext MPD error: {}", e),
+        Err(e) => tracing::warn!("{} playNext MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1500,7 +1522,7 @@ async fn get_playlist_content(
             let payload_out = serde_json::json!({ "name": payload.name, "lists": [ items ] });
             s.emit("pushPlaylistContent", &payload_out).ok();
         }
-        Err(e) => tracing::warn!("getPlaylistContent MPD error: {}", e),
+        Err(e) => tracing::warn!("{} getPlaylistContent MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1510,7 +1532,7 @@ async fn list_playlist(s: SocketRef, State(state): State<AppState>) {
         Ok(names) => {
             s.emit("pushListPlaylist", &names).ok();
         }
-        Err(e) => tracing::warn!("listPlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} listPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1528,7 +1550,7 @@ async fn play_playlist(
             s.emit("pushPlayPlaylist", &serde_json::json!({ "name": payload.name }))
                 .ok();
         }
-        Err(e) => tracing::warn!("playPlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} playPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1546,7 +1568,7 @@ async fn save_queue_to_playlist(
             s.emit("pushSaveQueueToPlaylist", &serde_json::json!({ "name": payload.name }))
                 .ok();
         }
-        Err(e) => tracing::warn!("saveQueueToPlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} saveQueueToPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1571,7 +1593,7 @@ async fn create_playlist(
             }
         }
         Err(e) => {
-            tracing::warn!("createPlaylist MPD error: {}", e);
+            tracing::warn!("{} createPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
             s.emit(
                 "pushCreatePlaylist",
                 &serde_json::json!({ "success": false, "name": payload.name }),
@@ -1626,7 +1648,7 @@ async fn delete_playlist(
                 push_browse_and_store(&s, &state, &resp).await;
             }
         }
-        Err(e) => tracing::warn!("deletePlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} deletePlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1655,7 +1677,7 @@ async fn add_to_playlist(
             )
             .ok();
         }
-        Err(e) => tracing::warn!("addToPlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} addToPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1671,7 +1693,7 @@ async fn remove_from_playlist(
     let uris = match mpd::list_playlist_content_connected(&config, &payload.name).await {
         Ok(u) => u,
         Err(e) => {
-            tracing::warn!("removeFromPlaylist list content MPD error: {}", e);
+            tracing::warn!("{} removeFromPlaylist list content MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
             return;
         }
     };
@@ -1680,7 +1702,7 @@ async fn remove_from_playlist(
         .position(|u| u == &payload.uri)
         .map(|p| p as u32);
     let Some(pos) = position else {
-        tracing::warn!("removeFromPlaylist: uri not found in playlist");
+        tracing::warn!("{} removeFromPlaylist: uri not found in playlist", crate::log_tags::EVO_PLAYLIST);
         return;
     };
     match mpd::remove_from_playlist_connected(&config, &payload.name, pos).await {
@@ -1725,7 +1747,7 @@ async fn remove_from_playlist(
                 push_browse_and_store(&s, &state, &resp).await;
             }
         }
-        Err(e) => tracing::warn!("removeFromPlaylist MPD error: {}", e),
+        Err(e) => tracing::warn!("{} removeFromPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -1746,7 +1768,7 @@ async fn enqueue(
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
         }
-        Err(e) => tracing::warn!("enqueue MPD error: {}", e),
+        Err(e) => tracing::warn!("{} enqueue MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -1782,8 +1804,8 @@ async fn call_method(
     {
         let mut guard = state.alsa.write().await;
         match guard.apply_save_payload(&payload.data) {
-            Ok(()) => tracing::info!("ALSA saveAlsaOptions: {:?}", *guard),
-            Err(e) => tracing::warn!("saveAlsaOptions: {}", e),
+            Ok(()) => tracing::info!("{} ALSA saveAlsaOptions: {:?}", crate::log_tags::EVO_ALSA, *guard),
+            Err(e) => tracing::warn!("{} saveAlsaOptions: {}", crate::log_tags::EVO_ALSA, e),
         }
         drop(guard);
         let alsa = state.alsa.read().await.clone();
@@ -1791,12 +1813,12 @@ async fn call_method(
             let mut pb = state.playback.write().await;
             pb.apply_volume_sanity(&alsa);
             if let Err(e) = pb.save() {
-                tracing::warn!("save playback after ALSA volume sanity: {}", e);
+                tracing::warn!("{} save playback after ALSA volume sanity: {}", crate::log_tags::EVO_PLAYBACK, e);
             }
         }
         let pb = state.playback.read().await.clone();
         if let Err(e) = pb.write_fragment_and_restart_mpd(&alsa).await {
-            tracing::warn!("MPD fragment after ALSA save: {}", e);
+            tracing::warn!("{} MPD fragment after ALSA save: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         get_output_devices(s.clone(), State(state.clone())).await;
         emit_playback_options_ui(&s, &state).await;
@@ -1809,13 +1831,13 @@ async fn call_method(
         let mut pb = state.playback.write().await;
         pb.merge_playback_section(&payload.data);
         if let Err(e) = pb.save() {
-            tracing::warn!("save playback state: {}", e);
+            tracing::warn!("{} save playback state: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         let pb_clone = pb.clone();
         drop(pb);
         let alsa = state.alsa.read().await.clone();
         if let Err(e) = pb_clone.write_fragment_and_restart_mpd(&alsa).await {
-            tracing::warn!("savePlaybackOptions MPD: {}", e);
+            tracing::warn!("{} savePlaybackOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         emit_playback_options_ui(&s, &state).await;
         return;
@@ -1830,7 +1852,7 @@ async fn call_method(
         pb.merge_volume_section(&payload.data);
         pb.apply_volume_sanity(&alsa);
         if let Err(e) = pb.save() {
-            tracing::warn!("save playback state: {}", e);
+            tracing::warn!("{} save playback state: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         let after = pb.clone();
         drop(pb);
@@ -1873,7 +1895,7 @@ async fn call_method(
                         "before_mpd spawn_blocking returned",
                     );
                     if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("saveVolumeOptions MPD: {}", e);
+                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
                     }
                     alsa::mixer_hw_sw_trace(
                         Some(hw_sw_t0),
@@ -1891,7 +1913,11 @@ async fn call_method(
                     )
                     .await
                     {
-                        tracing::warn!("saveVolumeOptions MPD setvol (hardware→software): {}", e);
+                        tracing::warn!(
+                            "{} saveVolumeOptions MPD setvol (hardware→software): {}",
+                            crate::log_tags::EVO_PLAYBACK,
+                            e
+                        );
                     }
                     alsa::mixer_hw_sw_trace(
                         Some(hw_sw_t0),
@@ -1913,11 +1939,13 @@ async fn call_method(
                         match finish {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => tracing::warn!(
-                                "saveVolumeOptions ALSA (hardware→software after MPD): {}",
+                                "{} saveVolumeOptions ALSA (hardware→software after MPD): {}",
+                                crate::log_tags::EVO_PLAYBACK,
                                 e
                             ),
                             Err(e) => tracing::warn!(
-                                "saveVolumeOptions task (hardware→software after MPD): {}",
+                                "{} saveVolumeOptions task (hardware→software after MPD): {}",
+                                crate::log_tags::EVO_PLAYBACK,
                                 e
                             ),
                         }
@@ -1936,11 +1964,13 @@ async fn call_method(
                         match finish {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => tracing::warn!(
-                                "saveVolumeOptions ALSA (hardware→software no SoftMaster after MPD): {}",
+                                "{} saveVolumeOptions ALSA (hardware→software no SoftMaster after MPD): {}",
+                                crate::log_tags::EVO_PLAYBACK,
                                 e
                             ),
                             Err(e) => tracing::warn!(
-                                "saveVolumeOptions task (hardware→software no SoftMaster): {}",
+                                "{} saveVolumeOptions task (hardware→software no SoftMaster): {}",
+                                crate::log_tags::EVO_PLAYBACK,
                                 e
                             ),
                         }
@@ -1952,15 +1982,23 @@ async fn call_method(
                     );
                 }
                 Ok(Err(e)) => {
-                    tracing::warn!("saveVolumeOptions ALSA (hardware→software): {}", e);
+                    tracing::warn!(
+                        "{} saveVolumeOptions ALSA (hardware→software): {}",
+                        crate::log_tags::EVO_PLAYBACK,
+                        e
+                    );
                     if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("saveVolumeOptions MPD: {}", e2);
+                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e2);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("saveVolumeOptions task (hardware→software): {}", e);
+                    tracing::warn!(
+                        "{} saveVolumeOptions task (hardware→software): {}",
+                        crate::log_tags::EVO_PLAYBACK,
+                        e
+                    );
                     if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("saveVolumeOptions MPD: {}", e2);
+                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e2);
                     }
                 }
             }
@@ -2010,16 +2048,28 @@ async fn call_method(
                     )
                     .await
                     {
-                        tracing::warn!("saveVolumeOptions MPD setvol (software→hardware): {}", e);
+                        tracing::warn!(
+                            "{} saveVolumeOptions MPD setvol (software→hardware): {}",
+                            crate::log_tags::EVO_PLAYBACK,
+                            e
+                        );
                     }
                 }
-                Ok(Err(e)) => tracing::warn!("saveVolumeOptions ALSA (software→hardware): {}", e),
-                Err(e) => tracing::warn!("saveVolumeOptions task (software→hardware): {}", e),
+                Ok(Err(e)) => tracing::warn!(
+                    "{} saveVolumeOptions ALSA (software→hardware): {}",
+                    crate::log_tags::EVO_PLAYBACK,
+                    e
+                ),
+                Err(e) => tracing::warn!(
+                    "{} saveVolumeOptions task (software→hardware): {}",
+                    crate::log_tags::EVO_PLAYBACK,
+                    e
+                ),
             }
         }
 
         if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
-            tracing::warn!("saveVolumeOptions MPD: {}", e);
+            tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         emit_playback_options_ui(&s, &state).await;
         return;
@@ -2031,13 +2081,13 @@ async fn call_method(
         let mut pb = state.playback.write().await;
         pb.merge_resampling_section(&payload.data);
         if let Err(e) = pb.save() {
-            tracing::warn!("save playback state: {}", e);
+            tracing::warn!("{} save playback state: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         let pb_clone = pb.clone();
         drop(pb);
         let alsa = state.alsa.read().await.clone();
         if let Err(e) = pb_clone.write_fragment_and_restart_mpd(&alsa).await {
-            tracing::warn!("saveResamplingOpts MPD: {}", e);
+            tracing::warn!("{} saveResamplingOpts MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         emit_playback_options_ui(&s, &state).await;
     }
@@ -2063,7 +2113,7 @@ async fn set_consume(
             s.emit("pushSetConsume", &serde_json::json!({ "value": payload.value }))
                 .ok();
         }
-        Err(e) => tracing::warn!("setConsume MPD error: {}", e),
+        Err(e) => tracing::warn!("{} setConsume MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -2085,7 +2135,7 @@ async fn unmute(_s: SocketRef, State(state): State<AppState>) {
 async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     if let Err(e) = mpd::rescan_connected(&config, None).await {
-        tracing::warn!("rescanDb MPD error: {}", e);
+        tracing::warn!("{} rescanDb MPD error: {}", crate::log_tags::EVO_DB, e);
     }
 }
 
@@ -2100,7 +2150,7 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
     let path = payload.uri.trim();
     let path_opt = if path.is_empty() { None } else { Some(path) };
     if let Err(e) = mpd::update_connected(&config, path_opt).await {
-        tracing::warn!("updateDb MPD error: {}", e);
+        tracing::warn!("{} updateDb MPD error: {}", crate::log_tags::EVO_DB, e);
     }
 }
 
@@ -2115,13 +2165,13 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
         let master = read_master_volume_percent(&state).await;
         if let Ok(s) = mpd::get_state_connected(&config, &music_root, master).await {
             if io.emit("pushState", &s).await.is_err() {
-                tracing::debug!("pushState broadcast error (connection closed?)");
+                tracing::debug!("{} pushState broadcast error (connection closed?)", crate::log_tags::EVO_SOCKET);
             }
         }
         if let Ok(items) = mpd::get_queue_connected(&config).await {
             let payload = serde_json::json!({ "queue": items });
             if io.emit("pushQueue", &payload).await.is_err() {
-                tracing::debug!("pushQueue broadcast error (connection closed?)");
+                tracing::debug!("{} pushQueue broadcast error (connection closed?)", crate::log_tags::EVO_SOCKET);
             }
         }
     }

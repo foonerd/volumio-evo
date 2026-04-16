@@ -1,6 +1,10 @@
 # Volumio Evo config. Copy to /etc/volumio-evo/config.toml
 # Install or first run: set music_root here or via VOLUMIO_EVO_MUSIC_ROOT
 # (e.g. in systemd override). Service may run as a different user than volumio.
+#
+# Logging: error | warn | info | verbose | debug | trace
+# Default filter when RUST_LOG is unset. Override: RUST_LOG (full directive) or VOLUMIO_EVO_LOG_LEVEL.
+log_level = "info"
 
 bind = "0.0.0.0:3000"
 plugin_dir = "/usr/share/volumio-evo/plugins"

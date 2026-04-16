@@ -94,11 +94,13 @@ fn migrate_intermediate_alsa_flat_file_if_needed() {
         Ok(()) => tracing::info!(
             from = %old.display(),
             to = %new_path.display(),
-            "relocated ALSA state into settings/alsa/"
+            "{} relocated ALSA state into settings/alsa/",
+            crate::log_tags::EVO_ALSA
         ),
         Err(e) => {
             tracing::warn!(
-                "could not rename {} to {}: {}; trying copy",
+                "{} could not rename {} to {}: {}; trying copy",
+                crate::log_tags::EVO_ALSA,
                 old.display(),
                 new_path.display(),
                 e
@@ -158,7 +160,8 @@ impl AlsaSettings {
             if entry.needs_reboot() {
                 tracing::info!(
                     dac = %entry.name,
-                    "I2S dtoverlay updated; reboot required for audio device to match catalogue"
+                    "{} I2S dtoverlay updated; reboot required for audio device to match catalogue",
+                    crate::log_tags::EVO_ALSA
                 );
             }
             self.i2s_enabled = true;
@@ -346,7 +349,8 @@ pub fn mpd_playback_device(alsa: &AlsaSettings) -> String {
     }
     if modular_alsa_pipeline_enabled() {
         tracing::info!(
-            "MODULAR_ALSA_PIPELINE is set but ALSA PCM \"volumio\" not in aplay -L; using direct {} for MPD (install Volumio asound or define pcm.volumio)",
+            "{} MODULAR_ALSA_PIPELINE is set but ALSA PCM \"volumio\" not in aplay -L; using direct {} for MPD (install Volumio asound or define pcm.volumio)",
+            crate::log_tags::EVO_ALSA,
             direct_hw_playback_device(id)
         );
     }
@@ -356,9 +360,10 @@ pub fn mpd_playback_device(alsa: &AlsaSettings) -> String {
 /// ALSA **control** string for MPD when it must **`snd_ctl_open`** the mixer (card only).
 ///
 /// Playback [`mpd_playback_device`] may use **`hw:N,0`**; that form is **invalid** for the control
-/// interface and triggers MPD **`Invalid CTL hw:N,0`** / **`Failed to open mixer`** when MPD defaults
-/// `mixer_device` to the same string as `device`. Software / none mixer types should set
-/// `mixer_device` explicitly to this value (see [`crate::playback_options::PlaybackOptions::render_mpd_fragment`]).
+/// interface and triggers MPD **`Invalid CTL hw:N,0`** / mixer failures when MPD uses that string for
+/// **`mixer_device`**. Playback may still use **`hw:N,0`** via [`mpd_playback_device`]. The Evo fragment
+/// emits **`mixer_device` only with `mixer_type "hardware"`** — MPD 0.24+ rejects `mixer_device` for
+/// `software` / `none`. Use this card-only form in [`mixer_device_for_mpd`].
 pub fn mpd_alsa_ctl_mixer_device(alsa: &AlsaSettings) -> String {
     let id = alsa.output_device_id.trim();
     if id.is_empty() || id == "nodev" {
@@ -371,6 +376,9 @@ pub fn mpd_alsa_ctl_mixer_device(alsa: &AlsaSettings) -> String {
 }
 
 /// MPD `mixer_device` for hardware / softvol (Node `createMPDFile` `mixerdev`).
+///
+/// Must be a valid **`snd_ctl_open`** name. **`hw:N,0`** is for PCM, not the mixer control — use
+/// [`mpd_alsa_ctl_mixer_device`] (same as this function for non-**SoftMaster** paths).
 pub fn mixer_device_for_mpd(alsa: &AlsaSettings) -> String {
     let id = alsa.output_device_id.trim();
     if id.is_empty() || id == "nodev" {
@@ -379,17 +387,7 @@ pub fn mixer_device_for_mpd(alsa: &AlsaSettings) -> String {
     if alsa.softvolume {
         return "SoftMaster".to_string();
     }
-    if modular_alsa_pipeline_enabled() {
-        if id.contains(',') {
-            format!("hw:{id}")
-        } else {
-            format!("hw:{id},0")
-        }
-    } else if id.contains(',') {
-        format!("hw:{id}")
-    } else {
-        format!("hw:{id}")
-    }
+    mpd_alsa_ctl_mixer_device(alsa)
 }
 
 const INVALID_MIXER_SUBSTR: [&str; 3] = ["Clock Validity", "Tx Source", "Internal Validity"];
@@ -398,6 +396,93 @@ fn mixer_name_is_valid(name: &str) -> bool {
     !INVALID_MIXER_SUBSTR
         .iter()
         .any(|bad| name.contains(bad))
+}
+
+/// Skip switch-style playback rows (invert, filter) when opening the **line** to unity at boot.
+fn is_alsa_startup_line_fader(name: &str) -> bool {
+    let base = name.split(',').next().unwrap_or(name).trim();
+    if !mixer_name_is_valid(base) {
+        return false;
+    }
+    let low = base.to_lowercase();
+    !(low.contains("invert") || low.contains("rolloff") || low.contains("deemph"))
+}
+
+/// Unmute and set **100%** on **Playback** faders when there is **no** ALSA **`SoftMaster`** softvol.
+///
+/// With **`skip_control == None`**, every eligible fader is set (used for **Software** startup: open
+/// the full DAC path before MPD **`setvol`**).
+///
+/// With **`skip_control == Some(name)`**, that control is left for a later **`set_system_volume_percent`**
+/// (used for **Hardware** startup: open **sibling** faders without touching MPD’s primary control first).
+pub fn open_alsa_playback_line_unity_except(
+    alsa: &AlsaSettings,
+    volumecurve_logarithmic: bool,
+    skip_control: Option<&str>,
+) {
+    if alsa_softmaster_control_present(alsa) {
+        return;
+    }
+    let skip = skip_control.and_then(|s| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
+    });
+    for raw in list_playback_mixer_controls(alsa.output_device_id.trim()) {
+        let t = raw.trim();
+        if t.is_empty() || t == "SoftMaster" {
+            continue;
+        }
+        if !is_alsa_startup_line_fader(t) {
+            continue;
+        }
+        if skip.is_some_and(|sk| sk == t) {
+            continue;
+        }
+        if let Err(e) = set_system_volume_percent(alsa, "Hardware", t, volumecurve_logarithmic, 100)
+        {
+            tracing::debug!(
+                control = %t,
+                err = %e,
+                "{} open ALSA playback line: could not set 100% (non-fatal)",
+                crate::log_tags::EVO_ALSA
+            );
+        }
+    }
+}
+
+/// Software startup: all eligible Playback faders → unity, then MPD **`setvol`** carries the level.
+pub fn open_alsa_playback_line_unity_before_mpd_volume(
+    alsa: &AlsaSettings,
+    volumecurve_logarithmic: bool,
+) {
+    open_alsa_playback_line_unity_except(alsa, volumecurve_logarithmic, None);
+}
+
+/// Hardware startup: sibling faders → unity (**skip** the primary control name), then set primary to
+/// **`percent`** (same rules as [`set_system_volume_percent`] for **Hardware**).
+pub fn apply_startup_volume_hardware_mixer(
+    alsa: &AlsaSettings,
+    mixer_name_field: &str,
+    volumecurve_logarithmic: bool,
+    percent: u8,
+) -> Result<(), String> {
+    let primary = playback_mixer_control_name(alsa, "Hardware", mixer_name_field)?;
+    open_alsa_playback_line_unity_except(
+        alsa,
+        volumecurve_logarithmic,
+        Some(primary.as_str()),
+    );
+    set_system_volume_percent(
+        alsa,
+        "Hardware",
+        mixer_name_field,
+        volumecurve_logarithmic,
+        percent,
+    )
 }
 
 /// Parse `amixer scontents` like Node `getMixerControls`: Playback simple controls, de-duped with
@@ -440,7 +525,8 @@ pub fn list_playback_mixer_controls(output_device_id: &str) -> Vec<String> {
     if !out.status.success() {
         tracing::warn!(
             stderr = %String::from_utf8_lossy(&out.stderr),
-            "amixer scontents failed for card {}",
+            "{} amixer scontents failed for card {}",
+            crate::log_tags::EVO_ALSA,
             card
         );
         return Vec::new();
@@ -618,7 +704,8 @@ pub fn transition_software_to_hardware_handoff(
     } else {
         mpd_volume_when_no_softmaster.unwrap_or_else(|| {
             tracing::warn!(
-                "Software→Hardware: no ALSA SoftMaster; missing MPD volume, defaulting carried level to 50%"
+                "{} Software→Hardware: no ALSA SoftMaster; missing MPD volume, defaulting carried level to 50%",
+                crate::log_tags::EVO_ALSA
             );
             50
         })
@@ -657,7 +744,8 @@ pub(crate) fn mixer_hw_sw_trace(t0: Option<Instant>, stage: &'static str, detail
         elapsed_ms,
         stage,
         detail,
-        "mixer_hw_sw hw→sw"
+        "{} mixer_hw_sw hw→sw",
+        crate::log_tags::EVO_ALSA
     );
 }
 
@@ -981,7 +1069,7 @@ mod tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn modular_mpd_uses_volumio_or_hw_fallback_and_hw_n_0_mixer() {
+    fn modular_mpd_uses_volumio_or_hw_fallback_and_ctl_mixer_hw_n() {
         let _g = ENV_LOCK.lock().unwrap();
         std::env::remove_var("MODULAR_ALSA_PIPELINE");
         let a = AlsaSettings {
@@ -994,11 +1082,11 @@ mod tests {
             dev == "volumio" || dev == "hw:2,0",
             "with modular ALSA, MPD device is volumio when pcm exists, else direct hw; got {dev:?}"
         );
-        assert_eq!(mixer_device_for_mpd(&a), "hw:2,0");
+        assert_eq!(mixer_device_for_mpd(&a), "hw:2");
     }
 
     #[test]
-    fn modular_subdevice_mixer_hw_nm() {
+    fn modular_subdevice_mixer_ctl_uses_card_only() {
         let _g = ENV_LOCK.lock().unwrap();
         std::env::remove_var("MODULAR_ALSA_PIPELINE");
         let a = AlsaSettings {
@@ -1010,7 +1098,7 @@ mod tests {
             dev == "volumio" || dev == "hw:1,1",
             "expected volumio or hw:1,1, got {dev:?}"
         );
-        assert_eq!(mixer_device_for_mpd(&a), "hw:1,1");
+        assert_eq!(mixer_device_for_mpd(&a), "hw:1");
     }
 
     #[test]

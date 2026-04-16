@@ -27,7 +27,7 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(s) => Json::<VolumioState>(s).into_response(),
         Err(e) => {
-            tracing::warn!("getState MPD error: {}", e);
+            tracing::warn!("{} getState MPD error: {}", crate::log_tags::EVO_STATE, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -99,7 +99,7 @@ pub async fn commands(
         {
             Ok(()) => Json(serde_json::json!({"response": "addToQueue Success"})).into_response(),
             Err(e) => {
-                tracing::warn!("addToQueue MPD error: {}", e);
+                tracing::warn!("{} addToQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -128,7 +128,7 @@ pub async fn commands(
         {
             Ok(()) => Json(serde_json::json!({"response": "addPlay Success"})).into_response(),
             Err(e) => {
-                tracing::warn!("addPlay MPD error: {}", e);
+                tracing::warn!("{} addPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -138,13 +138,19 @@ pub async fn commands(
         };
     }
 
+    let _vol_apply = if cmd == "volume" {
+        Some(state.volume_apply.lock().await)
+    } else {
+        None
+    };
+
     match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
         Ok(()) => Json(serde_json::json!({
             "response": cmd.to_string() + " Success"
         }))
         .into_response(),
         Err(e) => {
-            tracing::warn!("commands {} MPD error: {}", cmd, e);
+            tracing::warn!("{} commands {} MPD error: {}", crate::log_tags::EVO_API, cmd, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -160,7 +166,7 @@ pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     match mpd::get_queue_connected(&config).await {
         Ok(items) => Json(serde_json::json!({ "queue": items })).into_response(),
         Err(e) => {
-            tracing::warn!("getQueue MPD error: {}", e);
+            tracing::warn!("{} getQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -252,7 +258,7 @@ pub async fn list_playlists(State(state): State<AppState>) -> impl IntoResponse 
             Json(serde_json::Value::Array(list)).into_response()
         }
         Err(e) => {
-            tracing::warn!("listplaylists MPD error: {}", e);
+            tracing::warn!("{} listplaylists MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -284,7 +290,7 @@ pub async fn search(
     match mpd::search_connected(&config, &state.config.music_sources.music_root, &q.query).await {
         Ok(resp) => Json(resp).into_response(),
         Err(e) => {
-            tracing::warn!("search MPD error: {}", e);
+            tracing::warn!("{} search MPD error: {}", crate::log_tags::EVO_SEARCH, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -308,7 +314,7 @@ pub async fn collection_stats(State(state): State<AppState>) -> impl IntoRespons
     match mpd::collection_stats_connected(&config).await {
         Ok(stats) => Json(stats).into_response(),
         Err(e) => {
-            tracing::warn!("collectionstats MPD error: {}", e);
+            tracing::warn!("{} collectionstats MPD error: {}", crate::log_tags::EVO_DB, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -357,7 +363,7 @@ pub async fn replace_and_play(
     {
         Ok(()) => Json(serde_json::json!({"response": "success"})).into_response(),
         Err(e) => {
-            tracing::warn!("replaceAndPlay MPD error: {}", e);
+            tracing::warn!("{} replaceAndPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),
@@ -400,7 +406,7 @@ pub async fn browse(
             Json(resp).into_response()
         }
         Err(e) => {
-            tracing::warn!("browse {} MPD error: {}", uri, e);
+            tracing::warn!("{} browse {} MPD error: {}", crate::log_tags::EVO_BROWSE, uri, e);
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "MPD unavailable"})),

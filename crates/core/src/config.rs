@@ -1,8 +1,56 @@
 //! Configuration for Volumio Evo.
+//!
+//! **Logging:** `log_level` in `config.toml` sets the default filter when **`RUST_LOG`** is unset.
+//! **`RUST_LOG`** wins if set (full `tracing-subscriber` directive). **`VOLUMIO_EVO_LOG_LEVEL`**
+//! overrides the file value (one of: `error`, `warn`, `info`, `verbose`, `debug`, `trace`).
 
 use std::path::PathBuf;
 
 use serde::Deserialize;
+
+/// Log verbosity for [`Config::log_level`]. Becomes the default `tracing-subscriber` env filter when **`RUST_LOG`** is unset.
+#[derive(Debug, Clone, Copy, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    /// More detail in Evo crates; dependencies stay at `info`.
+    Verbose,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    /// Parse from env / CLI (case-insensitive).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "error" => Some(Self::Error),
+            "warn" | "warning" => Some(Self::Warn),
+            "info" => Some(Self::Info),
+            "verbose" => Some(Self::Verbose),
+            "debug" => Some(Self::Debug),
+            "trace" => Some(Self::Trace),
+            _ => None,
+        }
+    }
+
+    /// `tracing_subscriber::EnvFilter` directive when **`RUST_LOG`** is not set.
+    pub fn env_filter_directive(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            // Evo code at debug; custom targets use `volumio_evo::`; crate modules use `volumio_evo_core::`.
+            Self::Verbose => {
+                "info,volumio_evo_core=debug,volumio_evo=debug,mpd_protocol=info,socketioxide=info,axum=info,tower_http=info,h2=info,hyper=info"
+            }
+            Self::Debug => "debug",
+            Self::Trace => "trace",
+        }
+    }
+}
 
 /// Evo-owned layout for music sources. MPD's `music_directory` must be set to
 /// `music_root` so that paths like `INTERNAL/`, `USB/`, `NAS/`, `SMB/` exist under it
@@ -94,6 +142,9 @@ pub struct AlbumArtProvidersConfig {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
+    /// Default log filter when **`RUST_LOG`** is unset (`error` … `trace`; see [`LogLevel`]).
+    #[serde(default)]
+    pub log_level: LogLevel,
     /// Bind address for the HTTP/WebSocket server.
     #[serde(default = "default_bind")]
     pub bind: String,
@@ -213,9 +264,22 @@ pub fn load() -> anyhow::Result<Config> {
             config.ui.active_layout = v;
         }
     }
-    normalize_ui_active_layout(&mut config.ui);
+    if let Ok(s) = std::env::var("VOLUMIO_EVO_LOG_LEVEL") {
+        if let Some(l) = LogLevel::parse(&s) {
+            config.log_level = l;
+        } else {
+            eprintln!(
+                "VOLUMIO_EVO_LOG_LEVEL={s:?} is not a valid log level (error|warn|info|verbose|debug|trace); ignoring"
+            );
+        }
+    }
 
     Ok(config)
+}
+
+/// Run after [`tracing_subscriber`] is initialized so [`normalize_ui_active_layout`] warnings are recorded.
+pub fn finalize_loaded_config(config: &mut Config) {
+    normalize_ui_active_layout(&mut config.ui);
 }
 
 const UI_LAYOUT_NAMES: &[&str] = &["manifest", "contemporary", "classic"];
@@ -227,10 +291,38 @@ fn normalize_ui_active_layout(ui: &mut UiConfig) {
         return;
     }
     tracing::warn!(
-        "ui.active_layout {:?} is not one of {:?}; using {:?}",
+        "{} ui.active_layout {:?} is not one of {:?}; using {:?}",
+        crate::log_tags::EVO_CONFIG,
         ui.active_layout,
         UI_LAYOUT_NAMES,
         default_ui_active_layout()
     );
     ui.active_layout = default_ui_active_layout();
+}
+
+#[cfg(test)]
+mod log_level_tests {
+    use super::LogLevel;
+
+    #[test]
+    fn parse_case_insensitive() {
+        assert_eq!(LogLevel::parse("INFO"), Some(LogLevel::Info));
+        assert_eq!(LogLevel::parse("Verbose"), Some(LogLevel::Verbose));
+        assert_eq!(LogLevel::parse("bogus"), None);
+    }
+
+    #[test]
+    fn env_filter_directives_are_valid() {
+        for l in [
+            LogLevel::Error,
+            LogLevel::Warn,
+            LogLevel::Info,
+            LogLevel::Verbose,
+            LogLevel::Debug,
+            LogLevel::Trace,
+        ] {
+            let d = l.env_filter_directive();
+            tracing_subscriber::EnvFilter::new(d);
+        }
+    }
 }

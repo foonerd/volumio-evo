@@ -394,6 +394,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         playback: Arc::new(tokio::sync::RwLock::new(crate::playback_options::PlaybackOptions::load())),
         albumart_clear_tx: tx,
         last_browse: Arc::new(tokio::sync::RwLock::new(None)),
+        volume_apply: tokio::sync::Mutex::new(()),
     });
 
     let (socket_layer, io) = SocketIo::builder()
@@ -556,7 +557,12 @@ async fn album_art_upload(
     };
 
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!("albumart-upload mkdir {:?}: {}", dir, e);
+        tracing::warn!(
+            "{} albumart-upload mkdir {:?}: {}",
+            crate::log_tags::EVO_ALBUMART,
+            dir,
+            e
+        );
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Body::from("Failed to create directory"),
@@ -568,7 +574,12 @@ async fn album_art_upload(
     let filename = format!("cover.{}", file_ext);
     let path = dir.join(&filename);
     if let Err(e) = std::fs::write(&path, &file_data) {
-        tracing::warn!("albumart-upload write {:?}: {}", path, e);
+        tracing::warn!(
+            "{} albumart-upload write {:?}: {}",
+            crate::log_tags::EVO_ALBUMART,
+            path,
+            e
+        );
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Body::from("Failed to save image"),

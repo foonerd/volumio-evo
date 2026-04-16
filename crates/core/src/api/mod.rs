@@ -21,6 +21,8 @@ pub struct RouterState {
     albumart_clear_tx: tokio::sync::mpsc::UnboundedSender<()>,
     /// Last pushBrowseLibrary payload (for getLastPushedBrowseLibrary).
     pub last_browse: Arc<tokio::sync::RwLock<Option<serde_json::Value>>>,
+    /// Serializes ALSA + MPD volume so startup (multi-control Hardware path) cannot race UI/REST `setvol`.
+    pub volume_apply: tokio::sync::Mutex<()>,
 }
 
 impl RouterState {
@@ -69,7 +71,7 @@ pub async fn read_master_volume_percent(state: &AppState) -> Option<u8> {
     {
         Ok(v) => v,
         Err(e) => {
-            tracing::debug!("read master volume task: {}", e);
+            tracing::debug!("{} read master volume task: {}", crate::log_tags::EVO_VOLUME, e);
             None
         }
     }
@@ -86,7 +88,10 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
         .as_deref()
         == Some("1")
     {
-        tracing::info!("skipping default startup volume (VOLUMIO_EVO_SKIP_STARTUP_VOLUME=1)");
+        tracing::info!(
+            "{} skipping default startup volume (VOLUMIO_EVO_SKIP_STARTUP_VOLUME=1)",
+            crate::log_tags::EVO_VOLUME
+        );
         return;
     }
 
@@ -98,7 +103,8 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
         tracing::debug!(
             volumestart = %pb.volumestart,
             mixer_type = %pb.mixer_type,
-            "startup volume: not applicable or disabled"
+            "{} startup volume: not applicable or disabled",
+            crate::log_tags::EVO_VOLUME
         );
         return;
     };
@@ -107,27 +113,100 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
         .volumecurvemode
         .trim()
         .eq_ignore_ascii_case("logarithmic");
-    // `mixer_type` Software maps ALSA to **`SoftMaster`** only when that control exists (Volumio
-    // softvol / modular asound). MPD-only software volume on `hw:` has no SoftMaster — use MPD only.
-    let use_alsa = pb.mixer_type != "Software"
-        || crate::alsa::alsa_softmaster_control_present(&alsa);
-    if use_alsa {
-        let alsa_c = alsa.clone();
-        let mt = pb.mixer_type.clone();
-        let mn = pb.mixer.clone();
-        match tokio::task::spawn_blocking(move || {
-            crate::alsa::set_system_volume_percent(&alsa_c, &mt, &mn, log_curve, vol)
-        })
-        .await
-        {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!("startup volume ALSA (amixer): {}", e),
-            Err(e) => tracing::warn!("startup volume ALSA task: {}", e),
+
+    let _vol_apply = state.volume_apply.lock().await;
+
+    let softmaster = crate::alsa::alsa_softmaster_control_present(&alsa);
+
+    match pb.mixer_type.as_str() {
+        "Software" => {
+            if !softmaster {
+                let alsa_open = alsa.clone();
+                let log_open = log_curve;
+                match tokio::task::spawn_blocking(move || {
+                    crate::alsa::open_alsa_playback_line_unity_before_mpd_volume(&alsa_open, log_open)
+                })
+                .await
+                {
+                    Ok(()) => tracing::info!(
+                        "{} startup volume (Software): ALSA playback line to unity, then MPD setvol",
+                        crate::log_tags::EVO_VOLUME
+                    ),
+                    Err(e) => tracing::debug!(
+                        "{} startup volume (Software): open playback line: {}",
+                        crate::log_tags::EVO_VOLUME,
+                        e
+                    ),
+                }
+            } else {
+                let alsa_c = alsa.clone();
+                let mn = pb.mixer.clone();
+                let v = vol;
+                let lc = log_curve;
+                match tokio::task::spawn_blocking(move || {
+                    crate::alsa::set_system_volume_percent(&alsa_c, "Software", &mn, lc, v)
+                })
+                .await
+                {
+                    Ok(Ok(())) => tracing::info!(
+                        vol = v,
+                        "{} startup volume (Software + SoftMaster): ALSA then MPD setvol",
+                        crate::log_tags::EVO_VOLUME
+                    ),
+                    Ok(Err(e)) => tracing::warn!(
+                        "{} startup volume (Software): ALSA SoftMaster: {}",
+                        crate::log_tags::EVO_VOLUME,
+                        e
+                    ),
+                    Err(e) => tracing::warn!(
+                        "{} startup volume (Software): ALSA task: {}",
+                        crate::log_tags::EVO_VOLUME,
+                        e
+                    ),
+                }
+            }
         }
-    } else {
-        tracing::debug!(
-            "startup volume: Software mixer, no ALSA SoftMaster — applying MPD setvol only"
-        );
+        "Hardware" => {
+            let alsa_c = alsa.clone();
+            let mn = pb.mixer.clone();
+            let v = vol;
+            let lc = log_curve;
+            match tokio::task::spawn_blocking(move || {
+                crate::alsa::apply_startup_volume_hardware_mixer(&alsa_c, &mn, lc, v)
+            })
+            .await
+            {
+                Ok(Ok(())) => tracing::info!(
+                    vol = v,
+                    "{} startup volume (Hardware): sibling faders unity, primary to volumestart, then MPD setvol",
+                    crate::log_tags::EVO_VOLUME
+                ),
+                Ok(Err(e)) => tracing::warn!(
+                    "{} startup volume (Hardware): ALSA: {}",
+                    crate::log_tags::EVO_VOLUME,
+                    e
+                ),
+                Err(e) => tracing::warn!(
+                    "{} startup volume (Hardware): ALSA task: {}",
+                    crate::log_tags::EVO_VOLUME,
+                    e
+                ),
+            }
+        }
+        "None" => {
+            tracing::debug!(
+                "{} startup volume: internal inconsistency (mixer None with applicable volumestart)",
+                crate::log_tags::EVO_VOLUME
+            );
+            return;
+        }
+        other => {
+            tracing::warn!(
+                mixer_type = %other,
+                "{} startup volume: unknown mixer_type; MPD setvol only",
+                crate::log_tags::EVO_VOLUME
+            );
+        }
     }
 
     let mpd = MpdConfig {
@@ -141,12 +220,18 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
                 tracing::info!(
                     vol,
                     attempt,
-                    "applied default startup volume (MPD setvol; Playback options volumestart)"
+                    "{} applied default startup volume (MPD setvol; Playback options volumestart)",
+                    crate::log_tags::EVO_VOLUME
                 );
                 return;
             }
             Err(e) => {
-                tracing::debug!(attempt, err = %e, "startup volume: waiting for MPD");
+                tracing::debug!(
+                    attempt,
+                    err = %e,
+                    "{} startup volume: waiting for MPD",
+                    crate::log_tags::EVO_VOLUME
+                );
                 tokio::time::sleep(Duration::from_millis(700)).await;
             }
         }
@@ -154,6 +239,7 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
 
     tracing::warn!(
         vol,
-        "could not apply default startup volume: MPD not accepting setvol after retries"
+        "{} could not apply default startup volume: MPD not accepting setvol after retries",
+        crate::log_tags::EVO_VOLUME
     );
 }

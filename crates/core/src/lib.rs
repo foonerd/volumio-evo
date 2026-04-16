@@ -1,3 +1,4 @@
+pub mod log_tags;
 pub mod alsa;
 pub mod alsa_cards;
 pub mod paths;
