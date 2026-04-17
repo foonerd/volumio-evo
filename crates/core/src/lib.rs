@@ -13,3 +13,4 @@ pub mod config;
 pub mod metavolumio;
 pub mod mpd;
 pub mod plugins;
+pub mod playlist_library;

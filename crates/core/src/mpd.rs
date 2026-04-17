@@ -309,12 +309,32 @@ pub struct BrowseNavigationInfo {
     pub track_type: Option<String>,
 }
 
+/// Playlist / favourites header (`listFavourites`, `browsePlaylist` in Node).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowsePlaylistNavInfo {
+    pub uri: String,
+    pub title: String,
+    pub name: String,
+    pub service: &'static str,
+    #[serde(rename = "type")]
+    pub nav_type: &'static str,
+    pub albumart: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum BrowseNavInfo {
+    Album(BrowseNavigationInfo),
+    Playlist(BrowsePlaylistNavInfo),
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BrowseNavigation {
     pub prev: BrowsePrev,
     pub lists: Vec<BrowseList>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub info: Option<BrowseNavigationInfo>,
+    pub info: Option<BrowseNavInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -766,6 +786,135 @@ pub async fn readpicture_connected(
     }
 }
 
+/// One line from a JSON playlist / favourites file → browse row (Node uses `type: playlist` for list root;
+/// lines use `song`, `webradio`, or tag URIs as `folder`).
+pub fn browse_item_from_playlist_entry(e: &crate::playlist_library::PlaylistEntry) -> BrowseItem {
+    let uri = crate::playlist_library::normalize_volumio_uri(&e.uri);
+    let svc = if e.service.is_empty() {
+        "mpd".to_string()
+    } else {
+        e.service.clone()
+    };
+
+    if svc == "webradio" || uri.starts_with("http://") || uri.starts_with("https://") {
+        let title = e.title.clone().unwrap_or_else(|| uri.clone());
+        return BrowseItem {
+            item_type: "webradio".to_string(),
+            title,
+            uri,
+            service: "webradio".to_string(),
+            artist: e.artist.clone(),
+            album: e.album.clone(),
+            duration: None,
+            albumart: e.albumart.clone(),
+            icon: e.icon.clone(),
+            meta: None,
+        };
+    }
+
+    if uri.starts_with("albums://") || uri.starts_with("artists://") || uri.starts_with("genres://") {
+        return BrowseItem {
+            item_type: "folder".to_string(),
+            title: tag_uri_display_title(&uri),
+            uri,
+            service: "mpd".to_string(),
+            artist: None,
+            album: None,
+            duration: None,
+            albumart: e.albumart.clone(),
+            icon: None,
+            meta: None,
+        };
+    }
+
+    let title = e
+        .title
+        .clone()
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| leaf_from_volumio_uri(&uri));
+    BrowseItem {
+        item_type: "song".to_string(),
+        title,
+        uri,
+        service: svc,
+        artist: e.artist.clone(),
+        album: e.album.clone(),
+        duration: None,
+        albumart: e.albumart.clone(),
+        icon: e.icon.clone(),
+        meta: None,
+    }
+}
+
+fn leaf_from_volumio_uri(u: &str) -> String {
+    u.rsplit('/').next().unwrap_or(u).to_string()
+}
+
+/// Human-readable label for `albums://` / `artists://` / `genres://` rows in playlists.
+fn tag_uri_display_title(uri: &str) -> String {
+    if let Some(rest) = uri.strip_prefix("albums://") {
+        let dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        if let Some((a, b)) = dec.split_once('/') {
+            let artist = a.trim();
+            let album = b.trim();
+            if !album.is_empty() {
+                return format!("{} — {}", artist, album);
+            }
+        }
+        return dec;
+    }
+    if let Some(rest) = uri.strip_prefix("artists://") {
+        let dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        return dec.trim_matches('/').to_string();
+    }
+    if let Some(rest) = uri.strip_prefix("genres://") {
+        let dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        return dec.trim_matches('/').to_string();
+    }
+    leaf_from_volumio_uri(uri)
+}
+
+/// Fill title/artist/album/albumart from MPD tags for `music-library/...` **song** rows (playlist / favourites).
+pub async fn enrich_playlist_browse_items_from_mpd(
+    config: &MpdConfig,
+    music_root: &Path,
+    items: &mut [BrowseItem],
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    for item in items.iter_mut() {
+        if item.item_type != "song" {
+            continue;
+        }
+        if !item.uri.starts_with("music-library/") {
+            continue;
+        }
+        let path = volumio_uri_to_mpd_path(&item.uri);
+        if path.is_empty() {
+            continue;
+        }
+        let frame = match client
+            .raw_command(RawCommand::new("lsinfo").argument(path))
+            .await
+        {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let mut drill = AlbumDrillAgg::default();
+        let parsed = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
+        if let Some(song) = parsed.into_iter().find(|i| i.item_type == "song") {
+            *item = song;
+        }
+    }
+    Ok(())
+}
+
 /// List content of a stored playlist (listplaylist "name"). Returns URIs (music-library/...).
 pub async fn list_playlist_content_connected(config: &MpdConfig, name: &str) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
@@ -798,6 +947,30 @@ pub async fn load_playlist_connected(config: &MpdConfig, name: &str) -> Result<(
     Ok(())
 }
 
+/// Play a playlist by name: library favourites / JSON playlists under `settings/playlist/`, else MPD `load`.
+pub async fn play_playlist_by_name(config: &MpdConfig, name: &str) -> Result<()> {
+    if let Some(entries) = crate::playlist_library::load_entries_for_play(name) {
+        let uris = crate::playlist_library::entries_to_play_uris(&entries);
+        if uris.is_empty() {
+            return Ok(());
+        }
+        return play_items_list_connected(config, &uris, 0).await;
+    }
+    load_playlist_connected(config, name).await
+}
+
+/// Append playlist to queue: resolved JSON / favourites, else MPD `load` (append).
+pub async fn enqueue_playlist_by_name(config: &MpdConfig, name: &str) -> Result<()> {
+    if let Some(entries) = crate::playlist_library::load_entries_for_play(name) {
+        let uris = crate::playlist_library::entries_to_play_uris(&entries);
+        if uris.is_empty() {
+            return Ok(());
+        }
+        return add_multiple_to_queue_connected(config, &uris).await;
+    }
+    enqueue_playlist_connected(config, name).await
+}
+
 /// Save current queue as stored playlist.
 pub async fn save_queue_to_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
@@ -818,7 +991,8 @@ pub async fn delete_playlist_connected(config: &MpdConfig, name: &str) -> Result
     Ok(())
 }
 
-/// Create empty stored playlist (clear queue, save as name).
+/// Create empty stored playlist (clear queue, save as name). Unused when JSON playlists are enabled.
+#[allow(dead_code)]
 pub async fn create_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
@@ -971,17 +1145,48 @@ pub fn empty_browse_response(prev_uri: impl Into<String>) -> BrowseResponse {
     }
 }
 
-/// Legacy favourites are not backed by MPD; return empty list so the UI matches navigation shape.
-pub fn browse_favourites_stub() -> BrowseResponse {
+/// Browse `uri=favourites` — JSON under `settings/favourites/favourites` (Node `/data/favourites/favourites`).
+pub fn browse_favourites_response() -> BrowseResponse {
+    let entries = crate::playlist_library::load_favourites();
+    let items: Vec<BrowseItem> = entries
+        .into_iter()
+        .map(|e| {
+            let title = e
+                .title
+                .clone()
+                .unwrap_or_else(|| e.uri.clone());
+            let uri = crate::playlist_library::normalize_volumio_uri(&e.uri);
+            BrowseItem {
+                item_type: "song".to_string(),
+                title,
+                uri,
+                service: e.service,
+                artist: e.artist,
+                album: e.album,
+                duration: None,
+                albumart: e.albumart,
+                icon: e.icon,
+                meta: None,
+            }
+        })
+        .collect();
+
     BrowseResponse {
         navigation: BrowseNavigation {
-            info: None,
+            info: Some(BrowseNavInfo::Playlist(BrowsePlaylistNavInfo {
+                uri: "playlists/favourites".to_string(),
+                title: "Favourites".to_string(),
+                name: "favourites".to_string(),
+                service: "mpd",
+                nav_type: "play-playlist",
+                albumart: "/albumart?sourceicon=music_service/mpd/favouritesicon.png".to_string(),
+            })),
             prev: BrowsePrev {
                 uri: "music-library".to_string(),
             },
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],
-                items: vec![],
+                items,
             }],
         },
     }
@@ -1602,7 +1807,7 @@ async fn browse_album_songs_connected(
         None
     } else {
         let albumart = browse_album_list_albumart_url(agg.first_rep_uri.as_deref(), artist, album);
-        Some(BrowseNavigationInfo {
+        Some(BrowseNavInfo::Album(BrowseNavigationInfo {
             uri: browse_uri,
             service: "mpd",
             artist: artist.to_string(),
@@ -1617,7 +1822,7 @@ async fn browse_album_songs_connected(
             } else {
                 Some(agg.last_ext)
             },
-        })
+        }))
     };
 
     Ok(BrowseResponse {
@@ -1800,7 +2005,11 @@ pub async fn browse_connected(
     uri: &str,
 ) -> Result<BrowseResponse> {
     if uri == "favourites" {
-        return Ok(browse_favourites_stub());
+        let mut resp = browse_favourites_response();
+        for list in &mut resp.navigation.lists {
+            enrich_playlist_browse_items_from_mpd(config, music_root, &mut list.items).await?;
+        }
+        return Ok(resp);
     }
 
     if uri.starts_with("genres://") {

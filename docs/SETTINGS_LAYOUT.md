@@ -23,6 +23,8 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/alsa/` | ALSA output device selection, I2S enablement, DAC id | `state.toml` |
 | `settings/mpd/` | MPD / Playback Options (buffer, DSD, mixer type, resampling, …) | `playback.toml` |
 | `settings/mounts/` | NAS/SMB/NFS share definitions + CIFS credential sidecars | `shares.toml` (mode `0600`), optional `cifs-<uuid>.cred` |
+| `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |
+| `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
 
 Full default paths (when no env override):
 
@@ -63,7 +65,7 @@ Keep **secrets** out of generic `*.toml` that might be world-readable; use root-
 
 Bootstrap creates:
 
-`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts`
+`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist`
 
 so the daemon can write state before the first save.
 

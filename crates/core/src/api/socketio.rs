@@ -6,9 +6,10 @@ use crate::alsa;
 use crate::alsa_cards;
 use crate::i2s;
 use crate::mpd::{
-    self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
-    BrowseResponse, MpdConfig,
+    self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavInfo, BrowseNavigation,
+    BrowsePlaylistNavInfo, BrowsePrev, BrowseResponse, MpdConfig,
 };
+use crate::playlist_library::PlaylistEntry;
 use mpd_client::Client;
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
@@ -153,6 +154,8 @@ async fn on_connect(s: SocketRef) {
     s.on("addToPlaylist", add_to_playlist);
     s.on("removeFromPlaylist", remove_from_playlist);
     s.on("enqueue", enqueue);
+    s.on("addToFavourites", add_to_favourites);
+    s.on("removeFromFavourites", remove_from_favourites);
     s.on("GetTrackInfo", get_track_info);
     s.on("callMethod", call_method);
     s.on("pinger", pinger);
@@ -270,6 +273,11 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
                     pushstate_log::warn_socket_push_state_emit("handler getState", e);
                 }
             }
+            let uf = crate::playlist_library::urifavourites_for_state(
+                payload.service.clone(),
+                payload.uri.clone(),
+            );
+            s.emit("urifavourites", &uf).ok();
         }
         Err(e) => {
             tracing::warn!("{} getState MPD error: {}", crate::log_tags::EVO_STATE, e);
@@ -1408,19 +1416,42 @@ async fn browse_library(
     }
 
     if uri == "favourites" {
-        let resp = mpd::browse_favourites_stub();
-        push_browse_and_store(&s, &state, &resp).await;
+        let config = mpd_config(&state);
+        match mpd::browse_connected(
+            &config,
+            &state.config.music_sources.music_root,
+            "favourites",
+        )
+        .await
+        {
+            Ok(mut resp) => {
+                mpd::browse_response_fill_meta_from_artist(&mut resp);
+                push_browse_and_store(&s, &state, &resp).await;
+            }
+            Err(e) => {
+                tracing::warn!("{} browse favourites MPD error: {}", crate::log_tags::EVO_BROWSE, e);
+                let resp = mpd::browse_favourites_response();
+                push_browse_and_store(&s, &state, &resp).await;
+            }
+        }
         return;
     }
 
     if uri == "playlists" {
         let config = mpd_config(&state);
         match mpd::list_playlists_connected(&config).await {
-            Ok(names) => {
-                let items: Vec<BrowseItem> = names
+            Ok(mpd_names) => {
+                let json_names = crate::playlist_library::list_json_playlist_names();
+                let mut merged = crate::playlist_library::merge_name_lists(json_names, mpd_names);
+                if !crate::playlist_library::load_favourites().is_empty()
+                    && !merged.iter().any(|n| n == "favourites")
+                {
+                    merged.insert(0, "favourites".to_string());
+                }
+                let items: Vec<BrowseItem> = merged
                     .into_iter()
                     .map(|name| BrowseItem {
-                        item_type: "folder".to_string(),
+                        item_type: "playlist".to_string(),
                         title: name.clone(),
                         uri: format!("playlists/{}", name),
                         service: "mpd".to_string(),
@@ -1428,9 +1459,14 @@ async fn browse_library(
                         album: None,
                         duration: None,
                         albumart: Some(
-                            "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
+                            if name == "favourites" {
+                                "/albumart?sourceicon=music_service/mpd/favouritesicon.png"
+                                    .to_string()
+                            } else {
+                                "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string()
+                            },
                         ),
-                        icon: None,
+                        icon: Some("fa fa-list-ol".to_string()),
                         meta: None,
                     })
                     .collect();
@@ -1457,10 +1493,59 @@ async fn browse_library(
     }
 
     if let Some(playlist_name) = uri.strip_prefix("playlists/") {
+        if let Some(entries) =
+            crate::playlist_library::load_entries_for_playlist_browse(playlist_name)
+        {
+            let mut items: Vec<BrowseItem> = entries
+                .iter()
+                .map(mpd::browse_item_from_playlist_entry)
+                .collect();
+            let config = mpd_config(&state);
+            if let Err(e) = mpd::enrich_playlist_browse_items_from_mpd(
+                &config,
+                &state.config.music_sources.music_root,
+                &mut items,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "{} enrich playlist JSON browse: {}",
+                    crate::log_tags::EVO_BROWSE,
+                    e
+                );
+            }
+            let icon = if playlist_name == "favourites" {
+                "/albumart?sourceicon=music_service/mpd/favouritesicon.png"
+            } else {
+                "/albumart?sourceicon=music_service/mpd/playlisticon.png"
+            };
+            let resp = BrowseResponse {
+                navigation: BrowseNavigation {
+                    info: Some(BrowseNavInfo::Playlist(BrowsePlaylistNavInfo {
+                        uri: format!("playlists/{}", playlist_name),
+                        title: playlist_name.to_string(),
+                        name: playlist_name.to_string(),
+                        service: "mpd",
+                        nav_type: "play-playlist",
+                        albumart: icon.to_string(),
+                    })),
+                    prev: BrowsePrev {
+                        uri: "playlists".to_string(),
+                    },
+                    lists: vec![BrowseList {
+                        available_list_views: vec!["list", "grid"],
+                        items,
+                    }],
+                },
+            };
+            push_browse_and_store(&s, &state, &resp).await;
+            return;
+        }
+
         let config = mpd_config(&state);
         match mpd::list_playlist_content_connected(&config, playlist_name).await {
             Ok(uris) => {
-                let items: Vec<BrowseItem> = uris
+                let mut items: Vec<BrowseItem> = uris
                     .into_iter()
                     .map(|uri| {
                         let title = uri
@@ -1483,9 +1568,30 @@ async fn browse_library(
                         }
                     })
                     .collect();
+                if let Err(e) = mpd::enrich_playlist_browse_items_from_mpd(
+                    &config,
+                    &state.config.music_sources.music_root,
+                    &mut items,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "{} enrich MPD playlist browse: {}",
+                        crate::log_tags::EVO_BROWSE,
+                        e
+                    );
+                }
                 let resp = BrowseResponse {
                     navigation: BrowseNavigation {
-                        info: None,
+                        info: Some(BrowseNavInfo::Playlist(BrowsePlaylistNavInfo {
+                            uri: format!("playlists/{}", playlist_name),
+                            title: playlist_name.to_string(),
+                            name: playlist_name.to_string(),
+                            service: "mpd",
+                            nav_type: "play-playlist",
+                            albumart: "/albumart?sourceicon=music_service/mpd/playlisticon.png"
+                                .to_string(),
+                        })),
                         prev: BrowsePrev {
                             uri: "playlists".to_string(),
                         },
@@ -1604,7 +1710,7 @@ async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
     let is_playlist = uri.starts_with("playlists/") && !uri.contains("://");
     let result = if is_playlist {
         let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
-        mpd::load_playlist_connected(&config, &name).await
+        mpd::play_playlist_by_name(&config, &name).await
     } else {
         mpd::replace_and_play_resolved(
             &config,
@@ -2192,6 +2298,80 @@ async fn play_next(
 // ---- Playlist manager ----
 
 #[derive(Debug, Deserialize)]
+struct AddToFavouritesPayload {
+    service: String,
+    uri: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    artist: Option<String>,
+    #[serde(default)]
+    album: Option<String>,
+    #[serde(default)]
+    albumart: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoveFromFavouritesPayload {
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: String,
+    service: String,
+    uri: String,
+}
+
+async fn add_to_favourites(s: SocketRef, Data(payload): Data<AddToFavouritesPayload>) {
+    let entry = PlaylistEntry {
+        service: payload.service.clone(),
+        uri: payload.uri.clone(),
+        title: payload.title,
+        artist: payload.artist,
+        album: payload.album,
+        albumart: payload.albumart,
+        icon: None,
+    };
+    match crate::playlist_library::add_to_favourites_entry(entry) {
+        Ok(()) => {
+            let msg = crate::playlist_library::urifavourites_for_state(
+                Some(payload.service),
+                Some(payload.uri),
+            );
+            s.emit("urifavourites", &msg).ok();
+        }
+        Err(e) => tracing::warn!(
+            "{} addToFavourites: {}",
+            crate::log_tags::EVO_PLAYLIST,
+            e
+        ),
+    }
+}
+
+async fn remove_from_favourites(s: SocketRef, Data(payload): Data<RemoveFromFavouritesPayload>) {
+    match crate::playlist_library::remove_from_favourites(&payload.service, &payload.uri) {
+        Ok(true) => {
+            s.emit(
+                "urifavourites",
+                &serde_json::json!({
+                    "service": payload.service,
+                    "uri": payload.uri,
+                    "favourite": false
+                }),
+            )
+            .ok();
+        }
+        Ok(false) => tracing::warn!(
+            "{} removeFromFavourites: entry not found",
+            crate::log_tags::EVO_PLAYLIST
+        ),
+        Err(e) => tracing::warn!(
+            "{} removeFromFavourites: {}",
+            crate::log_tags::EVO_PLAYLIST,
+            e
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct PlaylistNamePayload {
     name: String,
 }
@@ -2223,6 +2403,32 @@ async fn get_playlist_content(
     if payload.name.is_empty() {
         return;
     }
+    if let Some(entries) =
+        crate::playlist_library::load_entries_for_playlist_browse(&payload.name)
+    {
+        let items: Vec<serde_json::Value> = entries
+            .into_iter()
+            .map(|e| {
+                let title = e
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| e.uri.clone());
+                serde_json::json!({
+                    "service": e.service,
+                    "uri": e.uri,
+                    "name": title,
+                    "title": title,
+                    "artist": e.artist,
+                    "album": e.album,
+                    "albumart": e.albumart,
+                })
+            })
+            .collect();
+        let payload_out = serde_json::json!({ "name": payload.name, "lists": [ items ] });
+        s.emit("pushPlaylistContent", &payload_out).ok();
+        return;
+    }
+
     let config = mpd_config(&state);
     match mpd::list_playlist_content_connected(&config, &payload.name).await {
         Ok(uris) => {
@@ -2252,8 +2458,15 @@ async fn get_playlist_content(
 async fn list_playlist(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     match mpd::list_playlists_connected(&config).await {
-        Ok(names) => {
-            s.emit("pushListPlaylist", &names).ok();
+        Ok(mpd_names) => {
+            let json_names = crate::playlist_library::list_json_playlist_names();
+            let mut merged = crate::playlist_library::merge_name_lists(json_names, mpd_names);
+            if !crate::playlist_library::load_favourites().is_empty()
+                && !merged.iter().any(|n| n == "favourites")
+            {
+                merged.insert(0, "favourites".to_string());
+            }
+            s.emit("pushListPlaylist", &merged).ok();
         }
         Err(e) => tracing::warn!("{} listPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
@@ -2268,7 +2481,7 @@ async fn play_playlist(
         return;
     }
     let config = mpd_config(&state);
-    match mpd::load_playlist_connected(&config, &payload.name).await {
+    match mpd::play_playlist_by_name(&config, &payload.name).await {
         Ok(()) => {
             s.emit("pushPlayPlaylist", &serde_json::json!({ "name": payload.name }))
                 .ok();
@@ -2305,20 +2518,35 @@ async fn create_playlist(
     if payload.name.is_empty() {
         return;
     }
-    let config = mpd_config(&state);
-    match mpd::create_playlist_connected(&config, &payload.name).await {
+    if crate::playlist_library::json_playlist_exists(&payload.name) {
+        s.emit(
+            "pushCreatePlaylist",
+            &serde_json::json!({ "success": false, "name": payload.name }),
+        )
+        .ok();
+        return;
+    }
+    match crate::playlist_library::create_empty_json_playlist(&payload.name) {
         Ok(()) => {
             s.emit(
                 "pushCreatePlaylist",
                 &serde_json::json!({ "success": true, "name": payload.name }),
             )
             .ok();
-            if let Ok(names) = mpd::list_playlists_connected(&config).await {
-                s.emit("pushListPlaylist", &names).ok();
+            let config = mpd_config(&state);
+            if let Ok(mpd_names) = mpd::list_playlists_connected(&config).await {
+                let json_names = crate::playlist_library::list_json_playlist_names();
+                let mut merged = crate::playlist_library::merge_name_lists(json_names, mpd_names);
+                if !crate::playlist_library::load_favourites().is_empty()
+                    && !merged.iter().any(|n| n == "favourites")
+                {
+                    merged.insert(0, "favourites".to_string());
+                }
+                s.emit("pushListPlaylist", &merged).ok();
             }
         }
         Err(e) => {
-            tracing::warn!("{} createPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
+            tracing::warn!("{} createPlaylist JSON error: {}", crate::log_tags::EVO_PLAYLIST, e);
             s.emit(
                 "pushCreatePlaylist",
                 &serde_json::json!({ "success": false, "name": payload.name }),
@@ -2336,44 +2564,52 @@ async fn delete_playlist(
     if payload.name.is_empty() {
         return;
     }
+    let _ = crate::playlist_library::delete_json_playlist(&payload.name);
     let config = mpd_config(&state);
-    match mpd::delete_playlist_connected(&config, &payload.name).await {
-        Ok(()) => {
-            if let Ok(names) = mpd::list_playlists_connected(&config).await {
-                s.emit("pushListPlaylist", &names).ok();
-                let items: Vec<BrowseItem> = names
-                    .into_iter()
-                    .map(|name| BrowseItem {
-                        item_type: "folder".to_string(),
-                        title: name.clone(),
-                        uri: format!("playlists/{}", name),
-                        service: "mpd".to_string(),
-                        artist: None,
-                        album: None,
-                        duration: None,
-                        albumart: Some(
-                            "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string(),
-                        ),
-                        icon: None,
-                        meta: None,
-                    })
-                    .collect();
-                let resp = BrowseResponse {
-                    navigation: BrowseNavigation {
-                        info: None,
-                        prev: BrowsePrev {
-                            uri: String::new(),
-                        },
-                        lists: vec![BrowseList {
-                            available_list_views: vec!["list", "grid"],
-                            items,
-                        }],
-                    },
-                };
-                push_browse_and_store(&s, &state, &resp).await;
-            }
+    let _ = mpd::delete_playlist_connected(&config, &payload.name).await;
+    if let Ok(mpd_names) = mpd::list_playlists_connected(&config).await {
+        let json_names = crate::playlist_library::list_json_playlist_names();
+        let mut merged = crate::playlist_library::merge_name_lists(json_names, mpd_names);
+        if !crate::playlist_library::load_favourites().is_empty()
+            && !merged.iter().any(|n| n == "favourites")
+        {
+            merged.insert(0, "favourites".to_string());
         }
-        Err(e) => tracing::warn!("{} deletePlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
+        s.emit("pushListPlaylist", &merged).ok();
+        let items: Vec<BrowseItem> = merged
+            .into_iter()
+            .map(|name| BrowseItem {
+                item_type: "playlist".to_string(),
+                title: name.clone(),
+                uri: format!("playlists/{}", name),
+                service: "mpd".to_string(),
+                artist: None,
+                album: None,
+                duration: None,
+                albumart: Some(
+                    if name == "favourites" {
+                        "/albumart?sourceicon=music_service/mpd/favouritesicon.png".to_string()
+                    } else {
+                        "/albumart?sourceicon=music_service/mpd/playlisticon.png".to_string()
+                    },
+                ),
+                icon: Some("fa fa-list-ol".to_string()),
+                meta: None,
+            })
+            .collect();
+        let resp = BrowseResponse {
+            navigation: BrowseNavigation {
+                info: None,
+                prev: BrowsePrev {
+                    uri: String::new(),
+                },
+                lists: vec![BrowseList {
+                    available_list_views: vec!["list", "grid"],
+                    items,
+                }],
+            },
+        };
+        push_browse_and_store(&s, &state, &resp).await;
     }
 }
 
@@ -2385,24 +2621,57 @@ async fn add_to_playlist(
     if payload.name.is_empty() || payload.uri.is_empty() {
         return;
     }
+    let service = if payload.service.is_empty() {
+        "mpd".to_string()
+    } else {
+        payload.service.clone()
+    };
+    let title = if !payload.album_title.is_empty() {
+        Some(payload.album_title.clone())
+    } else {
+        None
+    };
+    let entry = PlaylistEntry {
+        service: service.clone(),
+        uri: payload.uri.clone(),
+        title,
+        artist: None,
+        album: None,
+        albumart: None,
+        icon: None,
+    };
     let config = mpd_config(&state);
-    match mpd::add_to_playlist_connected(&config, &payload.name, &payload.uri).await {
+    let res =
+        if crate::playlist_library::json_playlist_exists(&payload.name) || payload.name == "favourites"
+        {
+            crate::playlist_library::add_to_json_playlist(&payload.name, entry)
+        } else {
+            mpd::add_to_playlist_connected(&config, &payload.name, &payload.uri).await
+        };
+    match res {
         Ok(()) => {
-            if let Ok(names) = mpd::list_playlists_connected(&config).await {
-                s.emit("pushListPlaylist", &names).ok();
+            if let Ok(mpd_names) = mpd::list_playlists_connected(&config).await {
+                let json_names = crate::playlist_library::list_json_playlist_names();
+                let mut merged = crate::playlist_library::merge_name_lists(json_names, mpd_names);
+                if !crate::playlist_library::load_favourites().is_empty()
+                    && !merged.iter().any(|n| n == "favourites")
+                {
+                    merged.insert(0, "favourites".to_string());
+                }
+                s.emit("pushListPlaylist", &merged).ok();
             }
             s.emit(
                 "pushAddToPlaylist",
                 &serde_json::json!({
                     "name": payload.name,
-                    "service": if payload.service.is_empty() { "mpd" } else { payload.service.as_str() },
+                    "service": service,
                     "uri": payload.uri,
                     "albumTitle": payload.album_title
                 }),
             )
             .ok();
         }
-        Err(e) => tracing::warn!("{} addToPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
+        Err(e) => tracing::warn!("{} addToPlaylist error: {}", crate::log_tags::EVO_PLAYLIST, e),
     }
 }
 
@@ -2414,65 +2683,138 @@ async fn remove_from_playlist(
     if payload.name.is_empty() || payload.uri.is_empty() {
         return;
     }
+    let service = if payload.service.is_empty() {
+        "mpd".to_string()
+    } else {
+        payload.service.clone()
+    };
     let config = mpd_config(&state);
-    let uris = match mpd::list_playlist_content_connected(&config, &payload.name).await {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::warn!("{} removeFromPlaylist list content MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
-            return;
-        }
-    };
-    let position = uris
-        .iter()
-        .position(|u| u == &payload.uri)
-        .map(|p| p as u32);
-    let Some(pos) = position else {
-        tracing::warn!("{} removeFromPlaylist: uri not found in playlist", crate::log_tags::EVO_PLAYLIST);
-        return;
-    };
-    match mpd::remove_from_playlist_connected(&config, &payload.name, pos).await {
-        Ok(()) => {
-            if let Ok(updated) = mpd::list_playlist_content_connected(&config, &payload.name).await
-            {
-                let items: Vec<BrowseItem> = updated
-                    .into_iter()
-                    .map(|uri| {
-                        let title = uri
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or(uri.as_str())
-                            .to_string();
-                        let albumart = Some(browse_song_albumart_path_only(&uri));
-                        BrowseItem {
-                            item_type: "song".to_string(),
-                            title,
-                            uri,
-                            service: "mpd".to_string(),
-                            artist: None,
-                            album: None,
-                            duration: None,
-                            albumart,
-                            icon: None,
-                            meta: None,
-                        }
-                    })
-                    .collect();
-                let resp = BrowseResponse {
-                    navigation: BrowseNavigation {
-                        info: None,
-                        prev: BrowsePrev {
-                            uri: "playlists".to_string(),
-                        },
-                        lists: vec![BrowseList {
-                            available_list_views: vec!["list", "grid"],
-                            items,
-                        }],
-                    },
-                };
-                push_browse_and_store(&s, &state, &resp).await;
+
+    if crate::playlist_library::json_playlist_exists(&payload.name) || payload.name == "favourites" {
+        match crate::playlist_library::remove_from_json_playlist(
+            &payload.name,
+            &service,
+            &payload.uri,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    "{} removeFromPlaylist: uri not found in JSON playlist",
+                    crate::log_tags::EVO_PLAYLIST
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::warn!("{} removeFromPlaylist JSON error: {}", crate::log_tags::EVO_PLAYLIST, e);
+                return;
             }
         }
-        Err(e) => tracing::warn!("{} removeFromPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e),
+    } else {
+        let uris = match mpd::list_playlist_content_connected(&config, &payload.name).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(
+                    "{} removeFromPlaylist list content MPD error: {}",
+                    crate::log_tags::EVO_PLAYLIST,
+                    e
+                );
+                return;
+            }
+        };
+        let position = uris
+            .iter()
+            .position(|u| u == &payload.uri)
+            .map(|p| p as u32);
+        let Some(pos) = position else {
+            tracing::warn!(
+                "{} removeFromPlaylist: uri not found in playlist",
+                crate::log_tags::EVO_PLAYLIST
+            );
+            return;
+        };
+        if let Err(e) = mpd::remove_from_playlist_connected(&config, &payload.name, pos).await {
+            tracing::warn!("{} removeFromPlaylist MPD error: {}", crate::log_tags::EVO_PLAYLIST, e);
+            return;
+        }
+    }
+
+    if let Some(entries) = crate::playlist_library::load_entries_for_playlist_browse(&payload.name)
+    {
+        let items: Vec<BrowseItem> = entries
+            .into_iter()
+            .map(|e| {
+                let title = e
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| e.uri.clone());
+                let uri = crate::playlist_library::normalize_volumio_uri(&e.uri);
+                BrowseItem {
+                    item_type: "song".to_string(),
+                    title,
+                    uri,
+                    service: e.service,
+                    artist: e.artist,
+                    album: e.album,
+                    duration: None,
+                    albumart: e.albumart,
+                    icon: e.icon,
+                    meta: None,
+                }
+            })
+            .collect();
+        let resp = BrowseResponse {
+            navigation: BrowseNavigation {
+                info: None,
+                prev: BrowsePrev {
+                    uri: "playlists".to_string(),
+                },
+                lists: vec![BrowseList {
+                    available_list_views: vec!["list", "grid"],
+                    items,
+                }],
+            },
+        };
+        push_browse_and_store(&s, &state, &resp).await;
+        return;
+    }
+
+    if let Ok(updated) = mpd::list_playlist_content_connected(&config, &payload.name).await {
+        let items: Vec<BrowseItem> = updated
+            .into_iter()
+            .map(|uri| {
+                let title = uri
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(uri.as_str())
+                    .to_string();
+                let albumart = Some(browse_song_albumart_path_only(&uri));
+                BrowseItem {
+                    item_type: "song".to_string(),
+                    title,
+                    uri,
+                    service: "mpd".to_string(),
+                    artist: None,
+                    album: None,
+                    duration: None,
+                    albumart,
+                    icon: None,
+                    meta: None,
+                }
+            })
+            .collect();
+        let resp = BrowseResponse {
+            navigation: BrowseNavigation {
+                info: None,
+                prev: BrowsePrev {
+                    uri: "playlists".to_string(),
+                },
+                lists: vec![BrowseList {
+                    available_list_views: vec!["list", "grid"],
+                    items,
+                }],
+            },
+        };
+        push_browse_and_store(&s, &state, &resp).await;
     }
 }
 
@@ -2485,7 +2827,7 @@ async fn enqueue(
         return;
     }
     let config = mpd_config(&state);
-    match mpd::enqueue_playlist_connected(&config, &payload.name).await {
+    match mpd::enqueue_playlist_by_name(&config, &payload.name).await {
         Ok(()) => {
             s.emit("pushEnqueue", &serde_json::json!({ "name": payload.name }))
                 .ok();
@@ -3066,6 +3408,13 @@ pub async fn push_state_queue_loop(
                         pushstate_log::debug_broadcast_push_state_after_emit(&s, false);
                         pushstate_log::warn_broadcast_push_state_emit(e);
                     }
+                }
+                let uf = crate::playlist_library::urifavourites_for_state(s.service.clone(), s.uri.clone());
+                if io.emit("urifavourites", &uf).await.is_err() {
+                    tracing::debug!(
+                        "{} broadcast urifavourites failed (non-fatal)",
+                        crate::log_tags::EVO_PUSHSTATE
+                    );
                 }
             }
             Err(e) => pushstate_log::warn_broadcast_get_state(e),

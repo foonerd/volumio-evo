@@ -430,9 +430,6 @@ pub async fn browse(
     }
 
     let config = mpd_config_from_app(&state);
-    if uri == "favourites" {
-        return Json(mpd::browse_favourites_stub()).into_response();
-    }
     match mpd::browse_connected(&config, &state.config.music_sources.music_root, uri).await {
         Ok(mut resp) => {
             mpd::browse_response_fill_meta_from_artist(&mut resp);

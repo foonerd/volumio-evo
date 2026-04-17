@@ -18,6 +18,7 @@ mod artist_normalize;
 mod config;
 mod metavolumio;
 mod mpd;
+mod playlist_library;
 mod plugins;
 
 #[tokio::main]

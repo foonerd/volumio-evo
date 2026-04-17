@@ -41,6 +41,8 @@ if [[ -z "${DEVICE_IP}" ]]; then
 fi
 # Must match Evo HTTP bind port in /etc/volumio-evo/config.toml (default 3000).
 EVO_HTTP_PORT="${EVO_HTTP_PORT:-3000}"
+# After systemctl restart, the HTTP server may not accept connections immediately; validate_backend_only retries.
+EVO_BACKEND_WAIT_SECS="${EVO_BACKEND_WAIT_SECS:-60}"
 BACKEND_URL="${BACKEND_URL:-http://${DEVICE_IP}:${EVO_HTTP_PORT}}"
 # Default static roots per stock layout (volumioUisList.reference.json). Final UI_DIST_DIR is set
 # from /etc/volumio-evo/config.toml [ui] active_layout unless UI_DIST_OVERRIDE is set.
@@ -106,6 +108,7 @@ Environment (common):
   UI_DIST_SOURCE=/path/to/single/dist
   BACKEND_URL=http://<device-ip>:3000
   EVO_HTTP_PORT=3000
+  EVO_BACKEND_WAIT_SECS=60   # max wait for /api/health after systemctl restart (slow Pi / first start)
   UI_DIST_OVERRIDE=
   UI_ROOT_MANIFEST=/srv/volumio-ui-manifest
   UI_ROOT_CONTEMPORARY=/srv/volumio-ui
@@ -793,7 +796,8 @@ build_and_install_evo() {
 
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart \
     /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd \
-    /var/lib/volumio-evo/settings/mounts /mnt/NAS
+    /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites \
+    /var/lib/volumio-evo/settings/playlist /mnt/NAS
   install_dacs_catalog
   install_alsa_cards_json
   install_bundled_plugins_assets
@@ -956,9 +960,35 @@ EOF
 
 validate_backend_only() {
   echo "Validating backend..."
-  curl -fsS "http://127.0.0.1:${EVO_HTTP_PORT}/api/health" >/dev/null
-  curl -fsS "http://127.0.0.1:${EVO_HTTP_PORT}/api/v1/ping" >/dev/null
-  echo "Backend OK."
+  local i max
+  max="${EVO_BACKEND_WAIT_SECS:-60}"
+  for ((i = 1; i <= max; i++)); do
+    if curl -fsS --connect-timeout 2 --max-time 5 \
+      "http://127.0.0.1:${EVO_HTTP_PORT}/api/health" >/dev/null 2>&1 \
+      && curl -fsS --connect-timeout 2 --max-time 5 \
+      "http://127.0.0.1:${EVO_HTTP_PORT}/api/v1/ping" >/dev/null 2>&1; then
+      echo "Backend OK."
+      return 0
+    fi
+    if [[ "${i}" -eq 1 ]]; then
+      echo "Waiting for volumio-evo on 127.0.0.1:${EVO_HTTP_PORT} (up to ${max}s)..."
+    fi
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-failed --quiet volumio-evo 2>/dev/null; then
+      echo "ERROR: volumio-evo.service is in failed state (not listening on port ${EVO_HTTP_PORT})."
+      echo "  journalctl -u volumio-evo -n 50 --no-pager"
+      systemctl status volumio-evo --no-pager 2>&1 || true
+      journalctl -u volumio-evo -n 50 --no-pager 2>&1 || true
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "ERROR: Backend did not respond on 127.0.0.1:${EVO_HTTP_PORT} within ${max}s."
+  echo "  systemctl status volumio-evo"
+  echo "  journalctl -u volumio-evo -n 50 --no-pager"
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl status volumio-evo --no-pager 2>&1 || true
+  fi
+  exit 1
 }
 
 validate_stack() {
