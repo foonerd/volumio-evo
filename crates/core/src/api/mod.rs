@@ -1,6 +1,7 @@
 //! HTTP and Socket.IO API.
 
 mod http;
+mod network_ui;
 mod playback_clock;
 mod pushstate_log;
 mod socketio;
@@ -325,4 +326,51 @@ pub async fn run_startup_volume_bootstrap(state: AppState) {
         "{} could not apply default startup volume: MPD not accepting setvol after retries",
         crate::log_tags::EVO_VOLUME
     );
+}
+
+/// After boot, apply persisted [`crate::network_config::NetworkIntent`] so NM matches **intent** without
+/// opening the UI. Set `VOLUMIO_EVO_SKIP_NETWORK_INTENT_APPLY=1` to disable (debug / installers).
+pub async fn run_startup_network_intent_apply(state: AppState) {
+    if std::env::var("VOLUMIO_EVO_SKIP_NETWORK_INTENT_APPLY")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!(
+            "{} skipping startup network intent apply (VOLUMIO_EVO_SKIP_NETWORK_INTENT_APPLY=1)",
+            crate::log_tags::EVO_NET
+        );
+        return;
+    }
+
+    // Brief delay so NetworkManager is up after systemd (same idea as startup volume).
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let intent = crate::network_config::NetworkIntent::load();
+    if matches!(
+        intent.wifi.role,
+        crate::network_config::WifiRole::Sta
+    ) {
+        crate::nm_network::ensure_wifi_client_hw_ready().await;
+    }
+
+    let cfg = state.config.as_ref();
+    let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
+    if report.ok {
+        tracing::info!(
+            "{} applied persisted network intent at startup ({} step(s))",
+            crate::log_tags::EVO_NET,
+            report.steps.len()
+        );
+    } else {
+        tracing::warn!(
+            "{} startup network intent apply failed or partial: {}",
+            crate::log_tags::EVO_NET,
+            report
+                .steps
+                .last()
+                .map(|s| s.as_str())
+                .unwrap_or("unknown error")
+        );
+    }
 }

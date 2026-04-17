@@ -35,4 +35,5 @@ urlencoding = "2"
 image = "0.25"
 if-addrs = "0.13"
 regex = "1"
+libc = "0.2"
 volumio-evo-plugin-sdk = { path = "../plugin-sdk" }

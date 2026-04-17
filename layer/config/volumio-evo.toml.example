@@ -2,6 +2,9 @@
 # Install or first run: set music_root here or via VOLUMIO_EVO_MUSIC_ROOT
 # (e.g. in systemd override). Service may run as a different user than volumio.
 #
+# Skip applying persisted network intent (`intent.toml`) at Evo startup. Default: apply after ~2s.
+# Environment=VOLUMIO_EVO_SKIP_NETWORK_INTENT_APPLY=1
+#
 # Logging: error | warn | info | verbose | debug | trace
 # Default filter when RUST_LOG is unset. Override: RUST_LOG (full directive) or VOLUMIO_EVO_LOG_LEVEL.
 # info = discrete events (not per-second/poll spam); warn = quieter journal; verbose/debug for diagnosis.
@@ -9,6 +12,11 @@
 log_level = "info"
 
 bind = "0.0.0.0:3000"
+# Primary Wi‑Fi interface for NM (`nmcli dev wifi list ifname …`) and default when intent.toml omits wifi.ifname.
+# If omitted, Evo picks the first NM `wifi` device, preferring one that is not `unavailable` (handy with USB + SoC radios).
+# Raspberry Pi 3/3+ with USB dongle: internal wlan0 vs USB wlan1 — set explicitly when both exist.
+# Override: Environment=VOLUMIO_EVO_WIFI_IFACE=wlan1 (wins over this file).
+# wifi_iface = "wlan1"
 plugin_dir = "/usr/share/volumio-evo/plugins"
 mpd_host = "127.0.0.1"
 mpd_port = 6600

@@ -34,6 +34,8 @@ When a non-root user runs Evo:
 | `/var/lib/volumio-evo/**` | Settings, album art, state | **Service user** |
 | `/etc/sudoers.d/volumio-evo-mount` | NOPASSWD mount/umount | Root; content references **service user** |
 | `/etc/sudoers.d/volumio-evo-mpd` | NOPASSWD `systemctl restart mpd` | Root; **`systemctl`** path must match **`VOLUMIO_EVO_SYSTEMCTL`** |
+| `/etc/sudoers.d/volumio-evo-rfkill` | NOPASSWD **`rfkill unblock wifi`** | Root; **`rfkill`** path must match **`VOLUMIO_EVO_RFKILL`** |
+| `/etc/sudoers.d/volumio-evo-nmcli` | NOPASSWD **`nmcli`** (full binary path) | Root; path must match **`VOLUMIO_EVO_NMCLI`** in **`10-runtime-user.conf`** |
 
 ## Runtime OS actions (Evo process)
 
@@ -42,6 +44,8 @@ When a non-root user runs Evo:
 | Rewrite MPD fragment | Playback / ALSA / volume saves that affect MPD | **`std::fs::write`** to **`VOLUMIO_EVO_MPD_FRAGMENT`** (or default path) |
 | Reload MPD | After a successful fragment write | **Root:** `systemctl restart mpd` (or **`$VOLUMIO_EVO_SYSTEMCTL`**). **Non-root:** **only** `sudo -n $VOLUMIO_EVO_SYSTEMCTL restart mpd` — never a bare `systemctl` first |
 | NAS mounts (where implemented) | User adds/edits shares | **`sudo -n /usr/bin/mount`** / **`umount`** as allowed in **`volumio-evo-mount`** |
+| **NetworkManager** (`nmcli`) | Wi‑Fi scan, connection add/up/down (network intent apply) | **Root**, or **`sudo -n $VOLUMIO_EVO_NMCLI …`** — bootstrap installs **`/etc/sudoers.d/volumio-evo-nmcli`** when **`EVO_INSTALL_NMCLI_SUDOERS=1`** (must match **`VOLUMIO_EVO_NMCLI`**) |
+| **`rfkill`** (`unblock wifi`) | Clear **soft block** before `nmcli` Wi‑Fi scan when `/sys/class/rfkill/*/soft` blocks **wlan** | **Root**, or **`sudo -n $VOLUMIO_EVO_RFKILL unblock wifi`** — bootstrap installs **`/etc/sudoers.d/volumio-evo-rfkill`** when **`EVO_INSTALL_RFKILL_SUDOERS=1`** (must match **`VOLUMIO_EVO_RFKILL`** path) |
 
 Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** session.
 
@@ -51,6 +55,7 @@ Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** sessio
 |--------|---------|--------|
 | **`EVO_INSTALL_MOUNT_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-mount`** |
 | **`EVO_INSTALL_MPD_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-mpd`** for **`systemctl restart mpd`** |
+| **`EVO_INSTALL_NMCLI_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-nmcli`** for **`sudo -n nmcli`** (non-root network apply) |
 | **`EVO_SERVICE_USER`** | unset → auto | See **RUNTIME_USER.md** |
 
 Setting **`EVO_INSTALL_MPD_SUDOERS=0`** while running Evo **as non-root** means fragment writes may succeed but **MPD reload will fail** unless you run Evo as **root** or install an equivalent **NOPASSWD** rule yourself.

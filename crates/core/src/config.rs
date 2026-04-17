@@ -175,6 +175,28 @@ pub struct Config {
     /// Which stock UI layout is active (manifest / contemporary / classic).
     #[serde(default)]
     pub ui: UiConfig,
+    /// Primary Wi‑Fi interface for NM (scan, apply when `intent.toml` has empty `wifi.ifname`).
+    /// When omitted, Evo **auto-picks** a `wifi` device from NetworkManager (preferring one not in
+    /// `unavailable` state when several radios exist). Raspberry Pi 3-class **on-SoC Wi‑Fi is weak**;
+    /// set to the USB dongle iface (often `wlan1`) to force that radio.
+    /// Override env: **`VOLUMIO_EVO_WIFI_IFACE`** (wins over this file after load).
+    #[serde(default)]
+    pub wifi_iface: Option<String>,
+}
+
+impl Config {
+    /// Sync fallback Wi‑Fi interface name (default `wlan0`). Async code should prefer
+    /// [`crate::nm_network::resolve_effective_wifi_iface`] so NM device state can steer the choice.
+    pub fn wifi_iface_resolved(&self) -> String {
+        if let Some(ref s) = self.wifi_iface {
+            let t = s.trim();
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
+        // Keep literal here to avoid `config` ↔ `network_config` coupling (same as `network_config::DEFAULT_WIFI_IFACE`).
+        "wlan0".to_string()
+    }
 }
 
 fn default_exiftool_path() -> PathBuf {
@@ -262,6 +284,11 @@ pub fn load() -> anyhow::Result<Config> {
     if let Ok(v) = std::env::var("VOLUMIO_EVO_ACTIVE_LAYOUT") {
         if !v.is_empty() {
             config.ui.active_layout = v;
+        }
+    }
+    if let Ok(v) = std::env::var("VOLUMIO_EVO_WIFI_IFACE") {
+        if !v.trim().is_empty() {
+            config.wifi_iface = Some(v);
         }
     }
     if let Ok(s) = std::env::var("VOLUMIO_EVO_LOG_LEVEL") {

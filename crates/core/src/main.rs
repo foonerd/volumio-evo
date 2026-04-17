@@ -18,6 +18,10 @@ mod artist_normalize;
 mod config;
 mod metavolumio;
 mod mpd;
+mod network_config;
+mod network_status_ui;
+mod nm_network;
+mod rfkill_mgmt;
 mod playlist_library;
 mod plugins;
 
@@ -67,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         push_queue_wake_rx,
     ));
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
+    tokio::spawn(api::run_startup_network_intent_apply(state.clone()));
     let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
     tracing::info!("{} listening on {}", crate::log_tags::EVO_BOOT, state.config.bind);
 

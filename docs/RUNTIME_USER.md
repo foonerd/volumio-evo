@@ -17,6 +17,8 @@ The shipped unit has **no `User=`** in the repo. **Bootstrap** decides whether t
 | **`EVO_SERVICE_USER`** | Omit: auto (session user). Non-empty: that login. Empty: root. |
 | **`EVO_INSTALL_MOUNT_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-mount`** with **NOPASSWD** for **`/usr/bin/mount`**, **`/usr/bin/umount`**, **`/bin/umount`** only — for future NAS/SMB helpers. Set `0` to skip. |
 | **`EVO_INSTALL_MPD_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-mpd`** with **NOPASSWD** for **`systemctl restart mpd`** (exact path from **`command -v systemctl`**) so Evo can reload MPD after editing the fragment. Set `0` to skip. |
+| **`EVO_INSTALL_RFKILL_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-rfkill`** with **NOPASSWD** for **`rfkill unblock wifi`** so Evo can clear Wi‑Fi soft block before **`nmcli`** when running non-root. Set `0` to skip. |
+| **`EVO_INSTALL_NMCLI_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-nmcli`** with **NOPASSWD** for **`nmcli`** (resolved path, matches **`VOLUMIO_EVO_NMCLI`** in the service drop-in) so Evo can add/up/modify NetworkManager connections when non-root. Set `0` to skip. |
 | **`EVO_INSTALL_NETWORK_STORAGE_PKGS`** | If `1` (default), **`apt install`** **`cifs-utils`**, **`nfs-common`**, **`smbclient`**, **`avahi-utils`** (CIFS/NFS mounts, **`smbclient`**, LAN **`avahi-browse`** for Network Drives discovery). Set `0` to skip. |
 
 Examples:

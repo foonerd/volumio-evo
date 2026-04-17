@@ -67,8 +67,11 @@ EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 EVO_INSTALL_MOUNT_SUDOERS="${EVO_INSTALL_MOUNT_SUDOERS:-1}"
 # 1: install /etc/sudoers.d/volumio-evo-mpd so non-root Evo can `sudo -n systemctl restart mpd` after fragment writes.
 EVO_INSTALL_MPD_SUDOERS="${EVO_INSTALL_MPD_SUDOERS:-1}"
+EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
+# 1: apt install network-manager (nmcli) for Evo NetworkManager integration (see docs/NETWORK_NM.md).
+EVO_INSTALL_NETWORK_MANAGER="${EVO_INSTALL_NETWORK_MANAGER:-1}"
 # 1: compile on device with cargo (slow). Default 0: install from layer/binaries/<triple>/ only.
 EVO_BUILD_FROM_SOURCE="${EVO_BUILD_FROM_SOURCE:-0}"
 # Set by argv --build or EVO_BUILD_FROM_SOURCE=1 before install.
@@ -120,7 +123,10 @@ Environment (common):
   EVO_SERVICE_USER=          # omit: use session user (SUDO_USER / USER / logname); empty: run service as root
   EVO_INSTALL_MOUNT_SUDOERS=1           # 0 to skip sudoers drop-in for mount/umount
   EVO_INSTALL_MPD_SUDOERS=1             # 0 to skip sudoers for systemctl restart mpd (non-root service)
+  EVO_INSTALL_RFKILL_SUDOERS=1          # 0 to skip sudoers for sudo -n rfkill unblock wifi (Wi-Fi soft block)
+  EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
+  EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
 
 Example:
   sudo BASE_DIR=/opt/volumio ./scripts/bootstrap-volumio-evo-player.sh
@@ -168,6 +174,8 @@ configure_evo_runtime_user() {
   local drop_in="${drop_dir}/10-runtime-user.conf"
   local sudoers="/etc/sudoers.d/volumio-evo-mount"
   local mpd_sudoers="/etc/sudoers.d/volumio-evo-mpd"
+  local rfkill_sudoers="/etc/sudoers.d/volumio-evo-rfkill"
+  local nmcli_sudoers="/etc/sudoers.d/volumio-evo-nmcli"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -175,6 +183,8 @@ configure_evo_runtime_user() {
     rmdir "${drop_dir}" 2>/dev/null || true
     rm -f "${sudoers}" 2>/dev/null || true
     rm -f "${mpd_sudoers}" 2>/dev/null || true
+    rm -f "${rfkill_sudoers}" 2>/dev/null || true
+    rm -f "${nmcli_sudoers}" 2>/dev/null || true
     return 0
   fi
 
@@ -183,6 +193,20 @@ configure_evo_runtime_user() {
   systemctl_bin="$(command -v systemctl 2>/dev/null || true)"
   if [[ -z "${systemctl_bin}" || ! -x "${systemctl_bin}" ]]; then
     systemctl_bin="/usr/bin/systemctl"
+  fi
+
+  # Must match sudoers for `rfkill unblock wifi` and Environment=VOLUMIO_EVO_RFKILL (see EVO_INSTALL_RFKILL_SUDOERS).
+  local rfkill_bin
+  rfkill_bin="$(command -v rfkill 2>/dev/null || true)"
+  if [[ -z "${rfkill_bin}" || ! -x "${rfkill_bin}" ]]; then
+    rfkill_bin="/usr/sbin/rfkill"
+  fi
+
+  # Must match sudoers for nmcli and Environment=VOLUMIO_EVO_NMCLI (see EVO_INSTALL_NMCLI_SUDOERS).
+  local nmcli_bin
+  nmcli_bin="$(command -v nmcli 2>/dev/null || true)"
+  if [[ -z "${nmcli_bin}" || ! -x "${nmcli_bin}" ]]; then
+    nmcli_bin="/usr/bin/nmcli"
   fi
 
   if ! id -u "${u}" >/dev/null 2>&1; then
@@ -207,6 +231,8 @@ SupplementaryGroups=audio
 Environment=HOME=${home}
 Environment=VOLUMIO_EVO_RUNTIME_USER=${u}
 Environment=VOLUMIO_EVO_SYSTEMCTL=${systemctl_bin}
+Environment=VOLUMIO_EVO_RFKILL=${rfkill_bin}
+Environment=VOLUMIO_EVO_NMCLI=${nmcli_bin}
 EOF
 
   usermod -aG audio "${u}" 2>/dev/null || true
@@ -260,6 +286,44 @@ EOF
     rm -f "${tmp_mpd}"
   else
     rm -f "${mpd_sudoers}" 2>/dev/null || true
+  fi
+
+  if [[ "${EVO_INSTALL_RFKILL_SUDOERS:-1}" == "1" ]]; then
+    local tmp_rf
+    tmp_rf="$(mktemp)"
+    cat > "${tmp_rf}" <<EOF
+# volumio-evo: unblock Wi-Fi when soft-blocked (rfkill) before nmcli scan; narrow command only.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_RFKILL in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${rfkill_bin} unblock wifi
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_rf}" 2>/dev/null; then
+      install -m 0440 "${tmp_rf}" "${rfkill_sudoers}"
+      echo "Installed ${rfkill_sudoers} (rfkill unblock wifi NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${rfkill_sudoers}. Install sudoers manually if needed."
+    fi
+    rm -f "${tmp_rf}"
+  else
+    rm -f "${rfkill_sudoers}" 2>/dev/null || true
+  fi
+
+  if [[ "${EVO_INSTALL_NMCLI_SUDOERS:-1}" == "1" ]]; then
+    local tmp_nm
+    tmp_nm="$(mktemp)"
+    cat > "${tmp_nm}" <<EOF
+# volumio-evo: NetworkManager (nmcli) for apply/scan when service runs non-root.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_NMCLI in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${nmcli_bin}
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_nm}" 2>/dev/null; then
+      install -m 0440 "${tmp_nm}" "${nmcli_sudoers}"
+      echo "Installed ${nmcli_sudoers} (nmcli NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${nmcli_sudoers}. Install sudoers manually if needed."
+    fi
+    rm -f "${tmp_nm}"
+  else
+    rm -f "${nmcli_sudoers}" 2>/dev/null || true
   fi
 }
 
@@ -411,13 +475,19 @@ install_packages() {
     net_pkgs+=(cifs-utils nfs-common smbclient avahi-utils)
     echo "Installing network storage packages: cifs-utils nfs-common smbclient avahi-utils"
   fi
+  local -a nm_pkgs=()
+  if [[ "${EVO_INSTALL_NETWORK_MANAGER:-1}" == "1" ]]; then
+    nm_pkgs+=(network-manager rfkill)
+    echo "Installing NetworkManager (nmcli): network-manager rfkill"
+  fi
   apt-get update
   apt-get install -y \
     git curl ca-certificates nginx mpd python3 acl \
     build-essential pkg-config libssl-dev \
     rsync \
     libimage-exiftool-perl \
-    "${net_pkgs[@]}"
+    "${net_pkgs[@]}" \
+    "${nm_pkgs[@]}"
   if [[ "${EVO_INSTALL_RUST:-0}" == "1" ]]; then
     ensure_rustup_toolchain
   else
@@ -797,7 +867,7 @@ build_and_install_evo() {
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart \
     /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd \
     /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites \
-    /var/lib/volumio-evo/settings/playlist /mnt/NAS
+    /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network /mnt/NAS
   install_dacs_catalog
   install_alsa_cards_json
   install_bundled_plugins_assets

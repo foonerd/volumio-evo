@@ -25,6 +25,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/mounts/` | NAS/SMB/NFS share definitions + CIFS credential sidecars | `shares.toml` (mode `0600`), optional `cifs-<uuid>.cred` |
 | `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |
 | `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
+| `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml` (`fallback.hotspot_ifname` when STA iface ≠ AP iface) + optional `wifi-sta.psk` / `wifi-ap.psk` (0600) |
 
 Full default paths (when no env override):
 
@@ -65,7 +66,7 @@ Keep **secrets** out of generic `*.toml` that might be world-readable; use root-
 
 Bootstrap creates:
 
-`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist`
+`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network`
 
 so the daemon can write state before the first save.
 

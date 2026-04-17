@@ -445,3 +445,88 @@ pub async fn browse(
         }
     }
 }
+
+/// GET /api/v1/network/nm/status — NetworkManager / `nmcli` diagnostic (Phase 1).
+pub async fn network_nm_status(State(state): State<AppState>) -> impl IntoResponse {
+    let iface = crate::nm_network::resolve_effective_wifi_iface(&state.config).await;
+    let snap = crate::nm_network::diagnostic_snapshot(Some(iface.as_str())).await;
+    Json(snap).into_response()
+}
+
+/// GET /api/v1/network/nm/intent — persisted NM intent (no PSK values; only configured flags).
+#[derive(Serialize)]
+pub struct NetworkNmIntentResponse {
+    pub intent: crate::network_config::NetworkIntent,
+    pub sta_psk_configured: bool,
+    pub ap_psk_configured: bool,
+}
+
+pub async fn network_nm_intent_get() -> impl IntoResponse {
+    let intent = crate::network_config::NetworkIntent::load();
+    Json(NetworkNmIntentResponse {
+        sta_psk_configured: crate::network_config::wifi_sta_psk_configured(),
+        ap_psk_configured: crate::network_config::wifi_ap_psk_configured(),
+        intent,
+    })
+    .into_response()
+}
+
+/// PUT /api/v1/network/nm/intent — replace `intent.toml`; optional PSK sidecars; optional `apply` (runs `nmcli`).
+#[derive(Deserialize)]
+pub struct NetworkNmIntentPut {
+    pub intent: crate::network_config::NetworkIntent,
+    #[serde(default)]
+    pub sta_psk: Option<String>,
+    #[serde(default)]
+    pub ap_psk: Option<String>,
+    #[serde(default)]
+    pub apply: bool,
+}
+
+pub async fn network_nm_intent_put(
+    State(state): State<AppState>,
+    Json(body): Json<NetworkNmIntentPut>,
+) -> impl IntoResponse {
+    if let Err(e) = body.intent.save() {
+        tracing::warn!("{} save intent: {}", crate::log_tags::EVO_NET, e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("{}", e)})),
+        )
+            .into_response();
+    }
+    if let Some(ref p) = body.sta_psk {
+        if let Err(e) = crate::network_config::write_wifi_sta_psk(p) {
+            tracing::warn!("{} write wifi-sta.psk: {}", crate::log_tags::EVO_NET, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("{}", e)})),
+            )
+                .into_response();
+        }
+    }
+    if let Some(ref p) = body.ap_psk {
+        if let Err(e) = crate::network_config::write_wifi_ap_psk(p) {
+            tracing::warn!("{} write wifi-ap.psk: {}", crate::log_tags::EVO_NET, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("{}", e)})),
+            )
+                .into_response();
+        }
+    }
+
+    let apply_report = if body.apply {
+        Some(
+            crate::nm_network::apply_network_intent_exclusive(&body.intent, state.config.as_ref()).await,
+        )
+    } else {
+        None
+    };
+
+    Json(serde_json::json!({
+        "ok": true,
+        "apply": apply_report,
+    }))
+    .into_response()
+}

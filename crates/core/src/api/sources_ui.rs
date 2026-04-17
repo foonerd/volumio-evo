@@ -82,6 +82,13 @@ fn lookup_category_key<'a>(d: &'a Value, category: &str, key: &str) -> Option<&'
     d.get(category)?.get(key)?.as_str()
 }
 
+/// Replace `TRANSLATE.*` strings in any UI config value using embedded English `strings_en.json`
+/// (same as Node `translateKeys` for plugin pages).
+pub fn resolve_translate_tokens(v: &mut Value) {
+    let en = strings_en_parsed();
+    translate_keys_in_value(v, en, en);
+}
+
 /// Stock Sources page: `pushUiConfig` payload matching Node `getUIConfig` for `miscellanea/my_music`,
 /// with **`TRANSLATE.*` resolved** to English (same as Node when language is `en`).
 pub fn my_music_ui_config() -> serde_json::Value {
@@ -89,8 +96,7 @@ pub fn my_music_ui_config() -> serde_json::Value {
         .get_or_init(|| {
             let mut v: Value = serde_json::from_str(include_str!("my_music_ui_config.json"))
                 .expect("embedded my_music_ui_config.json must be valid JSON");
-            let en = strings_en_parsed();
-            translate_keys_in_value(&mut v, en, en);
+            resolve_translate_tokens(&mut v);
             v
         })
         .clone()

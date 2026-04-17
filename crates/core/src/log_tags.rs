@@ -32,6 +32,8 @@ pub const EVO_HTTP: &str = "EVO HTTP -->";
 pub const EVO_API: &str = "EVO API -->";
 pub const EVO_OUTPUT: &str = "EVO OUTPUT -->";
 pub const EVO_UI: &str = "EVO UI -->";
+/// NetworkManager / `nmcli` (`journalctl | grep -F 'EVO NET'`).
+pub const EVO_NET: &str = "EVO NET -->";
 pub const EVO_DB: &str = "EVO DB -->";
 #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 pub const EVO_PLUGIN: &str = "EVO PLUGIN -->";
