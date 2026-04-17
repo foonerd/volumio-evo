@@ -189,7 +189,7 @@ cargo build --release -p volumio-evo-core --target armv7-unknown-linux-gnueabihf
 | amd64 cross | `target/x86_64-unknown-linux-gnu/release/volumio-evo` |
 | armhf cross | `target/armv7-unknown-linux-gnueabihf/release/volumio-evo` |
 
-**Shipping in-repo:** After cross-build, copy each `target/<triple>/release/volumio-evo` to **`layer/binaries/<triple>/volumio-evo`**, then regenerate **`layer/binaries/SHA256SUMS`** (exact command in **`layer/binaries/README.md`**). Bootstrap installs the matching triple from **`layer/binaries/`** on the device when present and **`--build`** is not used (no `cargo` on target).
+**Shipping in-repo:** After cross-build, copy each `target/<triple>/release/volumio-evo` to **`layer/binaries/<triple>/volumio-evo`**, then regenerate **`layer/binaries/SHA256SUMS`** (exact command in **`layer/binaries/README.md`**). Bootstrap installs the matching triple from **`layer/binaries/`** on the device when present and **`--build`** is not used (no `cargo` on target). **OOTB policy:** any change to backend behaviour must ship updated prebuilts in that directory—see **`layer/binaries/README.md`** (“OOTB policy”).
 
 Use this binary in [TESTER_GUIDE.md](TESTER_GUIDE.md) Step 4.1 as the file to copy to `/usr/local/bin/volumio-evo` on the target device.
 

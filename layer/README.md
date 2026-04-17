@@ -15,7 +15,7 @@ Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie
 1. Copy the `volumio-evo` binary to `/usr/local/bin/` (or `/usr/bin/`).
 2. Create `/usr/share/volumio-evo/plugins` and drop `.wasm` plugin files there.
 3. Install the systemd unit: copy `systemd/volumio-evo.service` to `/etc/systemd/system/`, then `systemctl daemon-reload` and `systemctl enable volumio-evo`.
-4. Install config: copy `config/volumio-evo.toml.example` to `/etc/volumio-evo/config.toml` and edit (bind, plugin_dir, mpd_host, mpd_port, music_sources.music_root). Set **music_root** at install or first run so MPD and Evo use the same path; the service may run as a different user (e.g. `pi`), so you can set `VOLUMIO_EVO_MUSIC_ROOT` in a systemd override instead of editing config.
+4. Install config: copy `config/volumio-evo.toml.example` to `/etc/volumio-evo/config.toml` and edit (bind, plugin_dir, mpd_host, mpd_port, music_sources.music_root). Set **music_root** at install or first run so MPD and Evo use the same path; the service may run as a different user (e.g. `pi`), so you can set `VOLUMIO_EVO_MUSIC_ROOT` in a systemd override instead of editing config. **Prefer** running the daemon as your SSH login (not uid 1000): bootstrap defaults to the session user unless **`EVO_SERVICE_USER`** is set — see [docs/RUNTIME_USER.md](../docs/RUNTIME_USER.md).
 5. Create music_root and subdirs (INTERNAL, USB, NAS, SMB); point MPD's `music_directory` at music_root.
 6. Start: `systemctl start volumio-evo`.
 

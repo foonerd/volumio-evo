@@ -22,6 +22,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 |-----------|----------|--------------|
 | `settings/alsa/` | ALSA output device selection, I2S enablement, DAC id | `state.toml` |
 | `settings/mpd/` | MPD / Playback Options (buffer, DSD, mixer type, resampling, …) | `playback.toml` |
+| `settings/mounts/` | NAS/SMB/NFS share definitions + CIFS credential sidecars | `shares.toml` (mode `0600`), optional `cifs-<uuid>.cred` |
 
 Full default paths (when no env override):
 
@@ -53,7 +54,7 @@ Older builds stored ALSA state at **`settings/alsa-state.toml`** (file at the ro
 Add sibling directories as features land, for example:
 
 - `settings/network/` — nmcli-backed intent, UI preferences (not necessarily full NetworkManager dump)
-- `settings/mounts/` — NFS/SMB definitions; **credentials** must use separate restricted files or systemd credentials, not world-readable TOML
+- `settings/mounts/` — **implemented:** `shares.toml` lists shares; CIFS passwords use `cifs-<uuid>.cred` (0600) when needed
 - `settings/devices/` — other device handling if not better scoped elsewhere
 
 Keep **secrets** out of generic `*.toml` that might be world-readable; use root-only paths or `systemd-creds` and reference them from config.
@@ -62,7 +63,7 @@ Keep **secrets** out of generic `*.toml` that might be world-readable; use root-
 
 Bootstrap creates:
 
-`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd`
+`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts`
 
 so the daemon can write state before the first save.
 

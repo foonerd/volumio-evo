@@ -17,6 +17,7 @@ use tokio::net::TcpStream;
 use super::playback_clock::ui_seek_ms;
 use super::pushstate_log;
 use super::{read_master_volume_percent, AppState};
+use crate::network_mounts::{AddShareResult, EditShareResult};
 
 fn mpd_config(state: &AppState) -> MpdConfig {
     MpdConfig {
@@ -146,6 +147,27 @@ async fn on_connect(s: SocketRef) {
     s.on("getWizardSteps", get_wizard_steps);
     s.on("getWizardUiConfig", get_wizard_ui_config);
     s.on("deleteBackground", delete_background);
+    // Settings → Sources (`miscellanea/my_music`): network drives (Node: `system_controller/networkfs`).
+    s.on("getListShares", sources_get_list_shares);
+    s.on("getListUsbDrives", sources_list_usb_drives_stub);
+    s.on("listUsbDrives", sources_list_usb_drives_stub);
+    s.on("getNetworkSharesDiscovery", sources_get_network_shares_discovery);
+    s.on("addShare", sources_add_share);
+    s.on("editShare", sources_edit_share);
+    s.on("deleteShare", sources_delete_share);
+    s.on("getInfoShare", sources_get_info_share);
+    s.on("showNasHelper", sources_show_nas_helper_stub);
+}
+
+/// After add/delete/edit, Node waits ~1s then pushes an updated list (websocket `index.js`).
+fn schedule_push_list_shares(s: &SocketRef, state: &AppState) {
+    let s = s.clone();
+    let state = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let list = state.network_mounts.list_shares_json().await;
+        let _ = s.emit("pushListShares", &list);
+    });
 }
 
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
@@ -235,6 +257,11 @@ async fn get_my_collection_stats(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     match mpd::collection_stats_connected(&config).await {
         Ok(stats) => {
+            // Sources page polls this every ~4s; keep success path at trace to avoid journal noise.
+            tracing::trace!(
+                "{} getMyCollectionStats → pushMyCollectionStats",
+                crate::log_tags::EVO_UI
+            );
             s.emit("pushMyCollectionStats", &stats).ok();
         }
         Err(e) => tracing::warn!("{} getMyCollectionStats MPD error: {}", crate::log_tags::EVO_DB, e),
@@ -460,7 +487,8 @@ struct GetUiConfigPayload {
 
 async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<GetUiConfigPayload>) {
     let page = payload.ok().map(|p| p.page).unwrap_or_default();
-    if page.trim() == "audio_interface/alsa_controller" {
+    let page = page.trim();
+    if page == "audio_interface/alsa_controller" {
         match build_playback_options_ui(&state).await {
             Ok(v) => {
                 s.emit("pushUiConfig", &v).ok();
@@ -470,9 +498,343 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
                 s.emit("pushUiConfig", &empty_ui_config()).ok();
             }
         }
+    } else if page == "miscellanea/my_music" {
+        tracing::debug!(
+            "{} getUiConfig page=miscellanea/my_music (Sources)",
+            crate::log_tags::EVO_UI
+        );
+        s.emit("pushUiConfig", &super::sources_ui::my_music_ui_config())
+            .ok();
     } else {
+        tracing::debug!(
+            "{} getUiConfig page={:?} (empty stub)",
+            crate::log_tags::EVO_UI,
+            page
+        );
         s.emit("pushUiConfig", &empty_ui_config()).ok();
     }
+}
+
+/// Node `getListShares` → `pushListShares` (array of mounted NAS entries).
+async fn sources_get_list_shares(s: SocketRef, State(state): State<AppState>) {
+    let list = state.network_mounts.list_shares_json().await;
+    tracing::debug!(
+        "{} socket getListShares → pushListShares ({} shares)",
+        crate::log_tags::EVO_UI,
+        list.len()
+    );
+    s.emit("pushListShares", &list).ok();
+}
+
+/// USB listing for the Sources page. Evo: empty until removable-media integration exists.
+async fn sources_list_usb_drives_stub(s: SocketRef) {
+    tracing::debug!(
+        "{} socket getListUsbDrives/listUsbDrives → pushListUsbDrives (empty)",
+        crate::log_tags::EVO_UI
+    );
+    s.emit("pushListUsbDrives", &serde_json::json!([])).ok();
+}
+
+/// Node `discoverShares` / `getNetworkSharesDiscovery` → `pushNetworkSharesDiscovery` (`{ nas: [...] }`).
+async fn sources_get_network_shares_discovery(s: SocketRef) {
+    tracing::debug!(
+        "{} socket getNetworkSharesDiscovery / discoverShares (mDNS + smbclient)",
+        crate::log_tags::EVO_UI
+    );
+    let payload = crate::network_share_discovery::discover_network_shares().await;
+    let n = payload
+        .get("nas")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    tracing::info!(
+        "{} pushNetworkSharesDiscovery: {} device(s)",
+        crate::log_tags::EVO_UI,
+        n
+    );
+    s.emit("pushNetworkSharesDiscovery", &payload).ok();
+}
+
+#[derive(Debug, Deserialize)]
+struct AddSharePayload {
+    name: String,
+    ip: String,
+    path: String,
+    fstype: String,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    options: String,
+}
+
+async fn sources_add_share(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<serde_json::Value>,
+) {
+    let parsed: AddSharePayload = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "{} addShare bad payload: {}",
+                crate::log_tags::EVO_UI,
+                e
+            );
+            return;
+        }
+    };
+    let cfg = state.config.as_ref();
+    match state
+        .network_mounts
+        .add_share(
+            cfg,
+            parsed.name,
+            parsed.ip,
+            parsed.path,
+            parsed.fstype,
+            parsed.username,
+            parsed.password,
+            parsed.options,
+        )
+        .await
+    {
+        Ok(AddShareResult::Duplicate) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "warning",
+                    "title": "My Music",
+                    "message": "This share has already been configured"
+                }),
+            );
+        }
+        Ok(AddShareResult::Mounted { name }) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "Success",
+                    "message": format!("{name} mounted successfully")
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Ok(AddShareResult::NeedCredentials {
+            id,
+            name,
+            username,
+            password,
+        }) => {
+            let _ = s.emit(
+                "nasCredentialsCheck",
+                &serde_json::json!({
+                    "id": id,
+                    "title": "Network Drive Authentication",
+                    "message": "This drive requires password",
+                    "name": name,
+                    "username": username,
+                    "password": password
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Ok(AddShareResult::MountError { name, reason }) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": format!("Error in mounting share {name}"),
+                    "message": reason
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Err(msg) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "warning",
+                    "title": "My Music",
+                    "message": msg
+                }),
+            );
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct EditSharePayload {
+    id: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    ip: Option<String>,
+    #[serde(default)]
+    fstype: Option<String>,
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    options: Option<String>,
+}
+
+async fn sources_edit_share(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<serde_json::Value>,
+) {
+    let parsed: EditSharePayload = match serde_json::from_value(payload) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "{} editShare bad payload: {}",
+                crate::log_tags::EVO_UI,
+                e
+            );
+            return;
+        }
+    };
+    let cfg = state.config.as_ref();
+    match state
+        .network_mounts
+        .edit_share(
+            cfg,
+            &parsed.id,
+            parsed.name,
+            parsed.path,
+            parsed.ip,
+            parsed.fstype,
+            parsed.username,
+            parsed.password,
+            parsed.options,
+        )
+        .await
+    {
+        Ok(EditShareResult::Duplicate) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "warning",
+                    "title": "My Music",
+                    "message": "This share has already been configured"
+                }),
+            );
+        }
+        Ok(EditShareResult::OkToast) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "Network drive",
+                    "message": "Share mounted successfully"
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Ok(EditShareResult::NasCredentials {
+            id,
+            name,
+            username,
+            password,
+        }) => {
+            let _ = s.emit(
+                "nasCredentialsCheck",
+                &serde_json::json!({
+                    "id": id,
+                    "title": "Network Drive Authentication",
+                    "message": "This drive requires password",
+                    "name": name,
+                    "username": username,
+                    "password": password
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Ok(EditShareResult::MountFail(reason)) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "warning",
+                    "title": "Mount share error",
+                    "message": reason
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Err(msg) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": "Error",
+                    "message": msg
+                }),
+            );
+        }
+    }
+}
+
+async fn sources_delete_share(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<serde_json::Value>,
+) {
+    let Some(id) = payload.get("id").and_then(|v| v.as_str()) else {
+        tracing::warn!("{} deleteShare missing id", crate::log_tags::EVO_UI);
+        return;
+    };
+    match state.network_mounts.delete_share(state.config.as_ref(), id).await {
+        Ok(()) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "Network drive",
+                    "message": "Network drive removed"
+                }),
+            );
+            schedule_push_list_shares(&s, &state);
+        }
+        Err(msg) => {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": "Error",
+                    "message": msg
+                }),
+            );
+        }
+    }
+}
+
+async fn sources_get_info_share(
+    s: SocketRef,
+    State(state): State<AppState>,
+    Data(payload): Data<serde_json::Value>,
+) {
+    let Some(id) = payload.get("id").and_then(|v| v.as_str()) else {
+        s.emit("pushInfoShare", &serde_json::json!({})).ok();
+        return;
+    };
+    let data = state
+        .network_mounts
+        .info_share(id)
+        .await
+        .unwrap_or(serde_json::json!({}));
+    s.emit("pushInfoShare", &data).ok();
+}
+
+async fn sources_show_nas_helper_stub(_s: SocketRef) {
+    tracing::debug!(
+        "{} socket showNasHelper (no-op)",
+        crate::log_tags::EVO_UI
+    );
 }
 
 async fn emit_playback_options_ui(s: &SocketRef, state: &AppState) {
@@ -1882,6 +2244,10 @@ async fn call_method(
     if payload.endpoint.as_deref() == Some("miscellanea/albumart")
         && payload.method.as_deref() == Some("clearAlbumartCache")
     {
+        tracing::debug!(
+            "{} callMethod miscellanea/albumart clearAlbumartCache",
+            crate::log_tags::EVO_UI
+        );
         state.send_clear_albumart_cache();
         return;
     }
@@ -2177,7 +2543,15 @@ async fn call_method(
             tracing::warn!("{} saveResamplingOpts MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
         }
         emit_playback_options_ui(&s, &state).await;
+        return;
     }
+
+    tracing::debug!(
+        "{} callMethod unhandled (no Evo handler): endpoint={:?} method={:?}",
+        crate::log_tags::EVO_UI,
+        payload.endpoint,
+        payload.method
+    );
 }
 
 async fn pinger(s: SocketRef, Data(payload): Data<serde_json::Value>) {
@@ -2220,9 +2594,14 @@ async fn unmute(_s: SocketRef, State(state): State<AppState>) {
 }
 
 async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
+    tracing::debug!(
+        "{} socket rescanDb (full library)",
+        crate::log_tags::EVO_UI
+    );
     let config = mpd_config(&state);
-    if let Err(e) = mpd::rescan_connected(&config, None).await {
-        tracing::warn!("{} rescanDb MPD error: {}", crate::log_tags::EVO_DB, e);
+    match mpd::rescan_connected(&config, None).await {
+        Ok(_id) => tracing::debug!("{} rescanDb MPD ok", crate::log_tags::EVO_DB),
+        Err(e) => tracing::warn!("{} rescanDb MPD error: {}", crate::log_tags::EVO_DB, e),
     }
 }
 
@@ -2236,8 +2615,14 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
     let config = mpd_config(&state);
     let path = payload.uri.trim();
     let path_opt = if path.is_empty() { None } else { Some(path) };
-    if let Err(e) = mpd::update_connected(&config, path_opt).await {
-        tracing::warn!("{} updateDb MPD error: {}", crate::log_tags::EVO_DB, e);
+    tracing::debug!(
+        "{} socket updateDb path={:?}",
+        crate::log_tags::EVO_UI,
+        path_opt
+    );
+    match mpd::update_connected(&config, path_opt).await {
+        Ok(_id) => tracing::debug!("{} updateDb MPD ok", crate::log_tags::EVO_DB),
+        Err(e) => tracing::warn!("{} updateDb MPD error: {}", crate::log_tags::EVO_DB, e),
     }
 }
 

@@ -1,5 +1,11 @@
 # Prebuilt `volumio-evo` binaries (Linux)
 
+## OOTB policy (non-negotiable for installers)
+
+**Testers and devices must not compile Rust** to get a working player: `scripts/bootstrap-volumio-evo-player.sh` installs the **checked-in** binary from this directory (unless **`--build`** / **`EVO_BUILD_FROM_SOURCE`**).
+
+Whenever **`crates/core`** (or any code linked into `volumio-evo`) changes behaviour—playback, Socket.IO, network discovery, mounts, etc.—**maintainers must** produce fresh **release** binaries for the triples below, copy them here, and update **`SHA256SUMS`** before expecting `git pull` + bootstrap to reflect those changes. Shipping an old binary with new scripts/docs is a broken OOTB experience.
+
 Rust **release** builds checked in for offline / fast bootstrap. Layout matches `rustc` target triples:
 
 | Directory | Typical hardware |

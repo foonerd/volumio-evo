@@ -5,6 +5,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 
 mod log_tags;
 mod evo_log_fmt;
+mod network_mounts;
+mod network_share_discovery;
 mod alsa;
 mod alsa_cards;
 mod paths;

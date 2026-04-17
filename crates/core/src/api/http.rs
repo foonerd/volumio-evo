@@ -396,8 +396,10 @@ pub fn router(
 ) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (push_wake_tx, push_wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let network_mounts = Arc::new(crate::network_mounts::NetworkMounts::new());
     let router_state = Arc::new(RouterState {
         config: state.clone(),
+        network_mounts: network_mounts.clone(),
         alsa: Arc::new(tokio::sync::RwLock::new(crate::alsa::AlsaSettings::load())),
         playback: Arc::new(tokio::sync::RwLock::new(crate::playback_options::PlaybackOptions::load())),
         albumart_clear_tx: tx,
@@ -405,6 +407,12 @@ pub fn router(
         volume_apply: tokio::sync::Mutex::new(()),
         playback_clock: Arc::new(tokio::sync::RwLock::new(crate::api::playback_clock::PlaybackClock::default())),
         push_state_wake_tx: push_wake_tx,
+    });
+
+    let cfg_nas = state.clone();
+    let nm_boot = network_mounts.clone();
+    tokio::spawn(async move {
+        nm_boot.mount_all_at_boot(cfg_nas).await;
     });
 
     let (socket_layer, io) = SocketIo::builder()

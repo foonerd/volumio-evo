@@ -3,6 +3,8 @@ Description=Volumio Evo backend
 After=network.target sound.target mpd.service
 
 [Service]
+# User=/Group= are optional: bootstrap can add volumio-evo.service.d/10-runtime-user.conf
+# (see docs/RUNTIME_USER.md; default is session user when EVO_SERVICE_USER is unset).
 Type=simple
 ExecStart=/usr/local/bin/volumio-evo
 Restart=on-failure

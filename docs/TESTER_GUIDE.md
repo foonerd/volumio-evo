@@ -22,6 +22,8 @@ The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`in
 sudo /path/to/bootstrap-volumio-evo-player.sh
 ```
 
+By default, bootstrap picks the **current session user** (e.g. **`SUDO_USER`** when you use `sudo`), so **`volumio-evo`** usually runs as your **SSH login** without extra flags. To force root or another account, see [RUNTIME_USER.md](RUNTIME_USER.md).
+
 **Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary only), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
 
 **Updates:** run the **same command again**. By default the script **git pull**s **`EVO_REPO_DIR`** when **`EVO_REPO_UPDATE=1`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
@@ -41,6 +43,7 @@ The script installs packages, installs the backend (prebuilt binary by default, 
 1. **Network** on the device (for **`git clone`** / **`git pull`** of the repo). **rustup/cargo** are only needed if you pass **`--build`** (or otherwise force on-device compile).
 2. **Root** (`sudo`).
 3. **Checkout** must contain **`layer/binaries/<triple>/volumio-evo`** for your architecture when **not** using **`--build`** (see [BUILD_GUIDE.md](BUILD_GUIDE.md) and **`layer/binaries/README.md`**). If git is unavailable, **`EVO_ALLOW_BINARY_FALLBACK=1`** and a pre-placed **`EVO_BINARY_PATH`** are documented in the script **`--help`** (limited; not a full UI install).
+4. **Network storage (optional):** Bootstrap installs **`cifs-utils`**, **`nfs-common`**, **`smbclient`**, and **`avahi-utils`** by default (mounts, LAN SMB browse via **`avahi-browse`**, **`smbclient -L`**). Set **`EVO_INSTALL_NETWORK_STORAGE_PKGS=0`** to skip on air-gapped or minimal images. **`avahi-daemon`** should be active on the OS for mDNS discovery.
 
 You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or **`UI_DIST_SOURCE`**) and nginx serves it.
 

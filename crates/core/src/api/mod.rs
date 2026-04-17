@@ -4,11 +4,13 @@ mod http;
 mod playback_clock;
 mod pushstate_log;
 mod socketio;
+mod sources_ui;
 mod v1;
 
 use crate::alsa::AlsaSettings;
 use crate::config::Config;
 use crate::mpd::{self, MpdConfig, VolumioState};
+use crate::network_mounts::NetworkMounts;
 use crate::playback_options::PlaybackOptions;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +18,8 @@ use std::time::Duration;
 /// Shared state: config + channel to trigger album-art cache-clear broadcast + last browse for getLastPushedBrowseLibrary.
 pub struct RouterState {
     pub config: Arc<Config>,
+    /// NAS/SMB/NFS mounts (`settings/mounts/shares.toml`, `/mnt/NAS/...`).
+    pub network_mounts: Arc<NetworkMounts>,
     /// Persisted ALSA output selection (Playback Options); full pipeline apply is future work.
     pub alsa: Arc<tokio::sync::RwLock<AlsaSettings>>,
     /// MPD / playback options (stock UI sections: buffer, DSD, volume, resampling).
