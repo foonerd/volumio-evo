@@ -13,7 +13,7 @@ use crate::mpd::{self, MpdConfig, VolumioState};
 
 use super::playback_clock::ui_seek_ms;
 use super::pushstate_log;
-use super::{read_master_volume_percent, AppState};
+use super::{apply_volume_mute_overlay, read_master_volume_percent, AppState};
 
 pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
     MpdConfig {
@@ -32,6 +32,7 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
                 let clock = state.playback_clock.read().await;
                 ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration)
             };
+            apply_volume_mute_overlay(&state, &mut s).await;
             state.store_mpd_snapshot(&s).await;
             pushstate_log::debug_volumio_state("REST GET /api/v1/getState (response body)", &s);
             Json::<VolumioState>(s).into_response()

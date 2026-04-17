@@ -16,6 +16,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Shared state: config + channel to trigger album-art cache-clear broadcast + last browse for getLastPushedBrowseLibrary.
+/// Node `volumecontrol.js`: while muted, UI still shows **premute** level (`Volume.vol`), not 0.
+#[derive(Debug, Clone)]
+pub struct VolumeUiMuteState {
+    pub muted: bool,
+    pub premute_percent: u8,
+}
+
+impl Default for VolumeUiMuteState {
+    fn default() -> Self {
+        Self {
+            muted: false,
+            premute_percent: 80,
+        }
+    }
+}
+
 pub struct RouterState {
     pub config: Arc<Config>,
     /// NAS/SMB/NFS mounts (`settings/mounts/shares.toml`, `/mnt/NAS/...`).
@@ -36,6 +52,8 @@ pub struct RouterState {
     pub push_state_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
     /// Wakes the broadcast loop for an immediate `pushQueue` to all Socket.IO clients (queue edits).
     pub push_queue_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    /// Landing-page mute: logical level preserved for `pushState.volume` while output is silenced.
+    pub volume_ui_mute: Arc<tokio::sync::RwLock<VolumeUiMuteState>>,
 }
 
 impl RouterState {
@@ -68,6 +86,33 @@ impl RouterState {
     #[inline]
     pub fn notify_push_queue(&self) {
         let _ = self.push_queue_wake_tx.send(());
+    }
+}
+
+/// Raw 0–100 from MPD + ALSA (ignores [`VolumeUiMuteState`] — use before applying a new mute).
+pub async fn resolve_live_volume_percent(state: &AppState) -> u8 {
+    let config = MpdConfig {
+        host: state.config.mpd_host.clone(),
+        port: state.config.mpd_port,
+    };
+    let master = read_master_volume_percent(state).await;
+    match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
+        Ok(s) => s.volume.unwrap_or(0),
+        Err(_) => master.unwrap_or(0),
+    }
+}
+
+/// Stock UI `pushState`: `mute` + logical `volume` when Evo has silenced output (`volumecontrol.js`).
+pub async fn apply_volume_mute_overlay(state: &AppState, s: &mut VolumioState) {
+    let pb = state.playback.read().await;
+    s.disable_volume_control = pb.mixer_type == "None";
+    drop(pb);
+    let vm = state.volume_ui_mute.read().await;
+    if vm.muted {
+        s.mute = true;
+        s.volume = Some(vm.premute_percent);
+    } else {
+        s.mute = false;
     }
 }
 

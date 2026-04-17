@@ -1895,6 +1895,12 @@ pub struct VolumioState {
     /// Track length in **seconds** (Node `parseState`: `time` field part after `:`).
     pub duration: Option<u64>,
     pub volume: Option<u8>,
+    /// Output muted (Node `statemachine`: logical level stays in `volume` when muted — see Evo `VolumeUiMuteState`).
+    #[serde(default)]
+    pub mute: bool,
+    /// Mixer type **None**: UI disables fader (Node `disableVolumeControl`).
+    #[serde(rename = "disableVolumeControl", default)]
+    pub disable_volume_control: bool,
     pub repeat: Option<bool>,
     pub random: Option<bool>,
     /// MPD `single` / Node `repeatSingle`: repeat one song when repeat is on (`true` if single is enabled or oneshot).
@@ -2258,6 +2264,8 @@ pub async fn get_state(
         seek: seek_ms,
         duration: duration_secs,
         volume,
+        mute: false,
+        disable_volume_control: false,
         repeat: Some(status.repeat),
         random: Some(status.random),
         repeat_single: Some(repeat_single),

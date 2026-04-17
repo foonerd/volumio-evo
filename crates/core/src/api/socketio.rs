@@ -18,7 +18,10 @@ use tokio::net::TcpStream;
 
 use super::playback_clock::ui_seek_ms;
 use super::pushstate_log;
-use super::{read_master_volume_percent, AppState};
+use super::{
+    apply_volume_mute_overlay, read_master_volume_percent, resolve_live_volume_percent, AppState,
+    VolumeUiMuteState,
+};
 use crate::network_mounts::{AddShareResult, EditShareResult};
 
 fn mpd_config(state: &AppState) -> MpdConfig {
@@ -256,6 +259,7 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
                 let clock = state.playback_clock.read().await;
                 ui_seek_ms(clock.seek_for_emit_before_resync(&payload), payload.duration)
             };
+            apply_volume_mute_overlay(&state, &mut payload).await;
             state.store_mpd_snapshot(&payload).await;
             match s.emit("pushState", &payload) {
                 Ok(()) => {
@@ -1911,20 +1915,57 @@ async fn volume(
     State(state): State<AppState>,
     Data(payload): Data<serde_json::Value>,
 ) {
-    let vol = payload
-        .as_u64()
-        .or_else(|| {
-            if payload.as_str() == Some("mute") {
-                Some(0)
-            } else {
-                None
-            }
-        })
-        .and_then(|v| u8::try_from(v).ok());
-    let Some(v) = vol else {
+    // Stock UI: `socketService.emit('volume', '+')` / `'-'` (player.service.js) or a numeric 0–100 from the knob.
+    let pb = state.playback.read().await.clone();
+    if pb.mixer_type == "None" {
+        return;
+    }
+
+    if let Some(v) = payload.as_u64().and_then(|x| u8::try_from(x).ok()) {
+        let v = pb.clamp_volume_percent(v);
+        *state.volume_ui_mute.write().await = VolumeUiMuteState::default();
+        apply_volume_to_system(&state, v).await;
+        state.notify_push_state();
+        return;
+    }
+
+    let Some(dir) = payload.as_str() else {
         return;
     };
-    apply_volume_to_system(&state, v).await;
+    if dir != "+" && dir != "-" {
+        return;
+    }
+    let step = pb
+        .volumesteps
+        .parse::<u32>()
+        .unwrap_or(10)
+        .clamp(1, 100) as u8;
+
+    let base = {
+        let r = state.volume_ui_mute.read().await;
+        if r.muted {
+            r.premute_percent
+        } else {
+            drop(r);
+            resolve_live_volume_percent(&state).await
+        }
+    };
+    let base = pb.clamp_volume_percent(base);
+
+    *state.volume_ui_mute.write().await = VolumeUiMuteState {
+        muted: false,
+        premute_percent: base,
+    };
+
+    let new_v = if dir == "+" {
+        (base as u16 + step as u16).min(100) as u8
+    } else {
+        base.saturating_sub(step)
+    };
+    let new_v = pb.clamp_volume_percent(new_v);
+
+    apply_volume_to_system(&state, new_v).await;
+    state.notify_push_state();
 }
 
 #[derive(Debug, Deserialize)]
@@ -2902,12 +2943,36 @@ async fn get_last_pushed_browse_library(s: SocketRef, State(state): State<AppSta
 }
 
 async fn mute(_s: SocketRef, State(state): State<AppState>) {
+    let pb = state.playback.read().await.clone();
+    if pb.mixer_type == "None" {
+        return;
+    }
+    let live = resolve_live_volume_percent(&state).await;
+    let live = pb.clamp_volume_percent(live);
+    *state.volume_ui_mute.write().await = VolumeUiMuteState {
+        muted: true,
+        premute_percent: live,
+    };
     apply_volume_to_system(&state, 0).await;
+    state.notify_push_state();
 }
 
 async fn unmute(_s: SocketRef, State(state): State<AppState>) {
-    // Restore to 80% if no pre-mute volume stored (stub; Node uses premutevolume)
-    apply_volume_to_system(&state, 80).await;
+    let pb = state.playback.read().await.clone();
+    if pb.mixer_type == "None" {
+        return;
+    }
+    let prem = {
+        let r = state.volume_ui_mute.read().await;
+        if !r.muted {
+            return;
+        }
+        r.premute_percent
+    };
+    let prem = pb.clamp_volume_percent(prem);
+    *state.volume_ui_mute.write().await = VolumeUiMuteState::default();
+    apply_volume_to_system(&state, prem).await;
+    state.notify_push_state();
 }
 
 async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
@@ -2993,6 +3058,7 @@ pub async fn push_state_queue_loop(
                     let clock = state.playback_clock.read().await;
                     ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration)
                 };
+                apply_volume_mute_overlay(state, &mut s).await;
                 state.store_mpd_snapshot(&s).await;
                 match io.emit("pushState", &s).await {
                     Ok(()) => pushstate_log::debug_broadcast_push_state_after_emit(&s, true),

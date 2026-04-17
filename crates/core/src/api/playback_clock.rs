@@ -102,6 +102,8 @@ mod tests {
             duration,
             uri: uri.map(String::from),
             volume: None,
+            mute: false,
+            disable_volume_control: false,
             repeat: None,
             random: None,
             repeat_single: None,

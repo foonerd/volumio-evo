@@ -8,8 +8,9 @@ Work is split so transport, UI contract, and efficiency can be reasoned about se
 
 **Implementation:** `EVO PUSHSTATE` DEBUG lines for:
 
-- Broadcast loop: `pushState` / `pushQueue` after emit (include `seek_ms`, `duration_s`, `position`, `volume`, `emit=ok|err`).
+- Broadcast loop: `pushState` / `pushQueue` after emit (include `seek_ms`, `duration_s`, `position`, `volume`, `mute`, `emit=ok|err`).
 - Socket handlers: `getState` / `getQueue` after emit.
+- **Landing volume (Node parity):** UI emits `volume` with `'+'` / `'-'` (step = **One click volume steps** from Playback Options) or a numeric level; **`mute`** / **`unmute`** are separate events. While muted, `pushState` keeps the **logical** `volume` (e.g. 50) and sets `mute: true` (output is silenced — Evo tracks `premute` like Node `premutevolume`).
 - REST: `GET /api/v1/getState` (response snapshot); optional queue length for `getQueue`.
 
 **Grep:** `journalctl -u volumio-evo | grep -F 'EVO PUSHSTATE'`

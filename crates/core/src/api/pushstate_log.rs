@@ -8,7 +8,7 @@ use crate::mpd::VolumioState;
 #[inline]
 pub(crate) fn debug_volumio_state(source: &'static str, s: &VolumioState) {
     tracing::debug!(
-        "{} {} status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?}",
+        "{} {} status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?} mute={}",
         EVO_PUSHSTATE,
         source,
         s.status,
@@ -16,19 +16,21 @@ pub(crate) fn debug_volumio_state(source: &'static str, s: &VolumioState) {
         s.duration,
         s.position,
         s.volume,
+        s.mute,
     );
 }
 
 #[inline]
 pub(crate) fn debug_broadcast_push_state_after_emit(s: &VolumioState, emit_ok: bool) {
     tracing::debug!(
-        "{} broadcast io.emit(pushState) status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?} emit={}",
+        "{} broadcast io.emit(pushState) status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?} mute={} emit={}",
         EVO_PUSHSTATE,
         s.status,
         s.seek,
         s.duration,
         s.position,
         s.volume,
+        s.mute,
         if emit_ok { "ok" } else { "err" },
     );
 }
@@ -66,7 +68,7 @@ pub(crate) fn warn_broadcast_push_queue_emit(err: impl std::fmt::Display) {
 #[inline]
 pub(crate) fn debug_socket_push_state_after_emit(source: &'static str, s: &VolumioState, emit_ok: bool) {
     tracing::debug!(
-        "{} {} status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?} emit={}",
+        "{} {} status={:?} seek_ms={:?} duration_s={:?} position={:?} volume={:?} mute={} emit={}",
         EVO_PUSHSTATE,
         source,
         s.status,
@@ -74,6 +76,7 @@ pub(crate) fn debug_socket_push_state_after_emit(source: &'static str, s: &Volum
         s.duration,
         s.position,
         s.volume,
+        s.mute,
         if emit_ok { "ok" } else { "err" },
     );
 }

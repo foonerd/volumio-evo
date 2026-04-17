@@ -410,6 +410,7 @@ pub fn router(
         playback_clock: Arc::new(tokio::sync::RwLock::new(crate::api::playback_clock::PlaybackClock::default())),
         push_state_wake_tx: push_wake_tx,
         push_queue_wake_tx,
+        volume_ui_mute: Arc::new(tokio::sync::RwLock::new(crate::api::VolumeUiMuteState::default())),
     });
 
     let cfg_nas = state.clone();
