@@ -587,17 +587,33 @@ pub fn set_system_volume_percent(
     let p = percent.min(100);
     let mixer = playback_mixer_control_name(alsa, mixer_type, mixer_name)?;
 
-    let pct = format!("{p}%");
+    // Stereo / dual-mono softvol: a single `80%` can move only one channel on some cards, so
+    // `get_system_volume_percent` (max across channels, see b4b1b01) then reports a misleading
+    // level and the UI feels “stuck” on one side. Match common practice: `80%,80%`. Retry with
+    // `80%` if the control is mono-only (amixer rejects the dual form).
+    let pct_stereo = format!("{p}%,{p}%");
+    let pct_mono = format!("{p}%");
     let mut cmd = Command::new("amixer");
     if volumecurve_logarithmic {
         cmd.arg("-M");
     }
-    cmd.args(["set", "-c", card, mixer.as_str(), "unmute", &pct]);
+    cmd.args(["set", "-c", card, mixer.as_str(), "unmute", &pct_stereo]);
     let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
+    if out.status.success() {
+        return Ok(());
+    }
+    let err_stereo = String::from_utf8_lossy(&out.stderr);
+    let mut cmd2 = Command::new("amixer");
+    if volumecurve_logarithmic {
+        cmd2.arg("-M");
+    }
+    cmd2.args(["set", "-c", card, mixer.as_str(), "unmute", &pct_mono]);
+    let out2 = cmd2.output().map_err(|e| e.to_string())?;
+    if !out2.status.success() {
         return Err(format!(
-            "amixer: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+            "amixer: {} (stereo form failed: {})",
+            String::from_utf8_lossy(&out2.stderr).trim(),
+            err_stereo.trim()
         ));
     }
     Ok(())
