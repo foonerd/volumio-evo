@@ -25,7 +25,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/mounts/` | NAS/SMB/NFS share definitions + CIFS credential sidecars | `shares.toml` (mode `0600`), optional `cifs-<uuid>.cred` |
 | `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |
 | `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
-| `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml` (`fallback.hotspot_ifname` when STA iface ≠ AP iface) + optional `wifi-sta.psk` / `wifi-ap.psk` (0600) |
+| `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml`: **`ethernet.enabled`** (default **true**; set **false** for Wi‑Fi‑only), **`fallback.hotspot_ifname`** when STA iface ≠ AP iface, optional `wifi-sta.psk` / `wifi-ap.psk` (0600), **`wifi_iface_preferred`** (one line: UI-chosen STA `wlan*`), staging **`config.toml.pending`** (full merged TOML before `install` to `/etc`) |
 
 Full default paths (when no env override):
 

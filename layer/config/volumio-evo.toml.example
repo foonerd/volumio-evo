@@ -15,7 +15,8 @@ bind = "0.0.0.0:3000"
 # Primary Wi‑Fi interface for NM (`nmcli dev wifi list ifname …`) and default when intent.toml omits wifi.ifname.
 # If omitted, Evo picks the first NM `wifi` device, preferring one that is not `unavailable` (handy with USB + SoC radios).
 # Raspberry Pi 3/3+ with USB dongle: internal wlan0 vs USB wlan1 — set explicitly when both exist.
-# Override: Environment=VOLUMIO_EVO_WIFI_IFACE=wlan1 (wins over this file).
+# Network UI can also persist **Preferred Wi-Fi interface** → `settings/network/wifi_iface_preferred` and merge this key into /etc (non-root: bootstrap **volumio-evo-config-install** sudoers).
+# Override: Environment=VOLUMIO_EVO_WIFI_IFACE=wlan1 (wins over this file and UI preference).
 # wifi_iface = "wlan1"
 plugin_dir = "/usr/share/volumio-evo/plugins"
 mpd_host = "127.0.0.1"

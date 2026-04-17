@@ -469,13 +469,12 @@ audio_buffer_size		"{buf}"
 #[cfg(target_os = "linux")]
 fn linux_effective_uid() -> Option<u32> {
     let s = std::fs::read_to_string("/proc/self/status").ok()?;
-    for line in s.lines() {
+    s.lines().find_map(|line| {
         let line = line.trim_start();
         let rest = line.strip_prefix("Uid:")?;
         let eff = rest.split_whitespace().nth(1)?.parse().ok()?;
-        return Some(eff);
-    }
-    None
+        Some(eff)
+    })
 }
 
 /// When true, only `sudo -n … systemctl` is used (non-root cannot restart units without auth).

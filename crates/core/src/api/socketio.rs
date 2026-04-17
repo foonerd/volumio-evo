@@ -619,11 +619,15 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
             "{} getUiConfig page=system_controller/network (Network)",
             crate::log_tags::EVO_UI
         );
-        s.emit(
-            "pushUiConfig",
-            &super::network_ui::network_settings_ui_config_merged(),
-        )
-            .ok();
+        let (cfg, prompt_preferred_modal) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref()).await;
+        s.emit("pushUiConfig", &cfg).ok();
+        if prompt_preferred_modal {
+            let _ = s.emit(
+                "openModal",
+                &super::network_ui::preferred_wifi_iface_info_modal_payload(),
+            );
+        }
     } else {
         tracing::debug!(
             "{} getUiConfig page={:?} (empty stub)",
@@ -1443,10 +1447,10 @@ async fn save_wireless_network_settings(
             );
             let arr = crate::network_status_ui::push_info_network_array().await;
             let _ = s.emit("pushInfoNetwork", &arr);
-            let _ = s.emit(
-                "pushUiConfig",
-                &super::network_ui::network_settings_ui_config_merged(),
-            );
+            let (cfg, _) =
+                super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                    .await;
+            let _ = s.emit("pushUiConfig", &cfg);
         }
         Err(msg) => {
             tracing::warn!(
@@ -1554,9 +1558,7 @@ async fn wireless_sta_join_apply_core(
 
     let cfg = state.config.as_ref();
     let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
-    for line in &report.steps {
-        tracing::info!("{} nm {}", crate::log_tags::EVO_NET, line);
-    }
+    crate::nm_network::log_network_apply_result("socket_wizard_sta_join", &report);
     Ok(report)
 }
 
@@ -3406,6 +3408,159 @@ async fn call_method(
     }
 
     if payload.endpoint.as_deref() == Some("system_controller/network")
+        && payload.method.as_deref() == Some("savePreferredWifiIface")
+    {
+        let data = &payload.data;
+        let Some(iface) = super::network_ui::parse_preferred_wifi_iface_field(data) else {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": "Network",
+                    "message": "Select a Wi-Fi interface."
+                }),
+            );
+            return;
+        };
+        let ok = match crate::nm_network::nm_device_table().await {
+            Ok(rows) => rows.iter().any(|r| {
+                r.kind.eq_ignore_ascii_case("wifi")
+                    && !r.device.starts_with("p2p-dev-")
+                    && r.device.trim() == iface.as_str()
+            }),
+            Err(_) => false,
+        };
+        if !ok {
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": "Network",
+                    "message": "That interface is not available."
+                }),
+            );
+            return;
+        }
+        match crate::nm_network::persist_user_wifi_iface_preference(&iface).await {
+            Ok(()) => {
+                tracing::info!(
+                    "{} savePreferredWifiIface: {}",
+                    crate::log_tags::EVO_NET,
+                    iface
+                );
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "success",
+                        "title": "Network",
+                        "message": "Preferred Wi-Fi interface saved."
+                    }),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "{} savePreferredWifiIface: {}",
+                    crate::log_tags::EVO_NET,
+                    e
+                );
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Network",
+                        "message": format!("Could not save: {e}")
+                    }),
+                );
+                return;
+            }
+        }
+        let (cfg, _) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                .await;
+        let _ = s.emit("pushUiConfig", &cfg);
+        let arr = crate::network_status_ui::push_info_network_array().await;
+        let _ = s.emit("pushInfoNetwork", &arr);
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/network")
+        && payload.method.as_deref() == Some("saveWiredNet")
+    {
+        let data = &payload.data;
+        if super::network_ui::wired_net_needs_static_confirm(data) {
+            let _ = s.emit(
+                "openModal",
+                &super::network_ui::wired_static_confirm_modal_payload(data),
+            );
+            return;
+        }
+        let mut intent = crate::network_config::NetworkIntent::load();
+        match super::network_ui::apply_wired_net_form_to_intent(&mut intent, data) {
+            Ok(()) => {}
+            Err(super::network_ui::ApplyWiredNetError::StaticIpOrNetmaskMissing) => {
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Network",
+                        "message": "Static IP and netmask are required when DHCP is off."
+                    }),
+                );
+                return;
+            }
+            Err(super::network_ui::ApplyWiredNetError::InvalidNetmask) => {
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Network",
+                        "message": "Invalid netmask (expected e.g. 255.255.255.0)."
+                    }),
+                );
+                return;
+            }
+        }
+        if let Err(e) = intent.save() {
+            tracing::warn!(
+                "{} saveWiredNet intent: {}",
+                crate::log_tags::EVO_NET,
+                e
+            );
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "error",
+                    "title": "Network",
+                    "message": format!("Could not save network settings: {e}")
+                }),
+            );
+            return;
+        }
+        let cfg = state.config.as_ref();
+        let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
+        crate::nm_network::log_network_apply_result("socket_saveWiredNet", &report);
+        let _ = s.emit(
+            "pushToastMessage",
+            &serde_json::json!({
+                "type": if report.ok { "success" } else { "error" },
+                "title": "Network",
+                "message": if report.ok {
+                    "Settings saved".to_string()
+                } else {
+                    report.steps.last().cloned().unwrap_or_else(|| "Network apply failed".to_string())
+                }
+            }),
+        );
+        let arr = crate::network_status_ui::push_info_network_array().await;
+        let _ = s.emit("pushInfoNetwork", &arr);
+        let (cfg, _) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                .await;
+        let _ = s.emit("pushUiConfig", &cfg);
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/network")
         && payload.method.as_deref() == Some("saveWirelessNet")
     {
         let data = &payload.data;
@@ -3464,9 +3619,7 @@ async fn call_method(
         }
         let cfg = state.config.as_ref();
         let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
-        for line in &report.steps {
-            tracing::info!("{} nm {}", crate::log_tags::EVO_NET, line);
-        }
+        crate::nm_network::log_network_apply_result("socket_saveWirelessNet", &report);
         let _ = s.emit(
             "pushToastMessage",
             &serde_json::json!({
@@ -3481,10 +3634,10 @@ async fn call_method(
         );
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
-        let _ = s.emit(
-            "pushUiConfig",
-            &super::network_ui::network_settings_ui_config_merged(),
-        );
+        let (cfg, _) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                .await;
+        let _ = s.emit("pushUiConfig", &cfg);
         return;
     }
 
@@ -3560,9 +3713,7 @@ async fn call_method(
         }
         let cfg = state.config.as_ref();
         let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
-        for line in &report.steps {
-            tracing::info!("{} nm {}", crate::log_tags::EVO_NET, line);
-        }
+        crate::nm_network::log_network_apply_result("socket_saveHotspotSettings", &report);
         let _ = s.emit(
             "pushToastMessage",
             &serde_json::json!({
@@ -3577,10 +3728,10 @@ async fn call_method(
         );
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
-        let _ = s.emit(
-            "pushUiConfig",
-            &super::network_ui::network_settings_ui_config_merged(),
-        );
+        let (cfg, _) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                .await;
+        let _ = s.emit("pushUiConfig", &cfg);
         return;
     }
 

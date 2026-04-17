@@ -7,8 +7,10 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::process::Command;
 
 use crate::config::Config;
@@ -113,6 +115,41 @@ pub async fn nm_device_table() -> Result<Vec<NmDeviceRow>> {
     Ok(rows)
 }
 
+/// Active connection **names** bound to **`ifname`** (`nmcli -t -f NAME,DEVICE connection show --active`).
+/// When the stack supports **concurrent STA+AP**, both profiles may appear for the same `wlan*`.
+async fn nm_active_connection_names_on_device(ifname: &str) -> Vec<String> {
+    let want = ifname.trim();
+    if want.is_empty() {
+        return Vec::new();
+    }
+    let raw = match nmcli_output(&[
+        "-t",
+        "-f",
+        "NAME,DEVICE",
+        "connection",
+        "show",
+        "--active",
+    ])
+    .await
+    {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let mut names = Vec::new();
+    for line in raw.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut parts = line.split(':');
+        let name = parts.next().unwrap_or("").trim();
+        let dev = parts.next().unwrap_or("").trim();
+        if dev == want && !name.is_empty() {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
 /// One row from `nmcli dev wifi list` (`-t -f SSID,SIGNAL,SECURITY,ACTIVE`).
 #[derive(Debug, Clone, Serialize)]
 pub struct NmWifiAp {
@@ -141,13 +178,76 @@ async fn nmcli_dev_wifi_rescan_best_effort(ifname: Option<&str>) {
     let _ = nmcli_output(&args_ref).await;
 }
 
+/// Persist UI-chosen STA iface: `settings/network/wifi_iface_preferred` + merge into `/etc/volumio-evo/config.toml` (best-effort `sudo install` when not root; see bootstrap **`volumio-evo-config-install`**).
+pub async fn persist_user_wifi_iface_preference(iface: &str) -> Result<()> {
+    let iface = iface.trim();
+    if iface.is_empty() {
+        anyhow::bail!("wifi interface name is empty");
+    }
+    crate::network_config::write_wifi_iface_preferred(iface)?;
+    let etc = Path::new("/etc/volumio-evo/config.toml");
+    let base = std::fs::read_to_string(etc).unwrap_or_default();
+    let merged = crate::network_config::merge_toml_wifi_iface(&base, iface)?;
+    let pending = crate::network_config::config_toml_pending_path();
+    if let Some(parent) = pending.parent() {
+        std::fs::create_dir_all(parent).context("create pending config parent")?;
+    }
+    std::fs::write(&pending, merged.as_bytes()).with_context(|| format!("write {}", pending.display()))?;
+    install_pending_system_config(&pending).await?;
+    Ok(())
+}
+
+async fn install_pending_system_config(pending: &Path) -> Result<()> {
+    let dest = Path::new("/etc/volumio-evo/config.toml");
+    if effective_uid_is_root() {
+        std::fs::copy(pending, dest).with_context(|| format!("copy to {}", dest.display()))?;
+        return Ok(());
+    }
+    let st = Command::new("sudo")
+        .arg("-n")
+        .arg("/usr/bin/install")
+        .arg("-o")
+        .arg("root")
+        .arg("-g")
+        .arg("root")
+        .arg("-m")
+        .arg("644")
+        .arg(pending.as_os_str())
+        .arg(dest.as_os_str())
+        .status()
+        .await
+        .context("sudo install config.toml")?;
+    if !st.success() {
+        tracing::warn!(
+            "{} could not copy merged config to {} (sudo install failed; preferred iface file still applies). Install bootstrap sudoers **volumio-evo-config-install** or run Evo as root.",
+            crate::log_tags::EVO_NET,
+            dest.display()
+        );
+    }
+    Ok(())
+}
+
 /// Effective Wi‑Fi interface for NM scans and diagnostics.
 ///
-/// 1. Non-empty [`Config::wifi_iface`] or **`VOLUMIO_EVO_WIFI_IFACE`** (applied at load) wins.
-/// 2. Otherwise, pick the first `wifi` device from **`nmcli -t device`**, **preferring** one whose
+/// 1. **`VOLUMIO_EVO_WIFI_IFACE`** environment variable (admin override).
+/// 2. Persisted **`settings/network/wifi_iface_preferred`** (Network UI).
+/// 3. Non-empty [`Config::wifi_iface`] from `/etc` / startup (includes env merged at load).
+/// 4. Otherwise, pick the first `wifi` device from **`nmcli -t device`**, **preferring** one whose
 ///    state does not look like **`unavailable`** when several radios exist (e.g. USB `wlan1` vs dead SoC `wlan0`).
-/// 3. Fallback: [`DEFAULT_WIFI_IFACE`] (`wlan0`).
+/// 5. Fallback: [`DEFAULT_WIFI_IFACE`] (`wlan0`).
 pub async fn resolve_effective_wifi_iface(config: &Config) -> String {
+    if let Ok(v) = std::env::var("VOLUMIO_EVO_WIFI_IFACE") {
+        let t = v.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    if let Some(s) = crate::network_config::read_wifi_iface_preferred() {
+        let t = s.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
     if let Some(ref s) = config.wifi_iface {
         let t = s.trim();
         if !t.is_empty() {
@@ -178,6 +278,10 @@ pub async fn resolve_effective_wifi_iface(config: &Config) -> String {
 /// Unblock rfkill and enable the NM Wi‑Fi radio so **client (STA) mode** can scan and connect.
 /// Call when applying intent after the user turns **Wireless Networking** on.
 pub async fn ensure_wifi_client_hw_ready() {
+    tracing::debug!(
+        "{} wifi_client_hw_ready begin (rfkill unblock + nmcli radio on)",
+        crate::log_tags::EVO_NET
+    );
     crate::rfkill_mgmt::ensure_wifi_unblocked_for_nm().await;
     nmcli_radio_wifi_on_best_effort().await;
 }
@@ -366,6 +470,86 @@ pub struct NetworkApplyReport {
     pub steps: Vec<String>,
 }
 
+/// One **info** summary line plus each nmcli apply **step** at **debug** level.
+/// Enable detail with **`log_level`** `verbose` / `debug` in config, or **`RUST_LOG`** (see [`crate::config::LogLevel`]).
+pub fn log_network_apply_result(context: &str, report: &NetworkApplyReport) {
+    tracing::info!(
+        "{} network_apply context={} ok={} step_count={}",
+        crate::log_tags::EVO_NET,
+        context,
+        report.ok,
+        report.steps.len()
+    );
+    for line in &report.steps {
+        tracing::debug!(
+            "{} network_apply context={} step: {}",
+            crate::log_tags::EVO_NET,
+            context,
+            line
+        );
+    }
+    if !report.ok {
+        if let Some(last) = report.steps.last() {
+            tracing::warn!(
+                "{} network_apply context={} error: {}",
+                crate::log_tags::EVO_NET,
+                context,
+                last
+            );
+        }
+    }
+}
+
+fn debug_log_network_intent_snapshot(
+    intent: &NetworkIntent,
+    sta_if: &str,
+    hs_if: &str,
+    sta_psk_present: bool,
+    ap_psk_present: bool,
+) {
+    let eth = &intent.ethernet;
+    let ipv4 = match eth.ipv4_mode {
+        Ipv4Mode::Dhcp => "dhcp",
+        Ipv4Mode::Static => "static",
+    };
+    let wifi_if_raw = intent.wifi.ifname.trim();
+    let wifi_if_disp = if wifi_if_raw.is_empty() {
+        "(from config/env)"
+    } else {
+        wifi_if_raw
+    };
+    let hs_if_raw = intent.fallback.hotspot_ifname.trim();
+    let hs_if_src = if hs_if_raw.is_empty() {
+        "same_as_sta"
+    } else {
+        "intent"
+    };
+    tracing::debug!(
+        "{} intent_snapshot wifi.role={:?} wifi.ifname={} sta_if_effective={} hotspot_if_effective={} hotspot_ifname.source={} ethernet.enabled={} ethernet.ipv4={} ethernet.device={} fallback.hotspot_enabled={} fallback.hotspot_fallback={} hotspot_connection={} sta_ssid={:?} ap_ssid={:?} ap_channel={} sta_psk_sidecar={} ap_psk_sidecar={}",
+        crate::log_tags::EVO_NET,
+        intent.wifi.role,
+        wifi_if_disp,
+        sta_if,
+        hs_if,
+        hs_if_src,
+        eth.enabled,
+        ipv4,
+        if eth.device.trim().is_empty() {
+            "(auto)"
+        } else {
+            eth.device.trim()
+        },
+        intent.fallback.hotspot_enabled,
+        intent.fallback.hotspot_fallback,
+        intent.fallback.hotspot_connection_name.trim(),
+        intent.wifi.sta_ssid,
+        intent.wifi.ap_ssid,
+        intent.wifi.ap_channel,
+        sta_psk_present,
+        ap_psk_present,
+    );
+}
+
 async fn nmcli_output_lossy(args: &[&str]) -> Result<String> {
     nmcli_output(args).await
 }
@@ -377,11 +561,303 @@ async fn nm_connection_exists(name: &str) -> bool {
     out.status.success()
 }
 
+/// **Open** hotspot (no user passphrase): **omit** the `802-11-wireless-security` setting entirely.
+///
+/// Do **not** use **`wpa-psk`** with an **empty** `psk`. NetworkManager documents WPA-PSK as 8–63 ASCII (or
+/// 64 hex) characters; an empty string is not a valid open network — clients still see WPA and prompt for a
+/// password. Hostapd likewise uses an open BSS only when WPA options are absent, not when the passphrase is
+/// empty.
+///
+/// For an **existing** profile that had WPA, clear security with `nmcli connection modify … remove
+/// 802-11-wireless-security` (implemented in `push_nm_ap_remove_wireless_security`).
+fn push_nm_ap_remove_wireless_security(seq: &mut Vec<String>) {
+    seq.push("remove".into());
+    seq.push("802-11-wireless-security".into());
+}
+
 fn first_ethernet_device(devices: &[NmDeviceRow]) -> Option<String> {
     devices
         .iter()
         .find(|d| d.kind.eq_ignore_ascii_case("ethernet") && d.device != "lo")
         .map(|d| d.device.clone())
+}
+
+/// **`/sys/class/net/<iface>/carrier`**: `0` or missing → treat as **no Ethernet link** (cable gone).
+fn sysfs_ethernet_no_carrier(ifname: &str) -> bool {
+    let path = format!("/sys/class/net/{}/carrier", ifname.trim());
+    match std::fs::read_to_string(&path) {
+        Ok(s) => s.trim() == "0",
+        Err(_) => true,
+    }
+}
+
+async fn resolved_ethernet_ifname(eth: &EthernetIntent) -> Option<String> {
+    if !eth.enabled {
+        return None;
+    }
+    let ifname = eth.device.trim();
+    if !ifname.is_empty() {
+        return Some(ifname.to_string());
+    }
+    let table = nm_device_table().await.ok()?;
+    first_ethernet_device(&table)
+}
+
+/// Ethernet “no LAN” per **`NETWORK_NM.md`**: Ethernet **enabled** in intent, iface resolved, **no carrier**.
+async fn ethernet_intent_has_no_carrier(eth: &EthernetIntent) -> bool {
+    if !eth.enabled {
+        return false;
+    }
+    let Some(iface) = resolved_ethernet_ifname(eth).await else {
+        return false;
+    };
+    sysfs_ethernet_no_carrier(&iface)
+}
+
+const HOTSPOT_BRINGUP_ATTEMPTS: u32 = 4;
+const HOTSPOT_BRINGUP_DELAY_MS: u64 = 400;
+
+/// Returns **`true`** if **`nmcli connection up`** succeeded on any attempt (intermittent NM/driver bring-up).
+async fn connection_up_hotspot_with_retries(con_name: &str, steps: &mut Vec<String>) -> bool {
+    if con_name.trim().is_empty() {
+        return false;
+    }
+    tracing::debug!(
+        "{} nm hotspot connection up begin con={} max_attempts={}",
+        crate::log_tags::EVO_NET,
+        con_name,
+        HOTSPOT_BRINGUP_ATTEMPTS
+    );
+    for attempt in 1..=HOTSPOT_BRINGUP_ATTEMPTS {
+        tracing::debug!(
+            "{} nm hotspot connection up attempt {}/{} con={}",
+            crate::log_tags::EVO_NET,
+            attempt,
+            HOTSPOT_BRINGUP_ATTEMPTS,
+            con_name
+        );
+        match nmcli_spawn_output(&["connection", "up", con_name]).await {
+            Ok(out) if out.status.success() => {
+                if attempt > 1 {
+                    steps.push(format!(
+                        "brought up {} (attempt {} of {})",
+                        con_name, attempt, HOTSPOT_BRINGUP_ATTEMPTS
+                    ));
+                } else {
+                    steps.push(format!("brought up {}", con_name));
+                }
+                return true;
+            }
+            Ok(out) => {
+                let code = out.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!(
+                    "{} connection up {} attempt {}/{} (exit {}): {}",
+                    crate::log_tags::EVO_NET,
+                    con_name,
+                    attempt,
+                    HOTSPOT_BRINGUP_ATTEMPTS,
+                    code,
+                    stderr.trim()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "{} connection up {} attempt {} spawn: {}",
+                    crate::log_tags::EVO_NET,
+                    con_name,
+                    attempt,
+                    e
+                );
+            }
+        }
+        if attempt < HOTSPOT_BRINGUP_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(HOTSPOT_BRINGUP_DELAY_MS)).await;
+        }
+    }
+    steps.push(format!(
+        "warning: {} failed connection up after {} attempts",
+        con_name, HOTSPOT_BRINGUP_ATTEMPTS
+    ));
+    false
+}
+
+async fn nm_connection_remove_wifi_security_lossy(con_name: &str) {
+    let _ = nmcli_output_lossy(&[
+        "connection",
+        "modify",
+        con_name,
+        "remove",
+        "802-11-wireless-security",
+    ])
+    .await;
+}
+
+/// **`NETWORK_NM.md`**: AP enabled but AP **state** failed after retries, **no LAN carrier** → **open** hotspot.
+/// Returns **`true`** if the retry after stripping security succeeds.
+async fn try_critical_open_hotspot_recovery(
+    eth: &EthernetIntent,
+    hotspot_enabled: bool,
+    hs_name: &str,
+    steps: &mut Vec<String>,
+) -> bool {
+    if !hotspot_enabled || hs_name.trim().is_empty() {
+        tracing::debug!(
+            "{} critical_open_hotspot_recovery skip (hotspot not enabled or no profile name)",
+            crate::log_tags::EVO_NET
+        );
+        return false;
+    }
+    if !ethernet_intent_has_no_carrier(eth).await {
+        tracing::debug!(
+            "{} critical_open_hotspot_recovery skip (LAN intent has carrier or ethernet disabled / no iface — not 'no LAN' case)",
+            crate::log_tags::EVO_NET
+        );
+        return false;
+    }
+    tracing::warn!(
+        "{} critical recovery: Ethernet no carrier; forcing open AP profile {}",
+        crate::log_tags::EVO_NET,
+        hs_name
+    );
+    nm_connection_remove_wifi_security_lossy(hs_name).await;
+    steps.push(format!(
+        "critical: Ethernet no carrier + hotspot failed; forced open AP on {}",
+        hs_name
+    ));
+    connection_up_hotspot_with_retries(hs_name, steps).await
+}
+
+/// When **STA** and **hotspot** share one **`wlan*`**, some stacks **replace** STA with AP (single active
+/// profile). Others report **both** connections active — **concurrent STA+AP** (see **`NETWORK_NM.md`**).
+/// We only release the hotspot and bring STA back when NM shows **hotspot without STA** on the iface.
+///
+/// When Ethernet is **enabled** but **no carrier**, we **keep** the hotspot active (do not run this)
+/// so the device stays reachable for provisioning.
+async fn restore_sta_after_hotspot_on_shared_radio(
+    eth: &EthernetIntent,
+    sta_ifname: &str,
+    hotspot_con: &str,
+    steps: &mut Vec<String>,
+) {
+    let ifname = sta_ifname.trim();
+    if ifname.is_empty() || hotspot_con.trim().is_empty() {
+        return;
+    }
+
+    let active_names = nm_active_connection_names_on_device(ifname).await;
+    let hs = hotspot_con.trim();
+    let has_sta = active_names
+        .iter()
+        .any(|n| n.trim() == NM_CON_WIFI_STA);
+    let has_hs = active_names.iter().any(|n| n.trim() == hs);
+
+    if has_sta && has_hs {
+        tracing::debug!(
+            "{} shared iface {}: concurrent STA+AP ({} + {}) — leaving both up",
+            crate::log_tags::EVO_NET,
+            ifname,
+            NM_CON_WIFI_STA,
+            hs
+        );
+        steps.push(format!(
+            "shared iface: {} + {} both active (concurrent STA+AP)",
+            NM_CON_WIFI_STA, hs
+        ));
+        return;
+    }
+
+    if has_sta && !has_hs {
+        tracing::debug!(
+            "{} shared iface {}: STA active, hotspot not on iface — skip post-hotspot restore",
+            crate::log_tags::EVO_NET,
+            ifname
+        );
+        return;
+    }
+
+    if !has_hs {
+        tracing::debug!(
+            "{} shared iface {}: hotspot not active on device — skip STA restore",
+            crate::log_tags::EVO_NET,
+            ifname
+        );
+        return;
+    }
+
+    if ethernet_intent_has_no_carrier(eth).await {
+        tracing::info!(
+            "{} shared radio: keep hotspot active on {} (Ethernet enabled but no carrier — STA restore would strand the unit)",
+            crate::log_tags::EVO_NET,
+            ifname
+        );
+        steps.push(
+            "shared iface: hotspot left up (no LAN carrier); STA cannot share the radio with AP here"
+                .into(),
+        );
+        return;
+    }
+
+    tracing::info!(
+        "{} shared radio: releasing hotspot {:?} on {} then restoring {} (last connection up wins on single phy)",
+        crate::log_tags::EVO_NET,
+        hotspot_con,
+        ifname,
+        NM_CON_WIFI_STA
+    );
+
+    connection_down_lossy(hotspot_con).await;
+
+    let mut restored = false;
+    for attempt in 1..=HOTSPOT_BRINGUP_ATTEMPTS {
+        match nmcli_spawn_output(&["connection", "up", NM_CON_WIFI_STA]).await {
+            Ok(out) if out.status.success() => {
+                restored = true;
+                steps.push(if attempt > 1 {
+                    format!(
+                        "shared iface: restored {} on {} after hotspot (attempt {})",
+                        NM_CON_WIFI_STA, ifname, attempt
+                    )
+                } else {
+                    format!(
+                        "shared iface: restored {} on {} — single radio cannot keep STA+AP; STA preferred when LAN has carrier",
+                        NM_CON_WIFI_STA, ifname
+                    )
+                });
+                break;
+            }
+            Ok(out) => {
+                let code = out.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!(
+                    "{} restore STA after hotspot attempt {}/{} (exit {}): {}",
+                    crate::log_tags::EVO_NET,
+                    attempt,
+                    HOTSPOT_BRINGUP_ATTEMPTS,
+                    code,
+                    stderr.trim()
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "{} restore STA after hotspot attempt {} spawn: {}",
+                    crate::log_tags::EVO_NET,
+                    attempt,
+                    e
+                );
+            }
+        }
+        if attempt < HOTSPOT_BRINGUP_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(HOTSPOT_BRINGUP_DELAY_MS)).await;
+        }
+    }
+
+    if !restored {
+        steps.push(format!(
+            "warning: could not restore {} on {} after releasing hotspot",
+            NM_CON_WIFI_STA, ifname
+        ));
+    }
 }
 
 /// Build `nmcli connection modify` args for IPv4 (ethernet or wifi STA).
@@ -426,9 +902,33 @@ async fn nm_modify_connection(name: &str, prop_vals: &[String]) -> Result<()> {
 }
 
 async fn ensure_ethernet(steps: &mut Vec<String>, eth: &EthernetIntent) -> Result<()> {
+    tracing::debug!(
+        "{} nm ensure_ethernet enabled={} device={}",
+        crate::log_tags::EVO_NET,
+        eth.enabled,
+        if eth.device.trim().is_empty() {
+            "(auto)"
+        } else {
+            eth.device.trim()
+        }
+    );
+    if !eth.enabled {
+        steps.push("skipped ethernet (disabled in intent)".into());
+        return Ok(());
+    }
+
     let table = nm_device_table().await?;
     let ifname = if eth.device.trim().is_empty() {
-        first_ethernet_device(&table).ok_or_else(|| anyhow!("no ethernet device found"))?
+        match first_ethernet_device(&table) {
+            Some(i) => i,
+            None => {
+                steps.push(
+                    "warning: ethernet enabled in intent but no ethernet device found; skipping"
+                        .into(),
+                );
+                return Ok(());
+            }
+        }
     } else {
         eth.device.trim().to_string()
     };
@@ -517,13 +1017,24 @@ async fn connection_down_lossy(name: &str) {
     }
 }
 
+/// When **`sta_connection_up_nonfatal`** is true (**STA and hotspot share one iface** and **Enable
+/// Hotspot** is on), STA `connection up` failure does not abort apply so we can still bring up the AP.
 async fn ensure_wifi_sta(
     steps: &mut Vec<String>,
     wifi_ifname: &str,
     wifi: &WifiIntent,
     sta_psk: Option<&str>,
+    sta_connection_up_nonfatal: bool,
 ) -> Result<()> {
     let ifname = wifi_ifname.trim();
+    tracing::debug!(
+        "{} nm ensure_wifi_sta ifname={} sta_open={} sta_connection_up_nonfatal={} ssid_len={}",
+        crate::log_tags::EVO_NET,
+        ifname,
+        wifi.sta_open,
+        sta_connection_up_nonfatal,
+        wifi.sta_ssid.trim().chars().count()
+    );
     if ifname.is_empty() {
         anyhow::bail!("wifi interface name is empty");
     }
@@ -621,10 +1132,48 @@ async fn ensure_wifi_sta(
         steps.push(format!("added {}", NM_CON_WIFI_STA));
     }
 
-    nmcli_output_lossy(&["connection", "up", NM_CON_WIFI_STA])
-        .await
-        .context("nmcli connection up wifi STA")?;
-    steps.push(format!("brought up {}", NM_CON_WIFI_STA));
+    if sta_connection_up_nonfatal {
+        match nmcli_spawn_output(&["connection", "up", NM_CON_WIFI_STA]).await {
+            Ok(out) if out.status.success() => {
+                steps.push(format!("brought up {}", NM_CON_WIFI_STA));
+            }
+            Ok(out) => {
+                let code = out.status.code().unwrap_or(-1);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                tracing::warn!(
+                    "{} nmcli connection up {} (exit {}, nonfatal): {}",
+                    crate::log_tags::EVO_NET,
+                    NM_CON_WIFI_STA,
+                    code,
+                    stderr.trim()
+                );
+                steps.push(format!(
+                    "warning: nmcli connection up {} failed (exit {}): {}",
+                    NM_CON_WIFI_STA,
+                    code,
+                    stderr.trim()
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "{} nmcli connection up {} spawn (nonfatal): {}",
+                    crate::log_tags::EVO_NET,
+                    NM_CON_WIFI_STA,
+                    e
+                );
+                steps.push(format!(
+                    "warning: nmcli connection up {} spawn: {}",
+                    NM_CON_WIFI_STA,
+                    e
+                ));
+            }
+        }
+    } else {
+        nmcli_output_lossy(&["connection", "up", NM_CON_WIFI_STA])
+            .await
+            .context("nmcli connection up wifi STA")?;
+        steps.push(format!("brought up {}", NM_CON_WIFI_STA));
+    }
     Ok(())
 }
 
@@ -696,6 +1245,14 @@ async fn ensure_wifi_ap(
     if ssid.is_empty() {
         anyhow::bail!("wifi.ap_ssid is empty");
     }
+    tracing::debug!(
+        "{} nm ensure_wifi_ap ifname={} con_name={} ssid_len={} ap_psk_configured={}",
+        crate::log_tags::EVO_NET,
+        ifname,
+        con_name,
+        ssid.chars().count(),
+        ap_psk.map(|s| !s.trim().is_empty()).unwrap_or(false)
+    );
     let psk = ap_psk.map(|s| s.trim()).filter(|s| !s.is_empty());
 
     if nm_connection_exists(con_name).await {
@@ -711,7 +1268,12 @@ async fn ensure_wifi_ap(
             ssid.to_string(),
         ];
         push_nm_ap_channel(&mut seq, wifi);
-        seq.extend(["ipv4.method".into(), "shared".into()]);
+        seq.extend([
+            "ipv4.method".into(),
+            "shared".into(),
+            "ipv6.method".into(),
+            "ignore".into(),
+        ]);
         if let Some(p) = psk {
             seq.extend([
                 "wifi-sec.key-mgmt".into(),
@@ -720,8 +1282,8 @@ async fn ensure_wifi_ap(
                 p.to_string(),
             ]);
         } else {
-            seq.extend(["wifi-sec.key-mgmt".into(), "none".into()]);
-            steps.push("warning: AP with no passphrase (open hotspot)".into());
+            push_nm_ap_remove_wireless_security(&mut seq);
+            steps.push("warning: AP with no passphrase (open hotspot; no 802.11 wireless security)".into());
         }
         let args_ref: Vec<&str> = seq.iter().map(|s| s.as_str()).collect();
         nmcli_output_lossy(&args_ref).await?;
@@ -744,7 +1306,12 @@ async fn ensure_wifi_ap(
             ssid.to_string(),
         ];
         push_nm_ap_channel(&mut args, wifi);
-        args.extend(["ipv4.method".into(), "shared".into()]);
+        args.extend([
+            "ipv4.method".into(),
+            "shared".into(),
+            "ipv6.method".into(),
+            "ignore".into(),
+        ]);
         if let Some(p) = psk {
             args.extend([
                 "wifi-sec.key-mgmt".into(),
@@ -752,18 +1319,15 @@ async fn ensure_wifi_ap(
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
-        } else {
-            args.extend(["wifi-sec.key-mgmt".into(), "none".into()]);
         }
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         nmcli_output_lossy(&args_ref).await?;
         steps.push(format!("added AP profile {}", con_name));
     }
 
-    nmcli_output_lossy(&["connection", "up", con_name])
-        .await
-        .context("nmcli connection up wifi AP")?;
-    steps.push(format!("brought up {}", con_name));
+    if !connection_up_hotspot_with_retries(con_name, steps).await {
+        anyhow::bail!("nmcli connection up wifi AP failed after retries");
+    }
     Ok(())
 }
 
@@ -777,6 +1341,10 @@ async fn ensure_hotspot_profile(
     fb: &FallbackIntent,
 ) -> Result<()> {
     if !fb.hotspot_enabled {
+        tracing::debug!(
+            "{} nm ensure_hotspot_profile skip (fallback.hotspot_enabled=false)",
+            crate::log_tags::EVO_NET
+        );
         return Ok(());
     }
     let name = hotspot_connection_name(fb);
@@ -809,7 +1377,12 @@ async fn ensure_hotspot_profile(
             ssid.to_string(),
         ];
         push_nm_ap_channel(&mut seq, wifi);
-        seq.extend(["ipv4.method".into(), "shared".into()]);
+        seq.extend([
+            "ipv4.method".into(),
+            "shared".into(),
+            "ipv6.method".into(),
+            "ignore".into(),
+        ]);
         if let Some(p) = psk {
             seq.extend([
                 "wifi-sec.key-mgmt".into(),
@@ -818,7 +1391,7 @@ async fn ensure_hotspot_profile(
                 p.to_string(),
             ]);
         } else {
-            seq.extend(["wifi-sec.key-mgmt".into(), "none".into()]);
+            push_nm_ap_remove_wireless_security(&mut seq);
         }
         let args_ref: Vec<&str> = seq.iter().map(|s| s.as_str()).collect();
         nmcli_output_lossy(&args_ref).await?;
@@ -841,7 +1414,12 @@ async fn ensure_hotspot_profile(
             ssid.to_string(),
         ];
         push_nm_ap_channel(&mut args, wifi);
-        args.extend(["ipv4.method".into(), "shared".into()]);
+        args.extend([
+            "ipv4.method".into(),
+            "shared".into(),
+            "ipv6.method".into(),
+            "ignore".into(),
+        ]);
         if let Some(p) = psk {
             args.extend([
                 "wifi-sec.key-mgmt".into(),
@@ -849,8 +1427,6 @@ async fn ensure_hotspot_profile(
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
-        } else {
-            args.extend(["wifi-sec.key-mgmt".into(), "none".into()]);
         }
         let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         nmcli_output_lossy(&args_ref).await?;
@@ -865,6 +1441,10 @@ static NM_APPLY_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 pub async fn apply_network_intent_exclusive(intent: &NetworkIntent, config: &Config) -> NetworkApplyReport {
     let lock = NM_APPLY_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
     let _guard = lock.lock().await;
+    tracing::debug!(
+        "{} apply_network_intent_exclusive lock acquired (serializing nmcli apply)",
+        crate::log_tags::EVO_NET
+    );
     apply_network_intent(intent, config).await
 }
 
@@ -877,6 +1457,13 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
     let ap_psk_ref = ap_psk.as_deref();
     let sta_ifname = crate::network_config::effective_wifi_ifname(&intent.wifi, Some(config));
     let hotspot_ifname = crate::network_config::effective_hotspot_ifname(intent, Some(config));
+    debug_log_network_intent_snapshot(
+        intent,
+        sta_ifname.as_str(),
+        hotspot_ifname.as_str(),
+        sta_psk.is_some(),
+        ap_psk.is_some(),
+    );
     if sta_ifname != hotspot_ifname {
         steps.push(format!(
             "STA iface {} ≠ hotspot iface {} (split-radio / STA-only USB)",
@@ -886,6 +1473,11 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
 
     let res = async {
         ensure_ethernet(&mut steps, &intent.ethernet).await?;
+        tracing::debug!(
+            "{} nm phase: ethernet done wifi.role={:?}",
+            crate::log_tags::EVO_NET,
+            intent.wifi.role
+        );
 
         let hs = hotspot_connection_name(&intent.fallback);
         match intent.wifi.role {
@@ -895,14 +1487,30 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
                 steps.push("wifi role disabled; brought down STA and hotspot (best effort)".into());
             }
             WifiRole::Sta => {
-                connection_down_lossy(hs).await;
-                ensure_wifi_sta(&mut steps, &sta_ifname, &intent.wifi, sta_psk_ref).await?;
+                let same_iface = sta_ifname == hotspot_ifname;
+                if same_iface || !intent.fallback.hotspot_enabled {
+                    connection_down_lossy(hs).await;
+                }
+                let sta_up_nonfatal = same_iface && intent.fallback.hotspot_enabled;
+                ensure_wifi_sta(
+                    &mut steps,
+                    &sta_ifname,
+                    &intent.wifi,
+                    sta_psk_ref,
+                    sta_up_nonfatal,
+                )
+                .await?;
             }
             WifiRole::Ap => {
                 connection_down_lossy(NM_CON_WIFI_STA).await;
                 ensure_wifi_ap(&mut steps, &hotspot_ifname, &intent.wifi, ap_psk_ref, hs).await?;
             }
         }
+        tracing::debug!(
+            "{} nm phase: wifi role branch done (role={:?})",
+            crate::log_tags::EVO_NET,
+            intent.wifi.role
+        );
 
         if matches!(intent.wifi.role, WifiRole::Sta) {
             ensure_hotspot_profile(
@@ -913,19 +1521,72 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
                 &intent.fallback,
             )
             .await?;
+
+            let hs_name = hotspot_connection_name(&intent.fallback);
+            if intent.fallback.hotspot_enabled && !hs_name.trim().is_empty() {
+                let same_iface = sta_ifname == hotspot_ifname;
+                let ok = connection_up_hotspot_with_retries(hs_name, &mut steps).await;
+                let recovered = if !ok {
+                    try_critical_open_hotspot_recovery(
+                        &intent.ethernet,
+                        intent.fallback.hotspot_enabled,
+                        hs_name,
+                        &mut steps,
+                    )
+                    .await
+                } else {
+                    false
+                };
+                if same_iface {
+                    restore_sta_after_hotspot_on_shared_radio(
+                        &intent.ethernet,
+                        sta_ifname.trim(),
+                        hs_name,
+                        &mut steps,
+                    )
+                    .await;
+                } else {
+                    steps.push(format!(
+                        "intent: hotspot on {}, STA on {}",
+                        hotspot_ifname, sta_ifname
+                    ));
+                }
+                if !ok && !recovered {
+                    steps.push(
+                        "warning: hotspot did not activate after retries (and critical open recovery if applicable)"
+                            .into(),
+                    );
+                }
+            }
         }
+        tracing::debug!(
+            "{} nm phase: intent apply inner completed",
+            crate::log_tags::EVO_NET
+        );
         Ok::<(), anyhow::Error>(())
     }
     .await;
 
-    match res {
+    let report = match res {
         Ok(()) => NetworkApplyReport { ok: true, steps },
         Err(e) => {
+            tracing::debug!(
+                "{} apply_network_intent inner error before report: {}",
+                crate::log_tags::EVO_NET,
+                e
+            );
             steps.push(format!("error: {}", e));
             NetworkApplyReport {
                 ok: false,
                 steps,
             }
         }
-    }
+    };
+    tracing::debug!(
+        "{} apply_network_intent finished ok={} steps={}",
+        crate::log_tags::EVO_NET,
+        report.ok,
+        report.steps.len()
+    );
+    report
 }

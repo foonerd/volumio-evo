@@ -13,6 +13,7 @@
       "saveButton": {
         "label": "TRANSLATE.COMMON.SAVE",
         "data": [
+          "ethernet_enabled",
           "dhcp",
           "static_ip",
           "static_netmask",
@@ -21,11 +22,22 @@
       },
       "content": [
         {
+          "id": "ethernet_enabled",
+          "element": "switch",
+          "doc": "When off, Evo does not manage wired Ethernet (Wi‑Fi‑only systems). Matches intent ethernet.enabled.",
+          "label": "Use Ethernet",
+          "value": true
+        },
+        {
           "id": "dhcp",
           "element": "switch",
           "doc" : "TRANSLATE.NETWORK.AUTOMATIC_IP_DOC",
           "label": "TRANSLATE.NETWORK.AUTOMATIC_IP",
-          "value": true
+          "value": true,
+          "visibleIf": {
+            "field": "ethernet_enabled",
+            "value": true
+          }
         },
         {
           "id": "static_ip",

@@ -453,7 +453,28 @@ pub async fn network_nm_status(State(state): State<AppState>) -> impl IntoRespon
     Json(snap).into_response()
 }
 
-/// GET /api/v1/network/nm/intent — persisted NM intent (no PSK values; only configured flags).
+/// GET /api/v1/network/nm/wifi-devices — Wi-Fi `wlan*` device names from NM (excludes `p2p-dev-*`).
+pub async fn network_nm_wifi_devices(State(state): State<AppState>) -> impl IntoResponse {
+    let effective = crate::nm_network::resolve_effective_wifi_iface(&state.config).await;
+    let rows = crate::nm_network::nm_device_table().await.unwrap_or_default();
+    let devices: Vec<String> = rows
+        .into_iter()
+        .filter(|r| {
+            r.kind.eq_ignore_ascii_case("wifi")
+                && !r.device.starts_with("p2p-dev-")
+                && !r.device.trim().is_empty()
+        })
+        .map(|r| r.device)
+        .collect();
+    Json(serde_json::json!({
+        "devices": devices,
+        "effective": effective,
+        "preferred_file": crate::network_config::read_wifi_iface_preferred(),
+    }))
+    .into_response()
+}
+
+/// GET /api/v1/network/nm/intent — persisted NM intent (no PSK values; includes **`ethernet.enabled`**).
 #[derive(Serialize)]
 pub struct NetworkNmIntentResponse {
     pub intent: crate::network_config::NetworkIntent,
@@ -517,9 +538,11 @@ pub async fn network_nm_intent_put(
     }
 
     let apply_report = if body.apply {
-        Some(
-            crate::nm_network::apply_network_intent_exclusive(&body.intent, state.config.as_ref()).await,
-        )
+        let r =
+            crate::nm_network::apply_network_intent_exclusive(&body.intent, state.config.as_ref())
+                .await;
+        crate::nm_network::log_network_apply_result("rest_put_network_nm_intent", &r);
+        Some(r)
     } else {
         None
     };

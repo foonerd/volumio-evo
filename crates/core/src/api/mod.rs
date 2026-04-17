@@ -356,21 +356,5 @@ pub async fn run_startup_network_intent_apply(state: AppState) {
 
     let cfg = state.config.as_ref();
     let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
-    if report.ok {
-        tracing::info!(
-            "{} applied persisted network intent at startup ({} step(s))",
-            crate::log_tags::EVO_NET,
-            report.steps.len()
-        );
-    } else {
-        tracing::warn!(
-            "{} startup network intent apply failed or partial: {}",
-            crate::log_tags::EVO_NET,
-            report
-                .steps
-                .last()
-                .map(|s| s.as_str())
-                .unwrap_or("unknown error")
-        );
-    }
+    crate::nm_network::log_network_apply_result("startup", &report);
 }

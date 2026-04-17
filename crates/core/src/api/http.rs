@@ -466,6 +466,7 @@ pub fn router(
         .route("/getzones", get(v1::get_zones))
         .route("/getActiveUi", get(v1::get_active_ui))
         .route("/network/nm/status", get(v1::network_nm_status))
+        .route("/network/nm/wifi-devices", get(v1::network_nm_wifi_devices))
         .route(
             "/network/nm/intent",
             get(v1::network_nm_intent_get).put(v1::network_nm_intent_put),

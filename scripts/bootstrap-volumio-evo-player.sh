@@ -125,6 +125,7 @@ Environment (common):
   EVO_INSTALL_MPD_SUDOERS=1             # 0 to skip sudoers for systemctl restart mpd (non-root service)
   EVO_INSTALL_RFKILL_SUDOERS=1          # 0 to skip sudoers for sudo -n rfkill unblock wifi (Wi-Fi soft block)
   EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
+  EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
 
@@ -324,6 +325,28 @@ EOF
     rm -f "${tmp_nm}"
   else
     rm -f "${nmcli_sudoers}" 2>/dev/null || true
+  fi
+
+  # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml (preferred Wi-Fi iface UI).
+  local config_install_sudoers="/etc/sudoers.d/volumio-evo-config-install"
+  local pending_cfg="/var/lib/volumio-evo/settings/network/config.toml.pending"
+  if [[ "${EVO_INSTALL_CONFIG_INSTALL_SUDOERS:-1}" == "1" ]]; then
+    local tmp_ci
+    tmp_ci="$(mktemp)"
+    cat > "${tmp_ci}" <<EOF
+# volumio-evo: non-root service merges \`wifi_iface\` into system config (must match Rust \`config_toml_pending_path\`).
+# Managed by bootstrap; paths are fixed.
+${u} ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 644 ${pending_cfg} /etc/volumio-evo/config.toml
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_ci}" 2>/dev/null; then
+      install -m 0440 "${tmp_ci}" "${config_install_sudoers}"
+      echo "Installed ${config_install_sudoers} (install config.toml NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${config_install_sudoers}."
+    fi
+    rm -f "${tmp_ci}"
+  else
+    rm -f "${config_install_sudoers}" 2>/dev/null || true
   fi
 }
 

@@ -18,6 +18,8 @@ pub const DEFAULT_WIFI_IFACE: &str = "wlan0";
 pub const INTENT_FILENAME: &str = "intent.toml";
 pub const WIFI_STA_PSK_FILENAME: &str = "wifi-sta.psk";
 pub const WIFI_AP_PSK_FILENAME: &str = "wifi-ap.psk";
+pub const WIFI_IFACE_PREFERRED_FILENAME: &str = "wifi_iface_preferred";
+pub const CONFIG_TOML_PENDING_FILENAME: &str = "config.toml.pending";
 
 /// NM connection names Evo manages (idempotent apply).
 pub const NM_CON_ETHERNET: &str = "volumio-evo-ethernet";
@@ -38,6 +40,62 @@ pub fn wifi_sta_psk_path() -> PathBuf {
 
 pub fn wifi_ap_psk_path() -> PathBuf {
     network_settings_dir().join(WIFI_AP_PSK_FILENAME)
+}
+
+pub fn wifi_iface_preferred_path() -> PathBuf {
+    network_settings_dir().join(WIFI_IFACE_PREFERRED_FILENAME)
+}
+
+pub fn config_toml_pending_path() -> PathBuf {
+    network_settings_dir().join(CONFIG_TOML_PENDING_FILENAME)
+}
+
+/// UI-chosen preferred STA interface (persists across reboots; see [`read_wifi_iface_preferred`]).
+pub fn write_wifi_iface_preferred(iface: &str) -> Result<()> {
+    let path = wifi_iface_preferred_path();
+    let t = iface.trim();
+    if t.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(&path, format!("{t}\n")).with_context(|| format!("write {}", path.display()))?;
+    tracing::info!("{} wrote {}", crate::log_tags::EVO_NET, path.display());
+    Ok(())
+}
+
+/// Preferred STA `wlan*` from settings (non-empty). Does not include `/etc` or env.
+pub fn read_wifi_iface_preferred() -> Option<String> {
+    let path = wifi_iface_preferred_path();
+    let s = fs::read_to_string(&path).ok()?;
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
+/// Merge root-level `wifi_iface` into existing TOML text (preserves other keys/sections).
+pub fn merge_toml_wifi_iface(base_toml: &str, iface: &str) -> anyhow::Result<String> {
+    let iface = iface.trim();
+    if iface.is_empty() {
+        anyhow::bail!("wifi_iface is empty");
+    }
+    let mut root: toml::Value = if base_toml.trim().is_empty() {
+        toml::Value::Table(toml::value::Table::new())
+    } else {
+        toml::from_str(base_toml)?
+    };
+    if let toml::Value::Table(ref mut t) = root {
+        t.insert(
+            "wifi_iface".to_string(),
+            toml::Value::String(iface.to_string()),
+        );
+    }
+    Ok(toml::to_string_pretty(&root)?)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,6 +129,10 @@ impl Default for WifiRole {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EthernetIntent {
+    /// UI / intent: **use wired Ethernet** (`volumio-evo-ethernet`). When **`false`**, Evo skips the
+    /// Ethernet profile entirely (Wi‑Fi‑only products). Default **`true`** for backward compatibility.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// Empty: use the first ethernet device reported by NM.
     #[serde(default)]
     pub device: String,
@@ -88,6 +150,7 @@ pub struct EthernetIntent {
 impl Default for EthernetIntent {
     fn default() -> Self {
         Self {
+            enabled: true,
             device: String::new(),
             ipv4_mode: Ipv4Mode::Dhcp,
             ipv4_address: String::new(),
@@ -199,7 +262,8 @@ impl Default for WifiIntent {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FallbackIntent {
-    /// When true, Evo may activate [`NM_CON_HOTSPOT`] if STA fails (watchdog / Phase 3).
+    /// UI **Enable Hotspot** — create/maintain AP profile and (with **`hotspot_fallback`**) activate it per
+    /// **`NETWORK_NM.md`** (concurrent STA+AP when supported on one iface, or split-radio).
     #[serde(default = "default_true")]
     pub hotspot_enabled: bool,
     #[serde(default = "default_hotspot_con")]
@@ -208,7 +272,8 @@ pub struct FallbackIntent {
     /// hotspot on SoC `wlan0`). Empty: same interface as STA ([`effective_wifi_ifname`]).
     #[serde(default)]
     pub hotspot_ifname: String,
-    /// Stock UI `hotspot_fallback`: auto-start hotspot when STA link is lost (watchdog / Phase 3).
+    /// UI **Hotspot Fallback** — with **Enable Hotspot**, triggers **`nmcli connection up`** on the hotspot
+    /// on a **shared** iface (try concurrent STA+AP). Runtime loss-of-STA watchdog remains **Phase 3**.
     #[serde(default)]
     pub hotspot_fallback: bool,
 }
@@ -374,7 +439,9 @@ pub fn effective_wifi_ifname(wifi: &WifiIntent, config: Option<&crate::config::C
         .unwrap_or_else(|| DEFAULT_WIFI_IFACE.to_string())
 }
 
-/// Interface for **AP / fallback hotspot** profiles. Set when the STA radio (e.g. USB) is **not** AP-capable or must stay in STA only; otherwise same as [`effective_wifi_ifname`].
+/// Interface for **AP / fallback hotspot** only. When two `wlan*` exist but **one is STA-only**,
+/// set this to the **AP-capable** iface (hotspot stays here); use [`effective_wifi_ifname`] for **STA**
+/// (scan/join/reconfigure). If empty, same iface as STA (single-radio).
 pub fn effective_hotspot_ifname(intent: &NetworkIntent, config: Option<&crate::config::Config>) -> String {
     let t = intent.fallback.hotspot_ifname.trim();
     if !t.is_empty() {

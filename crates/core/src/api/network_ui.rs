@@ -5,6 +5,7 @@
 use serde_json::Value;
 use std::sync::OnceLock;
 
+use crate::config::Config;
 use crate::network_config::{
     default_hotspot_ssid_from_mac, wifi_ap_psk_configured, NetworkIntent, Ipv4Mode, WifiRole,
 };
@@ -30,6 +31,103 @@ pub fn network_settings_ui_config_merged() -> Value {
     let intent = NetworkIntent::load();
     merge_network_intent_into_ui(&mut v, &intent);
     v
+}
+
+/// Like [`network_settings_ui_config_merged`], plus a **Preferred Wi-Fi interface** section when
+/// NetworkManager reports more than one `wifi` device (excludes `p2p-dev-*`). Second return is
+/// **`true`** when the UI should show a one-time info modal (multi-radio and no preference file yet).
+pub async fn network_settings_ui_config_merged_enriched(config: &Config) -> (Value, bool) {
+    let mut v = network_settings_ui_config_merged();
+    let Ok(rows) = crate::nm_network::nm_device_table().await else {
+        return (v, false);
+    };
+    let wifi_ifaces: Vec<String> = rows
+        .into_iter()
+        .filter(|r| {
+            r.kind.eq_ignore_ascii_case("wifi")
+                && !r.device.trim().starts_with("p2p-dev-")
+                && !r.device.trim().is_empty()
+        })
+        .map(|r| r.device.trim().to_string())
+        .collect();
+    if wifi_ifaces.len() <= 1 {
+        return (v, false);
+    }
+    let prompt_modal = crate::network_config::read_wifi_iface_preferred().is_none();
+    let current = crate::nm_network::resolve_effective_wifi_iface(config).await;
+    merge_preferred_wifi_iface_section(&mut v, &wifi_ifaces, &current);
+    (v, prompt_modal)
+}
+
+/// Stock-style **`openModal`** payload: explains preferred-iface section when multiple radios exist.
+pub fn preferred_wifi_iface_info_modal_payload() -> Value {
+    serde_json::json!({
+        "title": "Preferred Wi-Fi interface",
+        "message": "This device has more than one Wi-Fi radio. Choose the preferred interface in the new section above and save. It is stored under settings and merged into /etc/volumio-evo/config.toml when allowed.",
+        "size": "md",
+        "buttons": [
+            {
+                "name": "OK",
+                "class": "btn btn-info",
+                "emit": "closeModals",
+                "payload": ""
+            }
+        ]
+    })
+}
+
+fn merge_preferred_wifi_iface_section(v: &mut Value, ifaces: &[String], current: &str) {
+    let Some(sections) = v.get_mut("sections").and_then(|s| s.as_array_mut()) else {
+        return;
+    };
+    let options: Vec<Value> = ifaces
+        .iter()
+        .map(|name| serde_json::json!({"value": name, "label": name}))
+        .collect();
+    let mut pick = current.to_string();
+    if !ifaces.iter().any(|i| i == &pick) {
+        pick = ifaces.first().cloned().unwrap_or_default();
+    }
+    let section = serde_json::json!({
+        "id": "section_preferred_wifi_iface",
+        "element": "section",
+        "label": "Preferred Wi-Fi interface",
+        "doc": "Multiple wireless interfaces detected. Select which radio to use for client (STA) scan and connection.",
+        "icon": "fa-wifi",
+        "onSave": {"type": "controller", "endpoint": "system_controller/network", "method": "savePreferredWifiIface"},
+        "saveButton": {
+            "label": "TRANSLATE.COMMON.SAVE",
+            "data": ["preferred_wifi_iface"]
+        },
+        "content": [{
+            "id": "preferred_wifi_iface",
+            "element": "select",
+            "label": "Interface",
+            "value": {"value": pick, "label": pick},
+            "options": options
+        }]
+    });
+    if let Some(idx) = sections.iter().position(|s| {
+        s.get("id").and_then(|x| x.as_str()) == Some("section_wireless_network")
+    }) {
+        sections.insert(idx, section);
+    } else {
+        sections.push(section);
+    }
+}
+
+/// Extract `preferred_wifi_iface` from **`callMethod.data`** (string or select `{ value, label }`).
+pub fn parse_preferred_wifi_iface_field(data: &Value) -> Option<String> {
+    let v = data.get("preferred_wifi_iface")?;
+    if let Some(s) = v.as_str() {
+        let t = s.trim();
+        return (!t.is_empty()).then(|| t.to_string());
+    }
+    if let Some(s) = v.get("value").and_then(|x| x.as_str()) {
+        let t = s.trim();
+        return (!t.is_empty()).then(|| t.to_string());
+    }
+    None
 }
 
 fn merge_network_intent_into_ui(v: &mut Value, intent: &NetworkIntent) {
@@ -63,6 +161,7 @@ fn set_field_value(section: &mut Value, field_id: &str, value: Value) {
 
 fn merge_wired_section(section: &mut Value, intent: &NetworkIntent) {
     let eth = &intent.ethernet;
+    set_field_value(section, "ethernet_enabled", Value::Bool(eth.enabled));
     let dhcp = matches!(eth.ipv4_mode, Ipv4Mode::Dhcp);
     set_field_value(section, "dhcp", Value::Bool(dhcp));
     if !dhcp {
@@ -173,6 +272,108 @@ fn prefix_to_dotted_netmask(prefix: u8) -> Option<String> {
         (mask & 0xff) as u8,
     ];
     Some(format!("{}.{}.{}.{}", o[0], o[1], o[2], o[3]))
+}
+
+/// Stock **`saveWiredNet`** (`callMethod.data`): maps **`ethernet_enabled`** → [`EthernetIntent::enabled`].
+#[derive(Debug)]
+pub enum ApplyWiredNetError {
+    StaticIpOrNetmaskMissing,
+    InvalidNetmask,
+}
+
+/// Apply **Wired** section fields to `intent` (caller saves + [`crate::nm_network::apply_network_intent_exclusive`]).
+pub fn apply_wired_net_form_to_intent(
+    intent: &mut NetworkIntent,
+    data: &Value,
+) -> Result<(), ApplyWiredNetError> {
+    let enabled = match data.get("ethernet_enabled") {
+        None => true,
+        Some(v) => json_truthy(Some(v)),
+    };
+    intent.ethernet.enabled = enabled;
+    if !enabled {
+        return Ok(());
+    }
+
+    let dhcp = match data.get("dhcp") {
+        None => true,
+        Some(v) => json_truthy(Some(v)),
+    };
+    if dhcp {
+        intent.ethernet.ipv4_mode = Ipv4Mode::Dhcp;
+    } else {
+        intent.ethernet.ipv4_mode = Ipv4Mode::Static;
+        let ip = data
+            .get("static_ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let mask = data
+            .get("static_netmask")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let gw = data
+            .get("static_gateway")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if ip.is_empty() || mask.is_empty() {
+            return Err(ApplyWiredNetError::StaticIpOrNetmaskMissing);
+        }
+        let prefix = netmask_dotted_to_prefix(mask).ok_or(ApplyWiredNetError::InvalidNetmask)?;
+        intent.ethernet.ipv4_address = format!("{ip}/{prefix}");
+        intent.ethernet.ipv4_gateway = gw.to_string();
+    }
+    Ok(())
+}
+
+/// `true` when the UI should show the static-IP warning modal (wired: DHCP off, not yet confirmed).
+pub fn wired_net_needs_static_confirm(data: &Value) -> bool {
+    let eth_on = match data.get("ethernet_enabled") {
+        None => true,
+        Some(v) => json_truthy(Some(v)),
+    };
+    if !eth_on {
+        return false;
+    }
+    let dhcp = match data.get("dhcp") {
+        None => true,
+        Some(v) => json_truthy(Some(v)),
+    };
+    let confirm = json_truthy(data.get("confirm"));
+    !dhcp && !confirm
+}
+
+/// Payload for **`openModal`** matching stock `saveWiredNet` static-IP confirmation.
+pub fn wired_static_confirm_modal_payload(data: &Value) -> Value {
+    let mut confirm_data = data.clone();
+    if let Some(o) = confirm_data.as_object_mut() {
+        o.insert("confirm".to_string(), Value::Bool(true));
+    }
+    serde_json::json!({
+        "title": "Static IP",
+        "message": "Using a static IP may disconnect this device if the values are wrong for your network. Continue?",
+        "size": "lg",
+        "buttons": [
+            {
+                "name": "Cancel",
+                "class": "btn btn-cancel",
+                "emit": "closeModals",
+                "payload": ""
+            },
+            {
+                "name": "Continue",
+                "class": "btn btn-info",
+                "emit": "callMethod",
+                "payload": {
+                    "endpoint": "system_controller/network",
+                    "method": "saveWiredNet",
+                    "data": confirm_data
+                }
+            }
+        ]
+    })
 }
 
 /// Stock **`saveWirelessNet`** (`callMethod.data`): maps **`wireless_enabled`** to [`WifiRole`] — single
