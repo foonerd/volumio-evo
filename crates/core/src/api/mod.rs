@@ -13,7 +13,9 @@ use crate::config::Config;
 use crate::mpd::{self, MpdConfig, VolumioState};
 use crate::network_mounts::NetworkMounts;
 use crate::playback_options::PlaybackOptions;
+use socketioxide::SocketIo;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// Shared state: config + channel to trigger album-art cache-clear broadcast + last browse for getLastPushedBrowseLibrary.
@@ -55,6 +57,9 @@ pub struct RouterState {
     pub push_queue_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
     /// Landing-page mute: logical level preserved for `pushState.volume` while output is silenced.
     pub volume_ui_mute: Arc<tokio::sync::RwLock<VolumeUiMuteState>>,
+    /// Filled after [`crate::api::http::router`] builds [`SocketIo`]; used to **broadcast** events
+    /// (same role as Node `broadcastMessage`). See [`super::socketio::schedule_push_info_network_refresh`].
+    pub socket_io_broadcast: Arc<Mutex<Option<SocketIo>>>,
 }
 
 impl RouterState {

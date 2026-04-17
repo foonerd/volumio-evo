@@ -262,6 +262,55 @@ fn schedule_push_list_shares(s: &SocketRef, state: &AppState) {
     });
 }
 
+/// After **`apply_network_intent`** / STA join, leases lag behind NM (DHCP, **shared** hotspot).
+///
+/// **Wi‑Fi SSID list:** `wifi-plugin` drives **`emit('getWirelessNetworks')`** on load and merges
+/// **`pushWirelessNetworks`** into a normal `ng-repeat`, so scans update.
+///
+/// **Network Status:** stock **`network-status-plugin.html`** uses **one‑time** Angular bindings
+/// (`ng-repeat="network in ::networkStatus.networkInfos"`, `{{::network.ip}}`), so extra
+/// **`pushInfoNetwork`** unicasts **do not repaint** that fragment. Node calls
+/// **`onNetworkingRestart` → `broadcastMessage('pushInfoNetworkReload')`** ~10s after a wireless
+/// restart (`platformSpecific.js`); **`network-status-plugin`** reloads the page when on the network
+/// plugin. We mirror that with **broadcast** **`pushInfoNetworkReload`** (plus broadcast
+/// **`pushInfoNetwork`** at **5s / 10s** for forks without one‑time bindings).
+fn schedule_push_info_network_refresh(s: &SocketRef, state: &AppState) {
+    let s = s.clone();
+    let state = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let arr = crate::network_status_ui::push_info_network_array().await;
+        let _ = s.emit("pushInfoNetwork", &arr);
+        let io_bc = state
+            .socket_io_broadcast
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(io) = io_bc {
+            let _ = io.emit("pushInfoNetwork", &arr).await;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let arr = crate::network_status_ui::push_info_network_array().await;
+        let _ = s.emit("pushInfoNetwork", &arr);
+        let io_bc = state
+            .socket_io_broadcast
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(io) = io_bc {
+            let _ = io.emit("pushInfoNetwork", &arr).await;
+        }
+        let io_bc = state
+            .socket_io_broadcast
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().cloned());
+        if let Some(io) = io_bc {
+            let _ = io.emit("pushInfoNetworkReload", "").await;
+        }
+    });
+}
+
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     let master = read_master_volume_percent(&state).await;
@@ -1447,6 +1496,8 @@ async fn save_wireless_network_settings(
             );
             let arr = crate::network_status_ui::push_info_network_array().await;
             let _ = s.emit("pushInfoNetwork", &arr);
+            // STA may fail while hotspot/AP still gets an address; keep polling like success path.
+            schedule_push_info_network_refresh(&s, &state);
             let (cfg, _) =
                 super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
                     .await;
@@ -1492,7 +1543,13 @@ async fn connect_wireless_network_wizard(
                         "message": format!("Connecting to {ssid}… Please wait."),
                     }),
                 );
+                let arr = crate::network_status_ui::push_info_network_array().await;
+                let _ = s.emit("pushInfoNetwork", &arr);
+                schedule_push_info_network_refresh(&s, &state);
             } else {
+                let arr = crate::network_status_ui::push_info_network_array().await;
+                let _ = s.emit("pushInfoNetwork", &arr);
+                schedule_push_info_network_refresh(&s, &state);
                 let err = report
                     .steps
                     .last()
@@ -3553,6 +3610,7 @@ async fn call_method(
         );
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
+        schedule_push_info_network_refresh(&s, &state);
         let (cfg, _) =
             super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
                 .await;
@@ -3634,6 +3692,7 @@ async fn call_method(
         );
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
+        schedule_push_info_network_refresh(&s, &state);
         let (cfg, _) =
             super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
                 .await;
@@ -3728,6 +3787,7 @@ async fn call_method(
         );
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
+        schedule_push_info_network_refresh(&s, &state);
         let (cfg, _) =
             super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
                 .await;

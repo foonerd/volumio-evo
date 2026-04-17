@@ -411,6 +411,7 @@ pub fn router(
         push_state_wake_tx: push_wake_tx,
         push_queue_wake_tx,
         volume_ui_mute: Arc::new(tokio::sync::RwLock::new(crate::api::VolumeUiMuteState::default())),
+        socket_io_broadcast: Arc::new(std::sync::Mutex::new(None)),
     });
 
     let cfg_nas = state.clone();
@@ -434,6 +435,9 @@ pub fn router(
         .with_state(router_state.clone())
         .max_payload(1_000_000)
         .build_layer();
+    if let Ok(mut g) = router_state.socket_io_broadcast.lock() {
+        *g = Some(io.clone());
+    }
     super::socketio::register_handlers(&io);
 
     let io_for_broadcast = io.clone();
