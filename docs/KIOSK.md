@@ -1,6 +1,8 @@
 # Volumio Evo - Kiosk concept (WPE reference path)
 
-**Status:** concept draft. Nothing implemented. Targets the greenfield Evo stack (stock minimal Debian Lite + Evo layer). No inheritance from the legacy Volumio OS kiosk (X11 + openbox + Chromium/Vivaldi + Chrome extension keyboard). **No WASM plugin is involved in this concept**; see [Section 3](#3-terminology) for why.
+**Roadmap:** **Deferred.** This document is a **design reference for a future layer component**, not something you need for day-to-day Evo development today. Treat kiosk work as **after the Node backend is fully replaced** by the Rust core (playback, browse, REST/Socket.IO parity, installer story) so the on-device browser shell targets a **stable API and UI**. Do not block backend porting milestones on kiosk.
+
+**Status:** concept draft. Nothing implemented in-tree (`layer/kiosk-wpe/` may appear only when this phase starts). Targets the greenfield Evo stack (stock minimal Debian Lite + Evo layer). No inheritance from the legacy Volumio OS kiosk (X11 + openbox + Chromium/Vivaldi + Chrome extension keyboard). **No WASM plugin is involved in this concept**; see [Section 3](#3-terminology) for why.
 
 Related docs:
 

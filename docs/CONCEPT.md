@@ -34,3 +34,7 @@
 
 - **Logs:** [OBSERVABILITY.md](OBSERVABILITY.md) — journald, `[EVO]` prefix, grep patterns.
 - **Shipped binaries:** [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`** — refresh prebuilts for bootstrap.
+
+## 7. Optional display shell (later)
+
+A dedicated **kiosk** (full-screen browser on Wayland, touch/OSK) is **out of scope for the initial backend port** and documented separately in [KIOSK.md](KIOSK.md). It layers on top of a stock OS once Evo replaces Node for production playback and API use.

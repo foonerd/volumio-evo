@@ -54,10 +54,13 @@ pub async fn get_state_connected(
 }
 
 /// Connect to MPD, run get_queue, then close.
-pub async fn get_queue_connected(config: &MpdConfig) -> Result<Vec<QueueItem>> {
+pub async fn get_queue_connected(
+    config: &MpdConfig,
+    music_root: &std::path::Path,
+) -> Result<Vec<QueueItem>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
-    get_queue(&mut client).await
+    get_queue(&mut client, music_root).await
 }
 
 /// One TCP session: full state then queue (e.g. single round-trip when callers need both).
@@ -70,7 +73,7 @@ pub async fn get_state_and_queue_connected(
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
     let s = get_state(&mut client, music_root, master_volume_from_alsa).await?;
-    let q = get_queue(&mut client).await?;
+    let q = get_queue(&mut client, music_root).await?;
     Ok((s, q))
 }
 
@@ -2239,31 +2242,59 @@ pub async fn get_state(
     })
 }
 
-/// Queue item for getQueue response.
+/// Queue item for getQueue / `pushQueue` (Node playQueue shape; Evo is MPD-only).
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QueueItem {
     pub position: u32,
+    /// Stock Volumio2-UI `play-queue.controller.js` renders `item.name` (Node sets `name` from `title`).
+    pub name: Option<String>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
     pub uri: Option<String>,
     pub duration: Option<u64>,
+    /// Always `mpd` in Evo (no multi-service virtual queue).
+    pub service: String,
+    /// Per-track `/albumart?...` URL (same shape as `pushState.albumart` / Node `getAlbumArt`).
+    pub albumart: String,
+    /// File extension / rough type for local files (empty when unknown).
+    pub track_type: String,
 }
 
-pub async fn get_queue(client: &mut Client) -> Result<Vec<QueueItem>> {
+fn track_type_from_uri(url: &str) -> String {
+    let path = url.rsplit('/').next().unwrap_or("");
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "mp3" | "flac" | "ogg" | "opus" | "wav" | "m4a" | "aac" | "wma" | "dsf" | "dff" => ext,
+        _ => String::new(),
+    }
+}
+
+pub async fn get_queue(client: &mut Client, music_root: &std::path::Path) -> Result<Vec<QueueItem>> {
     let list = client.command(Queue::all()).await?;
     let items = list
         .into_iter()
         .map(|song_in_queue| {
             let s = &song_in_queue.song;
             let duration = s.duration.map(|d| d.as_secs());
+            let volumio_uri = volumio_uri_from_mpd_url(&s.url, music_root);
+            let track_type = track_type_from_uri(&s.url);
+            let title = s.title().map(String::from);
+            let artist = s.artists().first().map(String::from);
+            let album = s.album().map(String::from);
+            let albumart = push_state_albumart_url(&volumio_uri, &artist, &album);
             QueueItem {
                 position: song_in_queue.position.0 as u32,
-                title: s.title().map(String::from),
-                artist: s.artists().first().map(String::from),
-                album: s.album().map(String::from),
-                uri: Some(s.url.clone()),
+                name: title.clone(),
+                title,
+                artist,
+                album,
+                uri: Some(volumio_uri),
                 duration,
+                service: "mpd".to_string(),
+                albumart,
+                track_type,
             }
         })
         .collect();

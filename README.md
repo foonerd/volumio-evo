@@ -77,6 +77,10 @@ Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [laye
 
 ## More documentation
 
+**Backend port and UI contract:** [docs/PORTING.md](docs/PORTING.md) is the main map from volumio3-backend to Evo. **Playback cadence and queue rules** for stock Volumio2-UI: [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md).
+
+**Future (not required for backend port):** [docs/KIOSK.md](docs/KIOSK.md) describes an optional full-screen Wayland kiosk layer (WPE/Cog); defer until the Rust API is the primary production backend.
+
 | Document | Topic |
 |----------|--------|
 | [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) | On-device bootstrap (canonical test) |
@@ -84,10 +88,12 @@ Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [laye
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | `journalctl`, `[EVO]` prefix, `RUST_LOG` |
 | [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) | Paths under `/var/lib/volumio-evo/settings/` |
 | [docs/PORTING.md](docs/PORTING.md) | volumio3-backend inventory vs Evo |
+| [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md) | `pushState` / `pushQueue` timing, queue payload shape, album art URLs |
 | [docs/UI_GAP.md](docs/UI_GAP.md) | Optional Volumio2-UI adjustments |
 | [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md) | WASM plugin contract |
 | [docs/PRIORITY_ALSA_AAMPP.md](docs/PRIORITY_ALSA_AAMPP.md) | ALSA/AAMPP plugin pipeline (not done) |
 | [docs/ALBUMART_PROVIDERS.md](docs/ALBUMART_PROVIDERS.md) | Online album-art providers |
+| [docs/KIOSK.md](docs/KIOSK.md) | Wayland kiosk concept (**deferred** — after backend port) |
 
 ## License
 

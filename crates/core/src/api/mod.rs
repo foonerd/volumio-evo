@@ -34,6 +34,8 @@ pub struct RouterState {
     /// Wakes the broadcast loop for an immediate `pushState` (MPD idle + playback commands).
     /// Unbounded so wakeups are never coalesced away (unlike [`tokio::sync::Notify`]).
     pub push_state_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    /// Wakes the broadcast loop for an immediate `pushQueue` to all Socket.IO clients (queue edits).
+    pub push_queue_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
 impl RouterState {
@@ -60,6 +62,12 @@ impl RouterState {
     #[inline]
     pub fn notify_push_state(&self) {
         let _ = self.push_state_wake_tx.send(());
+    }
+
+    /// After queue mutations, notify all clients with an immediate `pushQueue` (Node `volumioPushQueue`).
+    #[inline]
+    pub fn notify_push_queue(&self) {
+        let _ = self.push_queue_wake_tx.send(());
     }
 }
 

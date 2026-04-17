@@ -109,6 +109,7 @@ pub async fn commands(
         {
             Ok(()) => {
                 state.notify_push_state();
+                state.notify_push_queue();
                 Json(serde_json::json!({"response": "addToQueue Success"})).into_response()
             }
             Err(e) => {
@@ -141,6 +142,7 @@ pub async fn commands(
         {
             Ok(()) => {
                 state.notify_push_state();
+                state.notify_push_queue();
                 Json(serde_json::json!({"response": "addPlay Success"})).into_response()
             }
             Err(e) => {
@@ -163,6 +165,9 @@ pub async fn commands(
     match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
         Ok(()) => {
             state.notify_push_state();
+            if cmd == "clearQueue" {
+                state.notify_push_queue();
+            }
             Json(serde_json::json!({
                 "response": cmd.to_string() + " Success"
             }))
@@ -182,7 +187,7 @@ pub async fn commands(
 /// GET /api/v1/getQueue
 pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
-    match mpd::get_queue_connected(&config).await {
+    match mpd::get_queue_connected(&config, &state.config.music_sources.music_root).await {
         Ok(items) => {
             pushstate_log::debug_queue_snapshot("REST GET /api/v1/getQueue (response body)", items.len());
             Json(serde_json::json!({ "queue": items })).into_response()
@@ -384,7 +389,11 @@ pub async fn replace_and_play(
     )
     .await
     {
-        Ok(()) => Json(serde_json::json!({"response": "success"})).into_response(),
+        Ok(()) => {
+            state.notify_push_state();
+            state.notify_push_queue();
+            Json(serde_json::json!({"response": "success"})).into_response()
+        }
         Err(e) => {
             tracing::warn!("{} replaceAndPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
             (

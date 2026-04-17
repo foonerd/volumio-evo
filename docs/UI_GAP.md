@@ -102,6 +102,7 @@ These UIs **emit** events documented in PORTING Part 1 / Part 6. Evo does not im
 | Date | Note |
 |------|------|
 | 2026-04-04 | Initial gap list: plugin manager, socket naming/orphans, loading bar, wizard, callMethod, feature gating, plugin upload URL. |
+| 2026-04-16 | Queue **`pushQueue`** shape and per-row **`albumart`** are handled in Evo; see [PORTING.md](PORTING.md) queue contract — no UI fork required for basic queue thumbnails. |
 
 ---
 

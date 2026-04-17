@@ -179,7 +179,7 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 |----------|----------|----------------|
 | closeAllModals (on connect), closeModals | Yes | closeAllModals on connect; closeModals -> emit closeAllModals to client. |
 | getState | Yes | MPD state -> pushState |
-| getQueue | Yes | MPD queue -> pushQueue |
+| getQueue | Yes | MPD queue → **`pushQueue` with array payload** (not wrapped); see **Queue and pushQueue** below |
 | browseLibrary, getInputSources, getBrowseSources | Yes | browseLibrary: same root as REST (storage roots + `albumart`); virtual URIs `artists://`, `albums://`, `genres://`, `favourites`, `playlists`; getBrowseSources -> sidebar entries (Favourites, Playlists, Music Library, …). |
 | addToQueue, addPlay, addQueueUids | Yes | MPD add + optional play; addQueueUids adds multiple URIs (payload: array or { uids }). |
 | removeFromQueue, removeQueueItem | Yes | MPD delete (position); both use payload { value } (1-based from UI). |
@@ -234,6 +234,21 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 |------|----------|----------------|
 | Music layout | Yes | music_root, INTERNAL/USB/NAS/SMB dir names, config + env, MPD music_directory |
 | Album art resolution (path, cache, personal, MPD readpicture, exiftool, online, icon, resize) | Yes | path → folder/metadata cache → folder covers → personal → MPD readpicture (path param) → exiftool (metadata=true) → web cache → online → icon/sectionimage/sourceicon → default; albumartd 500px, tinyart 250px |
+
+### Queue and `pushQueue` / `getQueue` (Volumio2-UI contract)
+
+The stock UI treats **Socket.IO `pushQueue` payloads as a raw array** (`play-queue.service.js` assigns `this._queue = data` and uses `data.length`). **Node** emits `io.emit('pushQueue', queueArray)`. Evo matches that: **`pushQueue` sends the array only**, not `{ queue: [...] }`.
+
+**REST** differs on purpose: **`GET /api/v1/getQueue`** returns **`{ "queue": [ … ] }`**, same as Node’s REST handler.
+
+Each queue element mirrors Node’s play-queue shape where it matters for the UI:
+
+| Field | Evo notes |
+|-------|-----------|
+| `name`, `title` | Both set from the MPD title when present (controller renders `name`). |
+| `uri` | Volumio form **`music-library/...`** (from MPD file URL + `music_root`), aligned with browse and **`/albumart?path=`**. |
+| `albumart` | Full query string to **`GET /albumart`** (e.g. `metadata=true`, `path=music-library/...`, optional `web=artist/album/extralarge` from tags) — same builder as **`pushState.albumart`** for the current track so row thumbnails and background themes resolve like Node. |
+| `service` | Always **`mpd`** in Evo. |
 
 ---
 

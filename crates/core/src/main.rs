@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let config = Arc::new(config);
-    let (app, io, state, push_wake_rx) = api::router(config);
+    let (app, io, state, push_wake_rx, push_queue_wake_rx) = api::router(config);
     let idle_cfg = crate::mpd::MpdConfig {
         host: state.config.mpd_host.clone(),
         port: state.config.mpd_port,
@@ -59,7 +59,12 @@ async fn main() -> anyhow::Result<()> {
         idle_cfg,
         state.push_state_wake_tx.clone(),
     ));
-    tokio::spawn(api::push_state_queue_loop(state.clone(), io, push_wake_rx));
+    tokio::spawn(api::push_state_queue_loop(
+        state.clone(),
+        io,
+        push_wake_rx,
+        push_queue_wake_rx,
+    ));
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
     tracing::info!("{} listening on {}", crate::log_tags::EVO_BOOT, state.config.bind);
