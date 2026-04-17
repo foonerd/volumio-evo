@@ -27,6 +27,9 @@ pub struct RouterState {
     pub volume_apply: tokio::sync::Mutex<()>,
     /// RAM clock: MPD `seek` + wall time between sparse `pushState` (Node `currentSeek` pattern).
     pub playback_clock: Arc<tokio::sync::RwLock<playback_clock::PlaybackClock>>,
+    /// Wakes the broadcast loop for an immediate `pushState` (MPD idle + playback commands).
+    /// Unbounded so wakeups are never coalesced away (unlike [`tokio::sync::Notify`]).
+    pub push_state_wake_tx: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
 impl RouterState {
@@ -48,6 +51,11 @@ impl RouterState {
     /// Reseed RAM clock from MPD (broadcast resync, Socket/REST `getState`).
     pub async fn store_mpd_snapshot(&self, s: &VolumioState) {
         self.playback_clock.write().await.sync_from_mpd(s);
+    }
+
+    #[inline]
+    pub fn notify_push_state(&self) {
+        let _ = self.push_state_wake_tx.send(());
     }
 }
 

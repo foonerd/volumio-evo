@@ -8,10 +8,13 @@ use crate::mpd::{
     self, browse_song_albumart_path_only, BrowseItem, BrowseList, BrowseNavigation, BrowsePrev,
     BrowseResponse, MpdConfig,
 };
+use mpd_client::Client;
 use serde::Deserialize;
 use socketioxide::extract::{Data, SocketRef, State, TryData};
 use std::time::{Duration, Instant};
+use tokio::net::TcpStream;
 
+use super::playback_clock::ui_seek_ms;
 use super::pushstate_log;
 use super::{read_master_volume_percent, AppState};
 
@@ -152,7 +155,7 @@ async fn get_state(s: SocketRef, State(state): State<AppState>) {
         Ok(mut payload) => {
             payload.seek = {
                 let clock = state.playback_clock.read().await;
-                clock.seek_for_emit_before_resync(&payload)
+                ui_seek_ms(clock.seek_for_emit_before_resync(&payload), payload.duration)
             };
             state.store_mpd_snapshot(&payload).await;
             match s.emit("pushState", &payload) {
@@ -246,8 +249,9 @@ async fn remove_queue_item(
 ) {
     let pos = payload.value.saturating_sub(1);
     let config = mpd_config(&state);
-    if let Err(e) = mpd::remove_from_queue_connected(&config, pos).await {
-        tracing::warn!("{} removeQueueItem MPD error: {}", crate::log_tags::EVO_QUEUE, e);
+    match mpd::remove_from_queue_connected(&config, pos).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} removeQueueItem MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -267,8 +271,9 @@ async fn add_queue_uids(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_multiple_to_queue_connected(&config, &uris).await {
-        tracing::warn!("{} addQueueUids MPD error: {}", crate::log_tags::EVO_QUEUE, e);
+    match mpd::add_multiple_to_queue_connected(&config, &uris).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} addQueueUids MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -292,15 +297,17 @@ const SKIP_SECONDS: u64 = 10;
 
 async fn skip_backwards(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    if let Err(e) = mpd::skip_backwards_connected(&config, SKIP_SECONDS).await {
-        tracing::warn!("{} skipBackwards MPD error: {}", crate::log_tags::EVO_PLAY, e);
+    match mpd::skip_backwards_connected(&config, SKIP_SECONDS).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} skipBackwards MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
 async fn skip_forward(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    if let Err(e) = mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
-        tracing::warn!("{} skipForward MPD error: {}", crate::log_tags::EVO_PLAY, e);
+    match mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} skipForward MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1001,14 +1008,15 @@ async fn add_to_queue(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_to_queue_resolved(
+    match mpd::add_to_queue_resolved(
         &config,
         &state.config.music_sources.music_root,
         &payload.uri,
     )
     .await
     {
-        tracing::warn!("{} addToQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} addToQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
 }
 
@@ -1025,19 +1033,23 @@ struct ReplaceAndPlayPayload {
 async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
     let config = mpd_config(state);
     let is_playlist = uri.starts_with("playlists/") && !uri.contains("://");
-    if is_playlist {
+    let result = if is_playlist {
         let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
-        if let Err(e) = mpd::load_playlist_connected(&config, &name).await {
+        mpd::load_playlist_connected(&config, &name).await
+    } else {
+        mpd::replace_and_play_resolved(
+            &config,
+            &state.config.music_sources.music_root,
+            uri,
+        )
+        .await
+    };
+    match result {
+        Ok(()) => state.notify_push_state(),
+        Err(e) if is_playlist => {
             tracing::warn!("{} replaceAndPlay (playlist) MPD error: {}", crate::log_tags::EVO_PLAY, e);
         }
-    } else if let Err(e) = mpd::replace_and_play_resolved(
-        &config,
-        &state.config.music_sources.music_root,
-        uri,
-    )
-    .await
-    {
-        tracing::warn!("{} replaceAndPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
+        Err(e) => tracing::warn!("{} replaceAndPlay MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1112,8 +1124,9 @@ async fn replace_and_play_cue(
     }
     let config = mpd_config(&state);
     // Volumio: clear queue then add CUE entry; we have no CUE support -> clear + add uri (no play).
-    if let Err(e) = mpd::clear_and_add_connected(&config, uri).await {
-        tracing::warn!("{} replaceAndPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e);
+    match mpd::clear_and_add_connected(&config, uri).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} replaceAndPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1140,8 +1153,9 @@ async fn add_play_cue(
     }
     let config = mpd_config(&state);
     // Volumio: add CUE entry to queue; we have no CUE support -> add single uri to queue.
-    if let Err(e) = mpd::add_to_queue_connected(&config, uri).await {
-        tracing::warn!("{} addPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e);
+    match mpd::add_to_queue_connected(&config, uri).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} addPlayCue MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1197,8 +1211,9 @@ async fn play_items_list(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::play_items_list_connected(&config, &uris, index).await {
-        tracing::warn!("{} playItemsList MPD error: {}", crate::log_tags::EVO_PLAY, e);
+    match mpd::play_items_list_connected(&config, &uris, index).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} playItemsList MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1216,14 +1231,15 @@ async fn add_play(
         return;
     }
     let config = mpd_config(&state);
-    if let Err(e) = mpd::add_play_append_resolved(
+    match mpd::add_play_append_resolved(
         &config,
         &state.config.music_sources.music_root,
         &payload.uri,
     )
     .await
     {
-        tracing::warn!("{} addPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!("{} addPlay MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1340,32 +1356,62 @@ async fn play(
 ) {
     let position = payload.as_ref().ok().and_then(|p| p.value);
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "play", None, position, None, None).await;
+    if mpd::run_command_connected(&config, "play", None, position, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn pause(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "pause", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "pause", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn toggle(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "toggle", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "toggle", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn stop(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "stop", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "stop", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn next(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "next", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "next", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn prev(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "prev", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "prev", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn seek(
@@ -1376,7 +1422,12 @@ async fn seek(
     let position = payload.as_i64().or_else(|| payload.as_u64().map(|u| u as i64));
     if let Some(pos) = position {
         let config = mpd_config(&state);
-        let _ = mpd::run_command_connected(&config, "seek", None, Some(pos), None, None).await;
+        if mpd::run_command_connected(&config, "seek", None, Some(pos), None, None)
+            .await
+            .is_ok()
+        {
+            state.notify_push_state();
+        }
     }
 }
 
@@ -1421,7 +1472,12 @@ async fn set_repeat(
 
 async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "clearQueue", None, None, None, None).await;
+    if mpd::run_command_connected(&config, "clearQueue", None, None, None, None)
+        .await
+        .is_ok()
+    {
+        state.notify_push_state();
+    }
 }
 
 async fn get_installed_plugins(s: SocketRef, State(state): State<AppState>) {
@@ -1459,6 +1515,7 @@ async fn move_queue(
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
+            state.notify_push_state();
         }
         Err(e) => tracing::warn!("{} moveQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
@@ -1489,13 +1546,7 @@ async fn play_next(
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
-            let master = read_master_volume_percent(&state).await;
-            if let Ok(st) =
-                mpd::get_state_connected(&config, &state.config.music_sources.music_root, master)
-                    .await
-            {
-                s.emit("pushState", &st).ok();
-            }
+            state.notify_push_state();
         }
         Err(e) => tracing::warn!("{} playNext MPD error: {}", crate::log_tags::EVO_PLAY, e),
     }
@@ -1802,6 +1853,7 @@ async fn enqueue(
             if let Ok(q) = mpd::get_queue_connected(&config).await {
                 s.emit("pushQueue", &serde_json::json!({ "queue": q })).ok();
             }
+            state.notify_push_state();
         }
         Err(e) => tracing::warn!("{} enqueue MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }
@@ -2192,7 +2244,11 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
 const STATE_BROADCAST_INTERVAL: Duration = Duration::from_millis(2_010);
 const QUEUE_BROADCAST_INTERVAL: Duration = Duration::from_secs(5);
 
-pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) {
+pub async fn push_state_queue_loop(
+    state: AppState,
+    io: socketioxide::SocketIo,
+    mut wake_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
+) {
     let config = mpd_config(&state);
     let music_root = state.config.music_sources.music_root.clone();
 
@@ -2207,12 +2263,26 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
         config: &MpdConfig,
         music_root: &std::path::Path,
     ) {
-        let master = read_master_volume_percent(state).await;
-        match mpd::get_state_connected(config, music_root, master).await {
+        // Parallelize ALSA read and MPD TCP — serializing both added noticeable lag on `pushState`.
+        let master_fut = read_master_volume_percent(state);
+        let client_fut = async {
+            let stream = TcpStream::connect(config.addr()).await?;
+            let (client, _) = Client::connect(stream).await?;
+            Ok::<_, anyhow::Error>(client)
+        };
+        let (master, client_res) = tokio::join!(master_fut, client_fut);
+        let mut client = match client_res {
+            Ok(c) => c,
+            Err(e) => {
+                pushstate_log::warn_broadcast_get_state(e);
+                return;
+            }
+        };
+        match mpd::get_state(&mut client, music_root, master).await {
             Ok(mut s) => {
                 s.seek = {
                     let clock = state.playback_clock.read().await;
-                    clock.seek_for_emit_before_resync(&s)
+                    ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration)
                 };
                 state.store_mpd_snapshot(&s).await;
                 match io.emit("pushState", &s).await {
@@ -2251,6 +2321,11 @@ pub async fn push_state_queue_loop(state: AppState, io: socketioxide::SocketIo) 
 
     loop {
         tokio::select! {
+            biased;
+            Some(()) = wake_rx.recv() => {
+                while wake_rx.try_recv().is_ok() {}
+                emit_push_state(&state, &io, &config, &music_root).await;
+            }
             _ = state_tick.tick() => {
                 emit_push_state(&state, &io, &config, &music_root).await;
             }

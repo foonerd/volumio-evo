@@ -385,9 +385,17 @@ async fn api_host(State(state): State<AppState>, headers: HeaderMap) -> Json<Api
     Json(ApiHostResponse { host, host2 })
 }
 
-/// Returns the router, SocketIo handle, and app state (for push_state_queue_loop).
-pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
+/// Returns the router, SocketIo handle, app state, and pushState wake receiver (for [`super::push_state_queue_loop`]).
+pub fn router(
+    state: Arc<Config>,
+) -> (
+    Router,
+    SocketIo,
+    AppState,
+    tokio::sync::mpsc::UnboundedReceiver<()>,
+) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (push_wake_tx, push_wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         alsa: Arc::new(tokio::sync::RwLock::new(crate::alsa::AlsaSettings::load())),
@@ -396,6 +404,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         last_browse: Arc::new(tokio::sync::RwLock::new(None)),
         volume_apply: tokio::sync::Mutex::new(()),
         playback_clock: Arc::new(tokio::sync::RwLock::new(crate::api::playback_clock::PlaybackClock::default())),
+        push_state_wake_tx: push_wake_tx,
     });
 
     let (socket_layer, io) = SocketIo::builder()
@@ -454,7 +463,7 @@ pub fn router(state: Arc<Config>) -> (Router, SocketIo, AppState) {
         .layer(CorsLayer::very_permissive())
         .with_state(router_state.clone());
 
-    (app, io, router_state)
+    (app, io, router_state, push_wake_rx)
 }
 
 async fn health() -> &'static str {

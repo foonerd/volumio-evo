@@ -21,7 +21,9 @@ use mpd_client::{
 use std::io;
 use serde::Serialize;
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::UnboundedSender;
 
 /// MPD connection config (host and port from main config).
 #[derive(Clone, Debug)]
@@ -2296,4 +2298,50 @@ pub async fn skip_forward_connected(config: &MpdConfig, seconds: u64) -> Result<
         .command(MpdSeekCmd(SeekMode::Forward(Duration::from_secs(seconds))))
         .await?;
     Ok(())
+}
+
+/// Dedicated MPD connection: `idle player playlist` → wake UI when track or queue changes (no 2s poll wait).
+pub async fn idle_push_state_wake_loop(config: MpdConfig, wake: UnboundedSender<()>) {
+    loop {
+        if let Err(e) = idle_player_playlist_session(&config, &wake).await {
+            tracing::debug!(
+                target: "volumio_evo::mpd_idle",
+                "idle session ended: {}",
+                e
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
+}
+
+async fn idle_player_playlist_session(config: &MpdConfig, wake: &UnboundedSender<()>) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (read_half, mut write_half) = tokio::io::split(stream);
+    let mut reader = BufReader::new(read_half);
+    let mut line = String::new();
+    reader.read_line(&mut line).await?;
+    loop {
+        write_half.write_all(b"idle player playlist\n").await?;
+        write_half.flush().await?;
+        loop {
+            line.clear();
+            let n = reader.read_line(&mut line).await?;
+            if n == 0 {
+                anyhow::bail!("MPD closed connection");
+            }
+            let t = line.trim();
+            if t.is_empty() {
+                continue;
+            }
+            if t == "OK" {
+                break;
+            }
+            if t.starts_with("ACK") {
+                anyhow::bail!("{t}");
+            }
+            if t.starts_with("changed:") {
+                let _ = wake.send(());
+            }
+        }
+    }
 }

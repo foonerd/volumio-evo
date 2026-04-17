@@ -1,16 +1,24 @@
-//! Playback position in RAM between MPD polls (Node `currentSeek`–style).
-//! `interpolated_seek_ms()` advances from the last MPD sample using wall time when `status == play`.
-//!
-//! **Emit order:** callers must use [`PlaybackClock::seek_for_emit_before_resync`] **before**
-//! [`PlaybackClock::sync_from_mpd`]. If you sync first, `interpolated_seek_ms()` is read in the same
-//! instant as the new anchor and wall-time advance is always ~0 — the UI would only see MPD’s
-//! coarse step (e.g. every broadcast tick).
+//! RAM playback clock: interpolate between MPD samples; emit seek **before** [`PlaybackClock::sync_from_mpd`].
 
 use crate::mpd::VolumioState;
 use std::time::Instant;
 
+/// Grid for outgoing `seek` (ms). **100** trims jitter; use **1000** for whole-second only (mm:ss).
+const UI_SEEK_ROUND_MS: u64 = 100;
+
 /// If extrapolated position and fresh MPD `seek` disagree by more than this, trust MPD (user seek, skip, etc.).
 const SEEK_EXTRAPOLATION_MAX_DRIFT_MS: u128 = 3_000;
+
+/// Round `seek` for Socket/REST JSON (still ms). Clamped to `duration` when known.
+pub fn ui_seek_ms(seek: Option<u64>, duration_secs: Option<u64>) -> Option<u64> {
+    let step = UI_SEEK_ROUND_MS.max(1);
+    let half = step / 2;
+    seek.map(|ms| {
+        let cap = duration_secs.map(|d| d.saturating_mul(1000)).unwrap_or(u64::MAX);
+        let r = ((ms.saturating_add(half)) / step).saturating_mul(step);
+        r.min(cap)
+    })
+}
 
 #[derive(Debug, Default)]
 pub struct PlaybackClock {
@@ -113,11 +121,19 @@ mod tests {
         let mut c = PlaybackClock::default();
         let s0 = state("play", Some(0), Some(0), Some("music-library/a.flac"), Some(300));
         c.sync_from_mpd(&s0);
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(120));
         let s1 = state("play", Some(0), Some(0), Some("music-library/a.flac"), Some(300));
-        let out = c.seek_for_emit_before_resync(&s1);
-        assert!(out.unwrap() >= 40, "expected ~50ms advance, got {:?}", out);
+        let raw = c.seek_for_emit_before_resync(&s1).unwrap();
+        let out = ui_seek_ms(Some(raw), s1.duration).unwrap();
+        assert!(out >= 100, "expected >=100ms advance after round, raw={raw} out={out}");
         c.sync_from_mpd(&s1);
+    }
+
+    #[test]
+    fn ui_seek_rounds_and_clamps() {
+        assert_eq!(ui_seek_ms(Some(1144), Some(300)), Some(1100));
+        assert_eq!(ui_seek_ms(Some(215_666), Some(215)), Some(215_000));
+        assert_eq!(ui_seek_ms(Some(99), None), Some(100));
     }
 
     #[test]

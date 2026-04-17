@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::metavolumio::{metavolumio_response, PluginEndpointBody};
 use crate::mpd::{self, MpdConfig, VolumioState};
 
+use super::playback_clock::ui_seek_ms;
 use super::pushstate_log;
 use super::{read_master_volume_percent, AppState};
 
@@ -29,7 +30,7 @@ pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
         Ok(mut s) => {
             s.seek = {
                 let clock = state.playback_clock.read().await;
-                clock.seek_for_emit_before_resync(&s)
+                ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration)
             };
             state.store_mpd_snapshot(&s).await;
             pushstate_log::debug_volumio_state("REST GET /api/v1/getState (response body)", &s);
@@ -106,7 +107,10 @@ pub async fn commands(
         )
         .await
         {
-            Ok(()) => Json(serde_json::json!({"response": "addToQueue Success"})).into_response(),
+            Ok(()) => {
+                state.notify_push_state();
+                Json(serde_json::json!({"response": "addToQueue Success"})).into_response()
+            }
             Err(e) => {
                 tracing::warn!("{} addToQueue MPD error: {}", crate::log_tags::EVO_QUEUE, e);
                 (
@@ -135,7 +139,10 @@ pub async fn commands(
         )
         .await
         {
-            Ok(()) => Json(serde_json::json!({"response": "addPlay Success"})).into_response(),
+            Ok(()) => {
+                state.notify_push_state();
+                Json(serde_json::json!({"response": "addPlay Success"})).into_response()
+            }
             Err(e) => {
                 tracing::warn!("{} addPlay MPD error: {}", crate::log_tags::EVO_PLAY, e);
                 (
@@ -154,10 +161,13 @@ pub async fn commands(
     };
 
     match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
-        Ok(()) => Json(serde_json::json!({
-            "response": cmd.to_string() + " Success"
-        }))
-        .into_response(),
+        Ok(()) => {
+            state.notify_push_state();
+            Json(serde_json::json!({
+                "response": cmd.to_string() + " Success"
+            }))
+            .into_response()
+        }
         Err(e) => {
             tracing::warn!("{} commands {} MPD error: {}", crate::log_tags::EVO_API, cmd, e);
             (
