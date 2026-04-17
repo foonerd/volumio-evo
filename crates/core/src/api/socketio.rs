@@ -1,5 +1,6 @@
 //! Socket.IO adapter: same event names as Node backend so the existing UI works.
 //! Maps getState/getQueue/browseLibrary/addToQueue/addPlay/volume/transport to MPD.
+//! `shutdown` / `reboot`: graceful transition (MPD stop, optional Samba stop, NAS umount, sync, systemctl).
 
 use crate::alsa;
 use crate::alsa_cards;
@@ -125,6 +126,8 @@ async fn on_connect(s: SocketRef) {
     s.on("getDeviceHWUUID", get_device_hw_uuid);
     s.on("getUiSettings", get_ui_settings);
     s.on("getShutdownOrStandbyMode", get_shutdown_or_standby_mode);
+    s.on("shutdown", system_shutdown);
+    s.on("reboot", system_reboot);
     s.on("getPrivacySettings", get_privacy_settings);
     s.on("getInfinityPlayback", get_infinity_playback);
     s.on("setInfinityPlayback", set_infinity_playback);
@@ -1041,6 +1044,92 @@ async fn get_ui_settings(s: SocketRef, State(state): State<AppState>) {
 /// Stub: shutdown mode (Node: commandRouter.getShutdownOrStandbyMode -> pushShutdownOrStandbyMode).
 async fn get_shutdown_or_standby_mode(s: SocketRef) {
     s.emit("pushShutdownOrStandbyMode", &serde_json::json!({})).ok();
+}
+
+/// Settings → Shutdown (Node: websocket `shutdown` → `commandRouter.shutdown`).
+async fn system_shutdown(_s: SocketRef, State(state): State<AppState>) {
+    let state = state.clone();
+    tokio::spawn(async move {
+        graceful_power_transition(state, false).await;
+    });
+}
+
+/// Settings → Reboot (Node: websocket `reboot` → `commandRouter.reboot`).
+async fn system_reboot(_s: SocketRef, State(state): State<AppState>) {
+    let state = state.clone();
+    tokio::spawn(async move {
+        graceful_power_transition(state, true).await;
+    });
+}
+
+/// Stop playback, release Samba daemons if present, unmount NAS shares, sync, then `systemctl` (with
+/// `/sbin/shutdown` or `/sbin/reboot` fallback after 3s, matching volumio3-backend `platformSpecific.js`).
+async fn graceful_power_transition(state: AppState, reboot: bool) {
+    let tag = crate::log_tags::EVO_UI;
+    let config = mpd_config(&state);
+    if let Err(e) = mpd::run_command_connected(&config, "stop", None, None, None, None).await {
+        tracing::warn!("{} pre-power: MPD stop: {}", tag, e);
+    }
+
+    // Best-effort: stop file-sharing daemons so nothing keeps listening or holds paths (ignore if absent).
+    let _ = tokio::process::Command::new("sudo")
+        .args(["/usr/bin/systemctl", "stop", "smbd", "nmbd"])
+        .output()
+        .await;
+
+    if let Err(e) = state.network_mounts.umount_all_shares().await {
+        tracing::warn!("{} pre-power: list shares / umount: {}", tag, e);
+    }
+
+    let sync_ok = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("/bin/sync")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    if !sync_ok {
+        tracing::warn!("{} pre-power: sync did not report success", tag);
+    }
+
+    let action = if reboot { "reboot" } else { "poweroff" };
+    match tokio::process::Command::new("sudo")
+        .args(["/usr/bin/systemctl", action])
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => {
+            tracing::info!("{} systemctl {} started", tag, action);
+        }
+        Ok(o) => {
+            tracing::warn!(
+                "{} systemctl {}: {}",
+                tag,
+                action,
+                String::from_utf8_lossy(&o.stderr).trim()
+            );
+        }
+        Err(e) => tracing::warn!("{} systemctl {}: {}", tag, action, e),
+    }
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let fallback = if reboot {
+            tokio::process::Command::new("sudo")
+                .arg("/sbin/reboot")
+                .output()
+                .await
+        } else {
+            tokio::process::Command::new("sudo")
+                .args(["/sbin/shutdown", "-h", "now"])
+                .output()
+                .await
+        };
+        if let Err(e) = fallback {
+            tracing::warn!("{} fallback power command: {}", tag, e);
+        }
+    });
 }
 
 /// Stub: empty privacy settings (Node: system plugin getPrivacySettings -> pushPrivacySettings).

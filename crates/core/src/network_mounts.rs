@@ -572,6 +572,27 @@ impl NetworkMounts {
         Self::umount_mountpoint_robust(&mp).await
     }
 
+    /// Unmount all configured SMB/NFS shares (volumio3-backend `umountAllShares` / `onVolumioShutdown`).
+    /// Logs per-share failures and continues so shutdown can still proceed.
+    pub async fn umount_all_shares(&self) -> Result<(), String> {
+        let names: Vec<String> = {
+            let _g = self.op.lock().await;
+            let file = self.load_unlocked().map_err(|e| e.to_string())?;
+            file.shares.iter().map(|s| s.name.clone()).collect()
+        };
+        for name in names {
+            if let Err(e) = self.umount_by_name(&name).await {
+                tracing::warn!(
+                    "{} umount_all_shares {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    name,
+                    e
+                );
+            }
+        }
+        Ok(())
+    }
+
     async fn umount_mountpoint_robust(mp: &Path) -> Result<(), String> {
         let path_str = mp.to_str().ok_or("invalid mount path")?;
 
