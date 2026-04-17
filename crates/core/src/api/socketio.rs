@@ -2026,14 +2026,20 @@ async fn set_random(
     Data(payload): Data<SetRandomPayload>,
 ) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "random", None, None, None, Some(payload.value)).await;
+    match mpd::run_command_connected(&config, "random", None, None, None, Some(payload.value)).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!(
+            "{} setRandom MPD error: {}",
+            crate::log_tags::EVO_PLAY,
+            e
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct SetRepeatPayload {
     value: bool,
     #[serde(default)]
-    #[allow(dead_code)]
     repeat_single: bool,
 }
 
@@ -2043,15 +2049,14 @@ async fn set_repeat(
     Data(payload): Data<SetRepeatPayload>,
 ) {
     let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(
-        &config,
-        "repeat",
-        None,
-        None,
-        Some(payload.value),
-        None,
-    )
-    .await;
+    match mpd::set_repeat_modes_connected(&config, payload.value, payload.repeat_single).await {
+        Ok(()) => state.notify_push_state(),
+        Err(e) => tracing::warn!(
+            "{} setRepeat MPD error: {}",
+            crate::log_tags::EVO_PLAY,
+            e
+        ),
+    }
 }
 
 async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
@@ -2807,6 +2812,7 @@ async fn set_consume(
         Ok(()) => {
             s.emit("pushSetConsume", &serde_json::json!({ "value": payload.value }))
                 .ok();
+            state.notify_push_state();
         }
         Err(e) => tracing::warn!("{} setConsume MPD error: {}", crate::log_tags::EVO_QUEUE, e),
     }

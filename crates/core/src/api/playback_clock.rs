@@ -104,6 +104,8 @@ mod tests {
             volume: None,
             repeat: None,
             random: None,
+            repeat_single: None,
+            consume: None,
             title: None,
             artist: None,
             album: None,

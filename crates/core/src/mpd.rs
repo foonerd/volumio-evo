@@ -10,8 +10,8 @@ use urlencoding::decode;
 use mpd_client::{
     commands::{
         Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue, Rescan,
-        Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat, SetVolume,
-        Song, SongPosition, Status, Stop, Update,
+        Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat,
+        SetSingle, SetVolume, SingleMode, Song, SongPosition, Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
@@ -705,6 +705,27 @@ pub async fn set_consume_connected(config: &MpdConfig, value: bool) -> Result<()
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
     client.command(SetConsume(value)).await?;
+    Ok(())
+}
+
+/// Socket.IO `setRepeat`: MPD **`repeat`** (queue) + **`single`** (repeat one track). When repeat is off,
+/// single is cleared (matches Node state machine).
+pub async fn set_repeat_modes_connected(
+    config: &MpdConfig,
+    repeat: bool,
+    repeat_single: bool,
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(SetRepeat(repeat)).await?;
+    let single = if !repeat {
+        SingleMode::Disabled
+    } else if repeat_single {
+        SingleMode::Enabled
+    } else {
+        SingleMode::Disabled
+    };
+    client.command(SetSingle(single)).await?;
     Ok(())
 }
 
@@ -1876,6 +1897,12 @@ pub struct VolumioState {
     pub volume: Option<u8>,
     pub repeat: Option<bool>,
     pub random: Option<bool>,
+    /// MPD `single` / Node `repeatSingle`: repeat one song when repeat is on (`true` if single is enabled or oneshot).
+    #[serde(rename = "repeatSingle", skip_serializing_if = "Option::is_none")]
+    pub repeat_single: Option<bool>,
+    /// MPD consume: remove played songs from the queue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consume: Option<bool>,
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -2220,6 +2247,11 @@ pub async fn get_state(
 
     let volume = master_volume_from_alsa.or(Some(status.volume));
 
+    let repeat_single = matches!(
+        status.single,
+        SingleMode::Enabled | SingleMode::Oneshot
+    );
+
     Ok(VolumioState {
         status: status_str,
         position,
@@ -2228,6 +2260,8 @@ pub async fn get_state(
         volume,
         repeat: Some(status.repeat),
         random: Some(status.random),
+        repeat_single: Some(repeat_single),
+        consume: Some(status.consume),
         title,
         artist,
         album,
@@ -2357,6 +2391,9 @@ pub async fn run_command(
         "repeat" => {
             if let Some(r) = repeat {
                 client.command(SetRepeat(r)).await?;
+                if !r {
+                    client.command(SetSingle(SingleMode::Disabled)).await?;
+                }
             }
         }
         "random" => {
