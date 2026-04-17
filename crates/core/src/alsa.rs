@@ -821,6 +821,26 @@ pub fn transition_hardware_to_software_before_mpd(
     Ok(pct)
 }
 
+/// Undo [`transition_hardware_to_software_before_mpd`] phase 1 when the MPD config fragment could not
+/// be written or MPD did not restart — restores hardware listening level and unmutes.
+pub fn rollback_hardware_to_software_phase1_softmaster(
+    alsa: &AlsaSettings,
+    prev_hardware_mixer: &str,
+    volumecurve_logarithmic: bool,
+    hardware_percent: u8,
+) -> Result<(), String> {
+    if !alsa_softmaster_control_present(alsa) {
+        return Ok(());
+    }
+    let log = volumecurve_logarithmic;
+    let _ = set_playback_switch_mute(alsa, "Hardware", prev_hardware_mixer, false);
+    let _ = set_playback_switch_mute(alsa, "Software", "", false);
+    set_system_volume_percent(alsa, "Hardware", prev_hardware_mixer, log, hardware_percent)?;
+    set_system_volume_percent(alsa, "Software", "SoftMaster", log, 100)?;
+    mixer_hw_sw_trace(None, "rollback_phase1_softmaster", "restored hardware after MPD fragment failure");
+    Ok(())
+}
+
 /// **Hardware → Software** (no SoftMaster): after MPD is on **software** volume and **`setvol`**
 /// has been applied, set the **hardware** mixer to **100%** so gain is not stacked (MPD × low HW).
 ///

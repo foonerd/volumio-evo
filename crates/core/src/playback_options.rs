@@ -452,22 +452,85 @@ audio_buffer_size		"{buf}"
         globals
     }
 
-    /// Write fragment and restart MPD (requires permission for `/etc` + systemctl).
+    /// Write fragment and restart MPD (requires write access to the fragment + permission to reload MPD).
     pub async fn write_fragment_and_restart_mpd(&self, alsa: &AlsaSettings) -> anyhow::Result<()> {
         let path = std::env::var("VOLUMIO_EVO_MPD_FRAGMENT").unwrap_or_else(|_| MPD_FRAGMENT_PATH.to_string());
         let body = self.render_mpd_fragment(alsa);
         let parent = std::path::Path::new(&path).parent().unwrap_or(std::path::Path::new("/"));
         std::fs::create_dir_all(parent)?;
         std::fs::write(&path, body)?;
-        let status = tokio::process::Command::new("/bin/systemctl")
+        restart_mpd_after_fragment_write().await
+    }
+}
+
+/// Effective UID on Linux (`/proc/self/status`). Used to avoid a doomed `systemctl` call as non-root,
+/// which still emits **Failed to restart mpd.service: Interactive authentication required** in the journal.
+/// Privilege contract: `docs/OS_PRIVILEGE_MODEL.md`.
+#[cfg(target_os = "linux")]
+fn linux_effective_uid() -> Option<u32> {
+    let s = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in s.lines() {
+        let line = line.trim_start();
+        let rest = line.strip_prefix("Uid:")?;
+        let eff = rest.split_whitespace().nth(1)?.parse().ok()?;
+        return Some(eff);
+    }
+    None
+}
+
+/// When true, only `sudo -n … systemctl` is used (non-root cannot restart units without auth).
+fn restart_mpd_use_sudo_only() -> bool {
+    #[cfg(target_os = "linux")]
+    if let Some(uid) = linux_effective_uid() {
+        return uid != 0;
+    }
+    // Non-Linux dev builds, or if /proc is unreadable: match bootstrap’s non-root drop-in.
+    std::env::var("VOLUMIO_EVO_RUNTIME_USER")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+}
+
+/// Reload MPD so it picks up the Evo fragment. Non-root Evo uses `sudo -n` with bootstrap sudoers.
+async fn restart_mpd_after_fragment_write() -> anyhow::Result<()> {
+    let systemctl = std::env::var("VOLUMIO_EVO_SYSTEMCTL").unwrap_or_else(|_| "/usr/bin/systemctl".to_string());
+
+    if restart_mpd_use_sudo_only() {
+        let sudo = tokio::process::Command::new("/usr/bin/sudo")
+            .arg("-n")
+            .arg(&systemctl)
             .args(["restart", "mpd"])
             .status()
-            .await?;
-        if !status.success() {
-            anyhow::bail!("systemctl restart mpd failed with {status}");
+            .await
+            .map_err(|e| anyhow::anyhow!("sudo {systemctl} restart mpd: {e}"))?;
+        if !sudo.success() {
+            anyhow::bail!(
+                "sudo -n {systemctl} restart mpd failed ({sudo}). Non-root Evo needs NOPASSWD for `{systemctl} restart mpd` — re-run bootstrap (see docs/RUNTIME_USER.md)."
+            );
         }
-        Ok(())
+        return Ok(());
     }
+
+    let direct = tokio::process::Command::new(&systemctl)
+        .args(["restart", "mpd"])
+        .status()
+        .await
+        .map_err(|e| anyhow::anyhow!("{systemctl} restart mpd: {e}"))?;
+    if direct.success() {
+        return Ok(());
+    }
+    let sudo = tokio::process::Command::new("/usr/bin/sudo")
+        .arg("-n")
+        .arg(&systemctl)
+        .args(["restart", "mpd"])
+        .status()
+        .await
+        .map_err(|e| anyhow::anyhow!("sudo {systemctl} restart mpd: {e}"))?;
+    if !sudo.success() {
+        anyhow::bail!(
+            "restart mpd failed (direct {direct}; sudo {sudo}). Non-root service needs NOPASSWD for `{systemctl} restart mpd` — re-run bootstrap (see docs/RUNTIME_USER.md)."
+        );
+    }
+    Ok(())
 }
 
 /// Three stock sections: General playback, Volume options, Audio resampling (Node UIConfig shape).

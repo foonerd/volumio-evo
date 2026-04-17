@@ -2586,92 +2586,143 @@ async fn call_method(
                         "async_after_phase1_blocking",
                         "before_mpd spawn_blocking returned",
                     );
-                    if let Err(e) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e);
-                    }
-                    alsa::mixer_hw_sw_trace(
-                        Some(hw_sw_t0),
-                        "async_after_fragment_restart",
-                        "write_fragment_and_restart_mpd finished",
-                    );
-                    let config = mpd_config(&state);
-                    if let Err(e) = mpd::run_command_connected(
-                        &config,
-                        "volume",
-                        Some(capped),
-                        None,
-                        None,
-                        None,
-                    )
-                    .await
-                    {
-                        tracing::warn!(
-                            "{} saveVolumeOptions MPD setvol (hardware→software): {}",
-                            crate::log_tags::EVO_PLAYBACK,
-                            e
-                        );
-                    }
-                    alsa::mixer_hw_sw_trace(
-                        Some(hw_sw_t0),
-                        "async_after_setvol",
-                        &format!("mpd_volume_pct={capped}"),
-                    );
-                    if soft {
-                        let alsa_c2 = alsa.clone();
-                        let prev_hw2 = prev_hw.clone();
-                        let finish = tokio::task::spawn_blocking(move || {
-                            alsa::transition_hardware_to_software_after_mpd_softmaster(
-                                &alsa_c2,
-                                &prev_hw2,
-                                log_curve,
+                    match after.write_fragment_and_restart_mpd(&alsa).await {
+                        Err(e) => {
+                            tracing::error!(
+                                "{} saveVolumeOptions MPD fragment/restart failed (abort HW→SW): {}",
+                                crate::log_tags::EVO_PLAYBACK,
+                                e
+                            );
+                            if soft {
+                                let alsa_rb = alsa.clone();
+                                let prev_hw_rb = prev_hw.clone();
+                                let rb_pct = pct;
+                                match tokio::task::spawn_blocking(move || {
+                                    alsa::rollback_hardware_to_software_phase1_softmaster(
+                                        &alsa_rb,
+                                        &prev_hw_rb,
+                                        log_curve,
+                                        rb_pct,
+                                    )
+                                })
+                                .await
+                                {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(s)) => tracing::warn!(
+                                        "{} saveVolumeOptions HW→SW rollback ALSA: {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        s
+                                    ),
+                                    Err(join) => tracing::warn!(
+                                        "{} saveVolumeOptions HW→SW rollback task: {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        join
+                                    ),
+                                }
+                            }
+                            {
+                                let mut pb = state.playback.write().await;
+                                *pb = prev.clone();
+                                if let Err(e2) = pb.save() {
+                                    tracing::warn!(
+                                        "{} saveVolumeOptions revert playback after MPD failure: {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        e2
+                                    );
+                                }
+                            }
+                            alsa::mixer_hw_sw_trace(
                                 Some(hw_sw_t0),
-                            )
-                        })
-                        .await;
-                        match finish {
-                            Ok(Ok(())) => {}
-                            Ok(Err(e)) => tracing::warn!(
-                                "{} saveVolumeOptions ALSA (hardware→software after MPD): {}",
-                                crate::log_tags::EVO_PLAYBACK,
-                                e
-                            ),
-                            Err(e) => tracing::warn!(
-                                "{} saveVolumeOptions task (hardware→software after MPD): {}",
-                                crate::log_tags::EVO_PLAYBACK,
-                                e
-                            ),
+                                "aborted",
+                                "write_fragment_and_restart_mpd failed; reverted mixer to previous",
+                            );
                         }
-                    } else {
-                        let alsa_c2 = alsa.clone();
-                        let prev_hw2 = prev_hw.clone();
-                        let finish = tokio::task::spawn_blocking(move || {
-                            alsa::transition_hardware_to_software_after_mpd_no_softmaster(
-                                &alsa_c2,
-                                &prev_hw2,
-                                log_curve,
+                        Ok(()) => {
+                            alsa::mixer_hw_sw_trace(
                                 Some(hw_sw_t0),
+                                "async_after_fragment_restart",
+                                "write_fragment_and_restart_mpd finished",
+                            );
+                            let config = mpd_config(&state);
+                            if let Err(e) = mpd::run_command_connected(
+                                &config,
+                                "volume",
+                                Some(capped),
+                                None,
+                                None,
+                                None,
                             )
-                        })
-                        .await;
-                        match finish {
-                            Ok(Ok(())) => {}
-                            Ok(Err(e)) => tracing::warn!(
-                                "{} saveVolumeOptions ALSA (hardware→software no SoftMaster after MPD): {}",
-                                crate::log_tags::EVO_PLAYBACK,
-                                e
-                            ),
-                            Err(e) => tracing::warn!(
-                                "{} saveVolumeOptions task (hardware→software no SoftMaster): {}",
-                                crate::log_tags::EVO_PLAYBACK,
-                                e
-                            ),
+                            .await
+                            {
+                                tracing::warn!(
+                                    "{} saveVolumeOptions MPD setvol (hardware→software): {}",
+                                    crate::log_tags::EVO_PLAYBACK,
+                                    e
+                                );
+                            }
+                            alsa::mixer_hw_sw_trace(
+                                Some(hw_sw_t0),
+                                "async_after_setvol",
+                                &format!("mpd_volume_pct={capped}"),
+                            );
+                            if soft {
+                                let alsa_c2 = alsa.clone();
+                                let prev_hw2 = prev_hw.clone();
+                                let finish = tokio::task::spawn_blocking(move || {
+                                    alsa::transition_hardware_to_software_after_mpd_softmaster(
+                                        &alsa_c2,
+                                        &prev_hw2,
+                                        log_curve,
+                                        Some(hw_sw_t0),
+                                    )
+                                })
+                                .await;
+                                match finish {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(e)) => tracing::warn!(
+                                        "{} saveVolumeOptions ALSA (hardware→software after MPD): {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        e
+                                    ),
+                                    Err(e) => tracing::warn!(
+                                        "{} saveVolumeOptions task (hardware→software after MPD): {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        e
+                                    ),
+                                }
+                            } else {
+                                let alsa_c2 = alsa.clone();
+                                let prev_hw2 = prev_hw.clone();
+                                let finish = tokio::task::spawn_blocking(move || {
+                                    alsa::transition_hardware_to_software_after_mpd_no_softmaster(
+                                        &alsa_c2,
+                                        &prev_hw2,
+                                        log_curve,
+                                        Some(hw_sw_t0),
+                                    )
+                                })
+                                .await;
+                                match finish {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err(e)) => tracing::warn!(
+                                        "{} saveVolumeOptions ALSA (hardware→software no SoftMaster after MPD): {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        e
+                                    ),
+                                    Err(e) => tracing::warn!(
+                                        "{} saveVolumeOptions task (hardware→software no SoftMaster): {}",
+                                        crate::log_tags::EVO_PLAYBACK,
+                                        e
+                                    ),
+                                }
+                            }
+                            alsa::mixer_hw_sw_trace(
+                                Some(hw_sw_t0),
+                                "async_end",
+                                "saveVolumeOptions hw→sw finished",
+                            );
                         }
                     }
-                    alsa::mixer_hw_sw_trace(
-                        Some(hw_sw_t0),
-                        "async_end",
-                        "saveVolumeOptions hw→sw finished",
-                    );
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(
@@ -2680,7 +2731,20 @@ async fn call_method(
                         e
                     );
                     if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e2);
+                        tracing::error!(
+                            "{} saveVolumeOptions MPD fragment/restart failed: {}",
+                            crate::log_tags::EVO_PLAYBACK,
+                            e2
+                        );
+                        let mut pb = state.playback.write().await;
+                        *pb = prev.clone();
+                        if let Err(e3) = pb.save() {
+                            tracing::warn!(
+                                "{} saveVolumeOptions revert playback: {}",
+                                crate::log_tags::EVO_PLAYBACK,
+                                e3
+                            );
+                        }
                     }
                 }
                 Err(e) => {
@@ -2690,7 +2754,20 @@ async fn call_method(
                         e
                     );
                     if let Err(e2) = after.write_fragment_and_restart_mpd(&alsa).await {
-                        tracing::warn!("{} saveVolumeOptions MPD: {}", crate::log_tags::EVO_PLAYBACK, e2);
+                        tracing::error!(
+                            "{} saveVolumeOptions MPD fragment/restart failed: {}",
+                            crate::log_tags::EVO_PLAYBACK,
+                            e2
+                        );
+                        let mut pb = state.playback.write().await;
+                        *pb = prev.clone();
+                        if let Err(e3) = pb.save() {
+                            tracing::warn!(
+                                "{} saveVolumeOptions revert playback: {}",
+                                crate::log_tags::EVO_PLAYBACK,
+                                e3
+                            );
+                        }
                     }
                 }
             }

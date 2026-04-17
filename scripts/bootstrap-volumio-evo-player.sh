@@ -12,6 +12,9 @@ set -euo pipefail
 #
 # One-shot tester install for Debian / Raspberry Pi OS Lite. Run as root.
 #
+# OS privilege contract (service user, sudoers for mount + mpd restart, fragment ownership):
+#   docs/OS_PRIVILEGE_MODEL.md — Evo must not require interactive auth in the service path.
+#
 # UI: vendored trees under layer/web/{classic,contemporary,manifest} (stock-style static
 # assets). Optional: UI_DIST_SOURCE=path to one dist/ with index.html (copied to all three
 # layout roots for development). No git clone of Volumio2-UI and no npm/gulp on device.
@@ -60,6 +63,8 @@ EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 # EVO_SERVICE_USER_USE_SUDO_INVOKER is deprecated (ignored); auto behavior matches the old "invoker=1" case.
 # 1: install /etc/sudoers.d/volumio-evo-mount with NOPASSWD for /usr/bin/mount,/usr/bin/umount (future NAS UI).
 EVO_INSTALL_MOUNT_SUDOERS="${EVO_INSTALL_MOUNT_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-mpd so non-root Evo can `sudo -n systemctl restart mpd` after fragment writes.
+EVO_INSTALL_MPD_SUDOERS="${EVO_INSTALL_MPD_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
 # 1: compile on device with cargo (slow). Default 0: install from layer/binaries/<triple>/ only.
@@ -111,6 +116,7 @@ Environment (common):
   EVO_BUILD_FROM_SOURCE=0   # or 1 to force cargo like --build
   EVO_SERVICE_USER=          # omit: use session user (SUDO_USER / USER / logname); empty: run service as root
   EVO_INSTALL_MOUNT_SUDOERS=1           # 0 to skip sudoers drop-in for mount/umount
+  EVO_INSTALL_MPD_SUDOERS=1             # 0 to skip sudoers for systemctl restart mpd (non-root service)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
 
 Example:
@@ -158,13 +164,22 @@ configure_evo_runtime_user() {
   local drop_dir="/etc/systemd/system/volumio-evo.service.d"
   local drop_in="${drop_dir}/10-runtime-user.conf"
   local sudoers="/etc/sudoers.d/volumio-evo-mount"
+  local mpd_sudoers="/etc/sudoers.d/volumio-evo-mpd"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
     rm -f "${drop_in}"
     rmdir "${drop_dir}" 2>/dev/null || true
     rm -f "${sudoers}" 2>/dev/null || true
+    rm -f "${mpd_sudoers}" 2>/dev/null || true
     return 0
+  fi
+
+  # Must match what we pass to sudoers for `systemctl restart mpd` (see EVO_INSTALL_MPD_SUDOERS).
+  local systemctl_bin
+  systemctl_bin="$(command -v systemctl 2>/dev/null || true)"
+  if [[ -z "${systemctl_bin}" || ! -x "${systemctl_bin}" ]]; then
+    systemctl_bin="/usr/bin/systemctl"
   fi
 
   if ! id -u "${u}" >/dev/null 2>&1; then
@@ -188,6 +203,7 @@ Group=${g}
 SupplementaryGroups=audio
 Environment=HOME=${home}
 Environment=VOLUMIO_EVO_RUNTIME_USER=${u}
+Environment=VOLUMIO_EVO_SYSTEMCTL=${systemctl_bin}
 EOF
 
   usermod -aG audio "${u}" 2>/dev/null || true
@@ -199,6 +215,11 @@ EOF
   chown -R "${u}:${g}" /mnt/NAS 2>/dev/null || true
   # Plugin drops and read-only assets: user can add .wasm without sudo if desired
   chown -R "${u}:${g}" /usr/share/volumio-evo/plugins 2>/dev/null || true
+  # MPD include snippet: Evo must rewrite this when mixer type / playback output changes (non-root service).
+  if [[ -f "${EVO_MPD_FRAGMENT}" ]]; then
+    chown "${u}:${g}" "${EVO_MPD_FRAGMENT}"
+    echo "MPD fragment ownership: ${u}:${g} ${EVO_MPD_FRAGMENT}"
+  fi
 
   if [[ "${EVO_INSTALL_MOUNT_SUDOERS:-1}" == "1" ]]; then
     local tmp
@@ -217,6 +238,25 @@ EOF
     rm -f "${tmp}"
   else
     rm -f "${sudoers}" 2>/dev/null || true
+  fi
+
+  if [[ "${EVO_INSTALL_MPD_SUDOERS:-1}" == "1" ]]; then
+    local tmp_mpd
+    tmp_mpd="$(mktemp)"
+    cat > "${tmp_mpd}" <<EOF
+# volumio-evo: allow runtime user to reload MPD after editing the Evo fragment (Playback Options).
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_SYSTEMCTL in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} restart mpd
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_mpd}" 2>/dev/null; then
+      install -m 0440 "${tmp_mpd}" "${mpd_sudoers}"
+      echo "Installed ${mpd_sudoers} (systemctl restart mpd NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${mpd_sudoers}. Install sudoers manually if needed."
+    fi
+    rm -f "${tmp_mpd}"
+  else
+    rm -f "${mpd_sudoers}" 2>/dev/null || true
   fi
 }
 

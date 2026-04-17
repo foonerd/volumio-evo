@@ -30,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh
 
 Optional: `EVO_REPO_URL`, `EVO_GIT_REF` (default **`main`**), `BASE_DIR` / `EVO_REPO_DIR`. Pass bootstrap flags after `--`, e.g. `| sudo bash -s -- --build`.
 
-By default, bootstrap picks the **current session user** (e.g. **`SUDO_USER`** when you use `sudo`), so **`volumio-evo`** usually runs as your **SSH login** without extra flags. To force root or another account, see [RUNTIME_USER.md](RUNTIME_USER.md).
+By default, bootstrap picks the **current session user** (e.g. **`SUDO_USER`** when you use `sudo`), so **`volumio-evo`** usually runs as your **SSH login** without extra flags. To force root or another account, see [RUNTIME_USER.md](RUNTIME_USER.md). **Sudo, `systemctl`, and `/etc` ownership** are defined in [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) — the service must stay **non-interactive** (no password prompts in normal operation).
 
 **Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary only), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
 

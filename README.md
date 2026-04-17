@@ -77,12 +77,16 @@ Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [laye
 
 ## More documentation
 
+**OS integration (service user, sudo, MPD reload, `/etc` — no interactive prompts):** [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) is the **contract** for host privileges; [docs/RUNTIME_USER.md](docs/RUNTIME_USER.md) covers bootstrap **`EVO_SERVICE_USER`** and drop-ins.
+
 **Backend port and UI contract:** [docs/PORTING.md](docs/PORTING.md) is the main map from volumio3-backend to Evo. **Playback cadence and queue rules** for stock Volumio2-UI: [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md).
 
 **Future (not required for backend port):** [docs/KIOSK.md](docs/KIOSK.md) describes an optional full-screen Wayland kiosk layer (WPE/Cog); defer until the Rust API is the primary production backend.
 
 | Document | Topic |
 |----------|--------|
+| [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) | Sudoers, `systemctl`, MPD fragment ownership — **non-interactive** OS contract |
+| [docs/RUNTIME_USER.md](docs/RUNTIME_USER.md) | Bootstrap service user, `EVO_SERVICE_USER`, systemd drop-in |
 | [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) | On-device bootstrap (canonical test) |
 | [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) | Cross-compilation, `layer/binaries/` |
 | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | `journalctl`, `[EVO]` prefix, `RUST_LOG` |
