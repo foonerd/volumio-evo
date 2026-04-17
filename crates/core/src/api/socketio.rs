@@ -2600,7 +2600,10 @@ async fn rescan_db(_s: SocketRef, State(state): State<AppState>) {
     );
     let config = mpd_config(&state);
     match mpd::rescan_connected(&config, None).await {
-        Ok(_id) => tracing::debug!("{} rescanDb MPD ok", crate::log_tags::EVO_DB),
+        Ok(_id) => {
+            tracing::debug!("{} rescanDb MPD ok", crate::log_tags::EVO_DB);
+            state.notify_push_state();
+        }
         Err(e) => tracing::warn!("{} rescanDb MPD error: {}", crate::log_tags::EVO_DB, e),
     }
 }
@@ -2621,7 +2624,10 @@ async fn update_db(_s: SocketRef, State(state): State<AppState>, Data(payload): 
         path_opt
     );
     match mpd::update_connected(&config, path_opt).await {
-        Ok(_id) => tracing::debug!("{} updateDb MPD ok", crate::log_tags::EVO_DB),
+        Ok(_id) => {
+            tracing::debug!("{} updateDb MPD ok", crate::log_tags::EVO_DB);
+            state.notify_push_state();
+        }
         Err(e) => tracing::warn!("{} updateDb MPD error: {}", crate::log_tags::EVO_DB, e),
     }
 }

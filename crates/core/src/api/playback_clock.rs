@@ -113,6 +113,7 @@ mod tests {
             samplerate: None,
             bitdepth: None,
             bitrate: None,
+            updatedb: false,
         }
     }
 

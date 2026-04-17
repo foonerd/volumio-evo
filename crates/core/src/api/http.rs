@@ -415,6 +415,17 @@ pub fn router(
         nm_boot.mount_all_at_boot(cfg_nas).await;
     });
 
+    let music_root = state.music_sources.music_root.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = crate::network_mounts::ensure_music_library_nas_symlink(&music_root) {
+            tracing::warn!(
+                "{} startup: music_root/NAS symlink: {}",
+                crate::log_tags::EVO_UI,
+                e
+            );
+        }
+    });
+
     let (socket_layer, io) = SocketIo::builder()
         .with_state(router_state.clone())
         .max_payload(1_000_000)

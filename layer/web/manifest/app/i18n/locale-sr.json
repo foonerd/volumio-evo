@@ -1,5 +1,22 @@
 {
     "UI_SETTINGS": {
         "UPLOAD_BACKGROUND": ""
+    },
+    "COMMON": {
+        "SOURCES": "Sources"
+    },
+    "APPEARANCE": {
+        "ALBUMART_CACHE_CLEARED": "Album Art cache uspešno resetovan",
+        "ALBUMART_RESET_CACHE": "Resetuj Album Art keš",
+        "ALBUMART_SETTINGS": "Albumart podešavanje",
+        "APPEARANCE": "Prikaz",
+        "ARTIST": "Izvođač",
+        "ARTIST_SORTING": "Sortiraj izvođače po",
+        "ARTIST_SORTING_DOC": "Odaberi podatke za sortitanje izvođača",
+        "BACKGROUND_DELETED": "Pozadina je obrisana",
+        "BROWSE_SOURCES_VISIBILITY": "Vidljivost izora",
+        "ALBUMARTIST": "Izvođač",
+        "ALBUMART_CACHE_CLEAR_ERROR": "Greška prilikom brisanja keša. Pokušaj ponovo za par minuta.",
+        "ALBUMART_RESET_CACHE_DOC": "Sistem kešira Albumart da bi poboljšao performanse. Ovo onemogućava nove Albumarte da budu prikazani. Resetuj keš da vidiš novododate Albumarte."
     }
 }

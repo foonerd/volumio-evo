@@ -330,7 +330,8 @@ pub async fn super_search(
     search(State(state), Query(q)).await
 }
 
-/// GET /api/v1/collectionstats - MPD stats (artists, albums, songs, playtime)
+/// GET /api/v1/collectionstats — same semantics as Socket.IO `getMyCollectionStats` / `pushMyCollectionStats`
+/// (`count group artist` + `list album group albumartist`, not bare `stats`).
 pub async fn collection_stats(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     match mpd::collection_stats_connected(&config).await {

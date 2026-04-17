@@ -88,11 +88,12 @@
         "DISABLE": "Disable",
         "ACCEPT": "Accept",
         "DECLINE": "Decline",
-        "ACCEPT_OR_SHUTDOWN":"Please accept terms of service or shut down your system",
+        "ACCEPT_OR_SHUTDOWN": "Please accept terms of service or shut down your system",
         "RELATED": "Related",
         "INSTANT_PLAY": "I'm feeling lucky",
         "SUPER_SEARCH": "Super search",
-        "SUPER_SEARCH_EXAMPLE": "Example: smooth jazz with female voices"
+        "SUPER_SEARCH_EXAMPLE": "Example: smooth jazz with female voices",
+        "SOURCES": "Sources"
     },
     "BROWSER": {
         "PLAY": "Play",
@@ -132,8 +133,8 @@
         "RELATED": "You might also like",
         "RELATED_ALBUMS": "Related albums",
         "RELATED_ARTISTS": "Related Artists",
-        "SUPER_SEARCH":"Volumio SuperSearch BETA",
-        "SUPER_SEARCH_INFO": "SuperSearch is a search mode which allows you to ask Volumio for music suggestions the same way you would ask a friend or a record shop clerk. <br /><br />Simply type a chat-like question on the kind of tracks you want to hear, and Volumio will retrieve the corresponding tracks for you from your library. <br /><br /> Some examples of queries: <br /><br /> <ul><li>Smooth Jazz with female voices</li><li>Italian indie rock </li><li>New wave with drums and synth</li></ul><br /><br />You can either ask in your language or in english. English tends to provide more accurate results.<br /> <br />By enabling Autoplay, once the search is completed, the matched tracks will be played<br /> <br />Notes: <br /><br /><ul><li>To get the best from SuperSearch you should have at least one streaming service connected, such as TIDAL, QOBUZ or Spotify</li><li>If you don't have any of the above, it's suggested that your local library consists of at least 1000 tracks</li></ul>"        ,
+        "SUPER_SEARCH": "Volumio SuperSearch BETA",
+        "SUPER_SEARCH_INFO": "SuperSearch is a search mode which allows you to ask Volumio for music suggestions the same way you would ask a friend or a record shop clerk. <br /><br />Simply type a chat-like question on the kind of tracks you want to hear, and Volumio will retrieve the corresponding tracks for you from your library. <br /><br /> Some examples of queries: <br /><br /> <ul><li>Smooth Jazz with female voices</li><li>Italian indie rock </li><li>New wave with drums and synth</li></ul><br /><br />You can either ask in your language or in english. English tends to provide more accurate results.<br /> <br />By enabling Autoplay, once the search is completed, the matched tracks will be played<br /> <br />Notes: <br /><br /><ul><li>To get the best from SuperSearch you should have at least one streaming service connected, such as TIDAL, QOBUZ or Spotify</li><li>If you don't have any of the above, it's suggested that your local library consists of at least 1000 tracks</li></ul>",
         "SUPER_SEARCH_WAIT": "Please wait, this search will take up to 20 seconds..."
     },
     "MY_MUSIC": {
@@ -264,7 +265,7 @@
         "EXPERIENCE_SETTINGS_TITLE": "Let's tailor your user experience",
         "EXPERIENCE_SETTINGS_TEXT": "Do you prefer an easy to use system with only a simplified set of options or do you want full control over all advanced functions?",
         "EXPERIENCE_SETTINGS_TEXT_2": "This setting can be changed later in system settings",
-        "NO_NEED_DEVICE_CODE_MESSAGE" : "If you already entered your device code, there is no need to enter it again"
+        "NO_NEED_DEVICE_CODE_MESSAGE": "If you already entered your device code, there is no need to enter it again"
     },
     "SLEEP": {
         "POWER_OFF": "Power off",
@@ -542,9 +543,9 @@
         "SAVE": "Save",
         "MANIFEST_UI_ACCESS": "Manifest UI Access",
         "MANIFEST_UI_ACCESS_DESCRIPTION": "This UI requires a Volumio premium plan. Press OK to login or register to myVolumio. Press cancel to exit this UI.",
-        "MODAL_SUPERSEARCH_PREMIUM_TITLE":"Supersearch textual search",
-        "MODAL_SUPERSEARCH_PREMIUM_TEXT":"Textual search, infinity playback powered by Artificial Intelligence",
-        "MODAL_INFINITY_PLAN_PREMIUM_TEXT":"Artificial Intelligence infinity playback"
+        "MODAL_SUPERSEARCH_PREMIUM_TITLE": "Supersearch textual search",
+        "MODAL_SUPERSEARCH_PREMIUM_TEXT": "Textual search, infinity playback powered by Artificial Intelligence",
+        "MODAL_INFINITY_PLAN_PREMIUM_TEXT": "Artificial Intelligence infinity playback"
     },
     "MYVOLUMIO_PLANS": {
         "LATEST_NEWS": "Receive our MyVolumio News Feed",
@@ -566,8 +567,8 @@
         "ALL_FREE_FEATURES": "All Free Features",
         "MANIFEST_UI": "Manifest UI",
         "MULTIROOM_PLAYBACK": "Multiroom Playback",
-        "FILES_PLAYBACK" : "Playback of all filetypes",
-        "WEBRADIOS_DIRECTORY" : "Integrated Webradios Directories",
+        "FILES_PLAYBACK": "Playback of all filetypes",
+        "WEBRADIOS_DIRECTORY": "Integrated Webradios Directories",
         "ALARM_AND_SLEEP_FUNCTION": "Alarm and sleep function",
         "PLUGINS_STORE": "Plugins store",
         "DLNA_UPNP_BROWSING": "DLNA UPNP Browsing",
@@ -577,7 +578,57 @@
         "IOS_ANDROID_APP": "iOS and Android Apps",
         "NETWORK_STORAGE_SUPPORT": "Network Storage Browsing",
         "OVER_THE_AIR_UPDATES": "Over The Air Updates",
-        "AI_SUPERSEARCH":"AI Textual Search",
-        "AI_INFINITY_PLAYBACK":"AI Infinity Playback"
+        "AI_SUPERSEARCH": "AI Textual Search",
+        "AI_INFINITY_PLAYBACK": "AI Infinity Playback"
+    },
+    "APPEARANCE": {
+        "ALBUMARTIST": "Albumartist",
+        "ALBUMART_CACHE_CLEARED": "Album Art cache reset successfully",
+        "ALBUMART_CACHE_CLEAR_ERROR": "Error clearing albumart cache, please retry in a few minutes.",
+        "ALBUMART_RESET_CACHE": "Reset Album Art cache",
+        "ALBUMART_RESET_CACHE_DOC": "The system caches your albumart to improve performance, but this prevents newly added albumart from being shown. By resetting the cache you will be able to see newly added albumart.",
+        "ALBUMART_SETTINGS": "Album Art Settings",
+        "APPEARANCE": "Appearance",
+        "ARTIST": "Artist",
+        "ARTIST_SORTING": "Sort artists by",
+        "ARTIST_SORTING_DOC": "Choose the metadata used to sort artists",
+        "BACKGROUND_DELETED": "Background deleted",
+        "BROWSE_SOURCES_VISIBILITY": "Sources Visibility",
+        "COMPILATION_METADATA": "Compilation metadata fields",
+        "COMPILATION_METADATA_DOC": "Configure the metadata fields used to describe albumartist in compilations or 'multiple artist' albums, use comma separated fields.",
+        "EXTRALARGE": "Extra-large",
+        "IMAGE_MUST_BE_LESS_THAN": "Image size must be less than",
+        "LARGE": "Large",
+        "MEDIUM": "Medium",
+        "MEGA": "Mega",
+        "METADATA_IMAGE": "Show embedded albumart",
+        "METADATA_IMAGE_DOC": "When enabled, if no albumart file can be found in the folder, the system will attempt to extract any albumart embedded in your music files. This will most likely increase albumart loading times.",
+        "MUSIC_LIBRARY_SETTINGS": "Music Library Settings",
+        "NEW_BACKGROUND_APPLIED": "New Background applied",
+        "NEW_LANGUAGE_SET": "New language set",
+        "SHOW_TRACKNUMBERS": "Show Track numbers",
+        "SHOW_TRACKNUMBERS_DOC": "Prepend track numbers to tracks title",
+        "SMALL": "Small",
+        "UI_CONFIG_LANGUAGE": "Language",
+        "UI_CONFIG_SELECT_LANGUAGE": "Select Language",
+        "UI_CONFIG_SELECT_LANGUAGE_DOC": "Select the Language of your system",
+        "UI_CONFIG_SELECT_TIMEZONE": "Select Timezone",
+        "UI_CONFIG_SELECT_TIMEZONE_DOC": "Select the Timezone of your system",
+        "UPLOAD_FAILED": "Upload failed",
+        "USER_INTERFACE_CLASSIC": "Classic",
+        "USER_INTERFACE_CONTEMPORARY": "Contemporary",
+        "USER_INTERFACE_MANIFEST": "Manifest",
+        "USER_INTERFACE_LAYOUT_DESIGN": "User Interface layout design",
+        "USER_INTERFACE_LAYOUT_DESIGN_DOC": "Select the desired user interface layout design. Contemporary UI offers an experience based on the most popular music players UI. Classic has a 3 tab design, offering a more minimalistic approach ",
+        "VOLUMIO3_EXPERIMENTAL_UI": "Enable Experimental User Interface",
+        "VOLUMIO3_EXPERIMENTAL_UI_DOC": "Enable Experimental User Interface",
+        "WEB_ALBUMART_ENABLE": "Web Album art",
+        "WEB_ALBUMART_ENABLE_DOC": "Enable retrieval of Album art from Web, if no image is found in the file folder",
+        "WEB_ALBUMART_SIZE": "Web Album art Size",
+        "WEB_ALBUMART_SIZE_DOC": "Choose the size of Album art downloaded from web: higher quality requires longer load times. Lower values may improve load times.",
+        "SUPERSEARCH_INFINITY_SERVICES": "SuperSearch and Infinity Playback Enabled Services",
+        "USER_INTERFACE": "User Interface",
+        "USER_INTERFACE_SETTINGS": "User Interface Settings",
+        "USER_INTERFACE_SUCCESSFULLY_SET_TO": "User Interface successfully set to"
     }
 }

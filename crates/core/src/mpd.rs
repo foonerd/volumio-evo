@@ -598,7 +598,12 @@ fn parse_lsinfo_frame(
     items
 }
 
-/// Collection stats from MPD (stats command). Returns artists, albums, songs, playtime (HH:MM:SS).
+/// Collection stats for “My Music” (same shape as Node `pushMyCollectionStats`).
+///
+/// **Must** use the same MPD queries as `volumio3-backend` `getMyCollectionStats`: `count group artist`
+/// and `list album group albumartist`. Those reflect **partial** database contents during
+/// `update` / `rescan`. The `stats` command reports **final** totals and typically does not move until
+/// the scan completes, so the UI would look frozen while polling.
 #[derive(Debug, Default, Serialize)]
 pub struct CollectionStats {
     pub artists: u64,
@@ -607,30 +612,75 @@ pub struct CollectionStats {
     pub playtime: String,
 }
 
+fn playtime_string_from_seconds_total(mut secs: u64) -> String {
+    let h = secs / 3600;
+    secs %= 3600;
+    let m = secs / 60;
+    let s = secs % 60;
+    format!("{}:{}:{}", h, m, s)
+}
+
 pub async fn collection_stats_connected(config: &MpdConfig) -> Result<CollectionStats> {
     let stream = TcpStream::connect(config.addr()).await?;
-    let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("stats");
-    let frame = client.raw_command(raw).await?;
-    let mut stats = CollectionStats::default();
-    stats.playtime = "00:00:00".to_string();
-    for (k, v) in frame.fields() {
-        match k {
-            "songs" => stats.songs = v.parse().unwrap_or(0),
-            "artists" => stats.artists = v.parse().unwrap_or(0),
-            "albums" => stats.albums = v.parse().unwrap_or(0),
-            "db_playtime" => {
-                if let Ok(secs) = v.parse::<u64>() {
-                    let h = secs / 3600;
-                    let m = (secs % 3600) / 60;
-                    let s = secs % 60;
-                    stats.playtime = format!("{:02}:{:02}:{:02}", h, m, s);
-                }
-            }
-            _ => {}
+    let (mut client, _) = Client::connect(stream).await?;
+    collection_stats_with_client(&mut client).await
+}
+
+async fn collection_stats_with_client(client: &mut Client) -> Result<CollectionStats> {
+    let count_frame = match client
+        .raw_command(
+            RawCommand::new("count")
+                .argument("group")
+                .argument("artist"),
+        )
+        .await
+    {
+        Ok(f) => f,
+        Err(_) => {
+            return Ok(CollectionStats {
+                artists: 0,
+                albums: 0,
+                songs: 0,
+                playtime: "0:0:0".to_string(),
+            });
+        }
+    };
+
+    let mut artists = 0u64;
+    let mut songs = 0u64;
+    let mut playtime_secs = 0u64;
+    for (k, v) in count_frame.fields() {
+        if k.eq_ignore_ascii_case("artist") {
+            artists += 1;
+        } else if k.eq_ignore_ascii_case("songs") {
+            songs += v.parse::<u64>().unwrap_or(0);
+        } else if k.eq_ignore_ascii_case("playtime") {
+            playtime_secs += v.parse::<u64>().unwrap_or(0);
         }
     }
-    Ok(stats)
+
+    let albums = match client
+        .raw_command(
+            RawCommand::new("list")
+                .argument("album")
+                .argument("group")
+                .argument("albumartist"),
+        )
+        .await
+    {
+        Ok(frame) => frame
+            .fields()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("album"))
+            .count() as u64,
+        Err(_) => 0,
+    };
+
+    Ok(CollectionStats {
+        artists,
+        albums,
+        songs,
+        playtime: playtime_string_from_seconds_total(playtime_secs),
+    })
 }
 
 /// List MPD stored playlists (listplaylists). Returns playlist names.
@@ -1841,6 +1891,9 @@ pub struct VolumioState {
     pub bitdepth: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bitrate: Option<String>,
+    /// Mirrors Node `parseState` / `stateService.updatedb`: MPD is updating the music database (`status` → `updating_db`).
+    #[serde(rename = "updatedb")]
+    pub updatedb: bool,
 }
 
 /// Map MPD `file` URL to Volumio `music-library/...` for album-art + browse parity.
@@ -2115,15 +2168,19 @@ pub async fn get_state(
         .current_song
         .map(|(pos, _)| pos.0 as u32);
 
-    let audio_line = client
-        .raw_command(RawCommand::new("status"))
-        .await
-        .ok()
+    let raw_status = client.raw_command(RawCommand::new("status")).await.ok();
+    let audio_line = raw_status
+        .as_ref()
         .and_then(|f| f.find("audio").map(std::string::ToString::to_string));
     let (samplerate, bitdepth) = audio_line
         .as_deref()
         .map(parse_mpd_audio)
         .unwrap_or((None, None));
+    // MPD wire format uses `updating_db`; mpd_client maps it to `update_job` — accept both + raw frame.
+    let updating_db = status.update_job.is_some()
+        || raw_status.as_ref().is_some_and(|f| {
+            f.find("updating_db").is_some() || f.find("update_job").is_some()
+        });
 
     let bitrate = status
         .bitrate
@@ -2178,6 +2235,7 @@ pub async fn get_state(
         samplerate,
         bitdepth,
         bitrate,
+        updatedb: updating_db,
     })
 }
 

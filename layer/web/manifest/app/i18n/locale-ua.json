@@ -57,7 +57,8 @@
         "VOLUME_UP": "Збільшення гучності",
         "VOLUME_DOWN": "Зменшення гучності",
         "TAB_VOLUME": "Гучність",
-        "VOLUME_MUTE": "Без звуку"
+        "VOLUME_MUTE": "Без звуку",
+        "SOURCES": ""
     },
     "BROWSER": {
         "PLAY": "Відтворити",
@@ -163,5 +164,48 @@
     "SLEEP": {
         "POWER_OFF": "Вимкнути живлення",
         "STOP_MUSIC": "Зупинити музику"
+    },
+    "APPEARANCE": {
+        "ALBUMARTIST": "",
+        "ALBUMART_CACHE_CLEARED": "",
+        "ALBUMART_CACHE_CLEAR_ERROR": "",
+        "ALBUMART_RESET_CACHE": "",
+        "ALBUMART_RESET_CACHE_DOC": "",
+        "ALBUMART_SETTINGS": "",
+        "APPEARANCE": "Налаштування зовнішнього вигляду",
+        "ARTIST": "",
+        "ARTIST_SORTING": "",
+        "ARTIST_SORTING_DOC": "",
+        "BACKGROUND_DELETED": "",
+        "BROWSE_SOURCES_VISIBILITY": "",
+        "COMPILATION_METADATA": "",
+        "COMPILATION_METADATA_DOC": "",
+        "EXTRALARGE": "",
+        "IMAGE_MUST_BE_LESS_THAN": "",
+        "LARGE": "",
+        "MEDIUM": "",
+        "MEGA": "",
+        "METADATA_IMAGE": "",
+        "METADATA_IMAGE_DOC": "",
+        "MUSIC_LIBRARY_SETTINGS": "",
+        "NEW_BACKGROUND_APPLIED": "Нове тло застосовано",
+        "NEW_LANGUAGE_SET": "Нову мову обрано",
+        "SHOW_TRACKNUMBERS": "",
+        "SHOW_TRACKNUMBERS_DOC": "",
+        "SMALL": "",
+        "UI_CONFIG_LANGUAGE": "Мова",
+        "UI_CONFIG_SELECT_LANGUAGE": "Виберіть мову",
+        "UI_CONFIG_SELECT_LANGUAGE_DOC": "",
+        "UPLOAD_FAILED": "",
+        "USER_INTERFACE_CLASSIC": "",
+        "USER_INTERFACE_CONTEMPORARY": "",
+        "USER_INTERFACE_LAYOUT_DESIGN": "",
+        "USER_INTERFACE_LAYOUT_DESIGN_DOC": "",
+        "VOLUMIO3_EXPERIMENTAL_UI": "",
+        "VOLUMIO3_EXPERIMENTAL_UI_DOC": "",
+        "WEB_ALBUMART_ENABLE": "",
+        "WEB_ALBUMART_ENABLE_DOC": "",
+        "WEB_ALBUMART_SIZE": "",
+        "WEB_ALBUMART_SIZE_DOC": ""
     }
 }

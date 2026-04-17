@@ -15,6 +15,64 @@ use crate::paths;
 /// Root for CIFS/NFS mounts (same as volumio3-backend `networkfs`).
 pub const NAS_MOUNT_ROOT: &str = "/mnt/NAS";
 
+/// Ensure `music_root/NAS` → [`NAS_MOUNT_ROOT`] so MPD `music_directory` layout (`NAS/<alias>/…`) matches
+/// actual mounts under `/mnt/NAS/<alias>/…`. Replaces an **empty** `NAS` directory (bootstrap placeholder).
+pub fn ensure_music_library_nas_symlink(music_root: &Path) -> std::io::Result<()> {
+    #[cfg(not(unix))]
+    {
+        let _ = music_root;
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+        let nas_link = music_root.join("NAS");
+        let target = Path::new(NAS_MOUNT_ROOT);
+        if let Ok(meta) = fs::symlink_metadata(&nas_link) {
+            if meta.file_type().is_symlink() {
+                if fs::read_link(&nas_link).ok().as_ref() == Some(&target.to_path_buf()) {
+                    return Ok(());
+                }
+                fs::remove_file(&nas_link)?;
+            } else if meta.is_dir() {
+                let empty = fs::read_dir(&nas_link)
+                    .map(|mut d| d.next().is_none())
+                    .unwrap_or(false);
+                if empty {
+                    fs::remove_dir(&nas_link)?;
+                } else {
+                    tracing::warn!(
+                        "{} {} is a non-empty directory; not replacing with symlink to {} (empty NAS/ first, or merge manually)",
+                        crate::log_tags::EVO_UI,
+                        nas_link.display(),
+                        target.display()
+                    );
+                    return Ok(());
+                }
+            } else {
+                tracing::warn!(
+                    "{} {} exists and is not a directory or symlink; skipping NAS bridge",
+                    crate::log_tags::EVO_UI,
+                    nas_link.display()
+                );
+                return Ok(());
+            }
+        }
+        if let Some(parent) = nas_link.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        symlink(target, &nas_link)?;
+        tracing::info!(
+            "{} linked {} -> {} (MPD music_directory ↔ /mnt/NAS mounts)",
+            crate::log_tags::EVO_UI,
+            nas_link.display(),
+            target.display()
+        );
+        Ok(())
+    }
+}
+
 /// Automatic SMB dialect ladder (lowest acceptable first). SMB1/NT1 only via explicit `vers=` in advanced options.
 /// See `mount.cifs(8)` — kernel accepts these `vers=` values.
 const CIFS_VERS_PROBE_LADDER: &[&str] = &["2.0", "2.1", "3.0", "3.02", "3.1.1"];
@@ -321,6 +379,14 @@ impl NetworkMounts {
         };
 
         if matches!(outcome, MountOutcome::Success) {
+            if let Err(e) = ensure_music_library_nas_symlink(&cfg.music_sources.music_root) {
+                tracing::warn!(
+                    "{} could not symlink music_root/NAS -> {}: {}",
+                    crate::log_tags::EVO_UI,
+                    NAS_MOUNT_ROOT,
+                    e
+                );
+            }
             if let Some(ref v) = persist_vers {
                 if let Err(e) = self.persist_probed_cifs_vers(&rec.id, v).await {
                     tracing::warn!(
@@ -495,21 +561,85 @@ impl NetworkMounts {
         Ok(MountOutcome::Fail(msg.chars().take(500).collect()))
     }
 
+    /// Unmount `/mnt/NAS/<alias>/` the same way volumio3-backend does: **`umount -f`** (see
+    /// `ControllerNetworkfs.prototype.umountShare`), with **`-l`** fallback for busy CIFS.
+    ///
+    /// Only removes the mountpoint directory when it is **no longer** a mount point (never
+    /// `rm -rf` across an active mount).
     pub async fn umount_by_name(&self, name: &str) -> Result<(), String> {
         let mp = Self::mountpoint_for_name(name);
         let _g = self.op.lock().await;
-        if Self::is_mounted(&mp) {
-            let st = Command::new("sudo")
-                .args(["/usr/bin/umount", mp.to_str().ok_or("bad path")?])
-                .status()
-                .await
-                .map_err(|e| e.to_string())?;
-            if !st.success() {
-                return Err("umount failed".to_string());
+        Self::umount_mountpoint_robust(&mp).await
+    }
+
+    async fn umount_mountpoint_robust(mp: &Path) -> Result<(), String> {
+        let path_str = mp.to_str().ok_or("invalid mount path")?;
+
+        if !Self::is_mounted(mp) {
+            let _ = std::fs::remove_dir_all(mp);
+            return Ok(());
+        }
+
+        async fn umount_output(args: &[&str], target: &str) -> (bool, String) {
+            let mut cmd = Command::new("sudo");
+            cmd.arg("/usr/bin/umount");
+            for a in args {
+                cmd.arg(a);
+            }
+            cmd.arg(target);
+            match cmd.output().await {
+                Ok(o) => {
+                    let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                    let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    let combined = if err.is_empty() { out } else { err };
+                    (o.status.success(), combined)
+                }
+                Err(e) => (false, e.to_string()),
             }
         }
-        let _ = std::fs::remove_dir_all(&mp);
-        Ok(())
+
+        // Match Node: `sudo /bin/umount -f <mountpoint>` (networkfs `umountShare`).
+        let (ok, e1) = umount_output(&["-f"], path_str).await;
+        if ok {
+            if !Self::is_mounted(mp) {
+                let _ = std::fs::remove_dir_all(mp);
+            }
+            return Ok(());
+        }
+
+        // Busy CIFS: lazy detach (may take a moment to drop from mount tables).
+        let (ok2, e2) = umount_output(&["-l"], path_str).await;
+        if ok2 {
+            for _ in 0..20 {
+                if !Self::is_mounted(mp) {
+                    let _ = std::fs::remove_dir_all(mp);
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            }
+            if !Self::is_mounted(mp) {
+                let _ = std::fs::remove_dir_all(mp);
+            }
+            return Ok(());
+        }
+
+        let (ok3, e3) = umount_output(&[], path_str).await;
+        if ok3 {
+            if !Self::is_mounted(mp) {
+                let _ = std::fs::remove_dir_all(mp);
+            }
+            return Ok(());
+        }
+
+        let detail = [e1, e2, e3]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
+        Err(format!(
+            "umount failed: {}",
+            detail.chars().take(450).collect::<String>()
+        ))
     }
 
     /// Add share: persist, then mount.
@@ -578,21 +708,34 @@ impl NetworkMounts {
         }
     }
 
+    /// Remove a persisted share: **unmount first**, then drop from `shares.toml` (same order as
+    /// volumio3-backend `deleteShare` — config is only deleted after a successful unmount when mounted).
     pub async fn delete_share(&self, cfg: &Config, id: &str) -> Result<(), String> {
-        let _g = self.op.lock().await;
-        let mut file = self.load_unlocked().map_err(|e| e.to_string())?;
-        let pos = file
-            .shares
-            .iter()
-            .position(|s| s.id == id)
-            .ok_or_else(|| "share not found".to_string())?;
-        let name = file.shares[pos].name.clone();
-        file.shares.remove(pos);
-        self.save_unlocked(&file).map_err(|e| e.to_string())?;
-        drop(_g);
+        let name: String = {
+            let _g = self.op.lock().await;
+            let file = self.load_unlocked().map_err(|e| e.to_string())?;
+            file.shares
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| s.name.clone())
+                .ok_or_else(|| "share not found".to_string())?
+        };
+
+        self.umount_by_name(&name).await?;
+
+        {
+            let _g = self.op.lock().await;
+            let mut file = self.load_unlocked().map_err(|e| e.to_string())?;
+            let pos = file
+                .shares
+                .iter()
+                .position(|s| s.id == id)
+                .ok_or_else(|| "share not found".to_string())?;
+            file.shares.remove(pos);
+            self.save_unlocked(&file).map_err(|e| e.to_string())?;
+        }
 
         self.remove_creds_if_any(id);
-        self.umount_by_name(&name).await?;
         let mpd_cfg = MpdConfig {
             host: cfg.mpd_host.clone(),
             port: cfg.mpd_port,
