@@ -46,7 +46,7 @@ Intent/state apply **per interface** once Evo tracks **which `wlan*` is STA vs A
 | Ethernet DHCP or static | `nmcli` **ethernet** (`volumio-evo-ethernet`) when **`ethernet.enabled`** is **`true`**; skipped when **`false`** (no NM Ethernet apply). If enabled but **no** NIC exists, apply logs a warning and continues (Wi‑Fi‑only hardware). |
 | Wi‑Fi STA | `nmcli` **wifi** connection, `802-11-wireless.mode infrastructure` |
 | Wi‑Fi AP / hotspot | `nmcli` **wifi** profile with `mode ap` (and `ipv4.method shared` for NAT DHCP to clients) |
-| STA + AP on one radio | **Best effort**: many **single-phy** Wi‑Fi chips **cannot** do concurrent STA+AP reliably. NM may expose only one active mode per interface; Evo documents **two-radio** or **USB Wi‑Fi dongle** for true concurrency. When impossible, policy is **STA preferred** with **fallback AP** on disconnect (see below). |
+| STA + AP on one radio | **Canonical:** create a **virtual AP vif** on the STA's PHY — `iw dev <sta> interface add <ap> type __ap` — then bind STA NM profile to `<sta>` and AP NM profile to `<ap>` with `802-11-wireless.mode ap` + `ipv4.method shared`. Evo auto-creates `ap0` when `iw phy … valid interface combinations` admits **`managed + AP`** (e.g. **Pi 5 brcmfmac / CYW43455**; see `valid interface combinations`). AP channel **follows STA** because that combination is `#channels <= 1`. When the PHY does **not** list such a combination (true single-mode chips), Evo falls back to the old shared-ifname behaviour and warns accordingly. See **[Verifying concurrent STA + AP on one PHY (`iw`)](#verifying-concurrent-sta--ap-on-one-phy-iw)**. |
 | Fallback hotspot | If STA fails (no link / bad credentials / no DHCP), activate a **known** NM connection profile (e.g. `volumio-hotspot`) on the Wi‑Fi device. A small **watchdog** (future: `volumio-evo-network-watchdog.service` or a loop inside Evo) re-evaluates periodically. |
 
 ## UI toggles vs hardware capability (product policy)
@@ -72,7 +72,13 @@ These rules are **product/OS policy**, not optional nice-to-haves.
 
 1. **USB dongle may be STA-only** — Many adapters **do not expose AP mode** in Linux (firmware/driver). **Hotspot must use an interface that supports AP**, often the **on-SoC** radio (e.g. `wlan0`) while **STA uses the USB** iface (e.g. `wlan1`). Evo persists this as **`fallback.hotspot_ifname`** in `intent.toml` (empty = same iface as STA for single-radio boards).
 
-2. **Physical radio vs concurrent STA+AP** — Many USB adapters expose **only one** active NM profile per `wlan*`. **Some SoC radios** (including **Broadcom / brcmfmac on Raspberry Pi 5** with the right kernel + NetworkManager) support **concurrent STA+AP on one interface**; **`nmcli connection show --active`** may then list **both** `volumio-evo-wifi-sta` and `volumio-hotspot` on the **same** `wlan*`. Evo **does not** assume “one mode only”: apply uses NM state (see `nm_active_connection_names_on_device` in `nm_network.rs`). **Dual radios** (`fallback.hotspot_ifname` on another `wlan*`) remain the other way to run STA and hotspot together.
+2. **Physical radio vs concurrent STA+AP (canonical single-PHY recipe)** — On a PHY that lists a `managed + AP` combination under `iw phy <n> info` / `valid interface combinations` (e.g. **Pi 5 / brcmfmac CYW43455**), Linux supports concurrent STA+AP by creating a **second virtual interface on the same PHY**, not by binding two NM profiles to one `wlan*`. Evo automates this at apply time:
+    1. probe `iw phy` → detect `managed + AP` with `#channels <= 1`,
+    2. create `ap0` (or `VOLUMIO_EVO_AP_IFNAME`): `iw dev <sta> interface add <ap> type __ap`,
+    3. bind the STA NM profile to `<sta>` and the AP NM profile to `<ap>` with `802-11-wireless.mode ap`, `ipv4.method shared`,
+    4. the AP channel/band **follow** whatever STA is associated on (`#channels <= 1` rule); Evo rewrites the AP profile's `band`/`channel` from `iw dev <sta> link` when STA is associated.
+    USB adapters that **do not** list such a combination are treated as **single-mode** — Evo binds the hotspot profile to `<sta>` and uses the settle/restore logic for when NM swaps profiles on one device.
+    **Dual radios** (`fallback.hotspot_ifname` on another `wlan*`) remain fully supported for adapters that cannot do single-PHY STA+AP.
 
 3. **Hotspot as recovery path** — Where the stack **cannot** keep STA and hotspot up together, AP complements STA for provisioning, not throughput; see [UI toggles vs hardware capability](#ui-toggles-vs-hardware-capability-product-policy). **Hotspot Fallback** only applies where **AP mode exists** on some interface.
 
@@ -102,7 +108,24 @@ Linux reports wiphy capability in **`iw phy<N> info`** (replace **`phy<N>`** wit
 
 Example (**Raspberry Pi 5**, Broadcom **`brcmfmac`**): one combination allows **`# { managed } <= 1`**, **`# { AP } <= 1`**, plus optional P2P roles, **`#channels <= 1`** — meaning the driver permits **one client interface and one AP interface** on that PHY (typically **same channel**). That is **kernel/driver truth**, independent of Evo.
 
-If **`iw`** does **not** list such a combination for a dongle, treat concurrent STA+AP on one **`wlan*`** as unsupported there and use **`fallback.hotspot_ifname`** or a second radio. Evo uses **`nmcli connection show --active`** (see `nm_active_connection_names_on_device` in `nm_network.rs`) after apply so we **do not** assume “only one profile per iface” when NM shows **both** connections active.
+If **`iw`** does **not** list such a combination for a dongle, treat concurrent STA+AP on one **`wlan*`** as unsupported there and use **`fallback.hotspot_ifname`** or a second radio.
+
+**Implementation.** Evo probes the PHY at apply time via **`crate::wifi_phy`** (`phy_capability`, `sta_phy_supports_concurrent_sta_ap`, `ensure_ap_vif_present`/`absent`, `sta_link_info`). On a concurrent-capable PHY it creates **`ap0`** as a `__ap`-type vif with **`iw dev <sta> interface add ap0 type __ap`**, binds the hotspot NM profile to **`ap0`**, and sets the AP band/channel from `iw dev <sta> link` so the AP follows the STA's channel (the `#channels <= 1` rule). Privileged callers: **`iw`** is added to the bootstrap sudoers (`/etc/sudoers.d/volumio-evo-iw`, matching the `nmcli` / `rfkill` drop-ins).
+
+**Referenced recipes / sources** (rationale for this design):
+
+- [Linux Wireless — mac80211 virtual interface support](https://linuxwireless.sipsolutions.net/en/users/Documentation/iw/vif/) — canonical `iw dev interface add type` command.
+- [Unix StackExchange — deciphering `valid interface combinations`](https://unix.stackexchange.com/questions/401464/deciphering-the-output-of-iw-list-valid-interface-combinations) — `managed + AP` combination syntax and `#channels` semantics.
+- [Ezurio — AP-Sta mode with nmcli](https://www.ezurio.com/support/faqs/how-do-i-configure-ap-sta-mode-using-nmcli) — vendor-confirmed `iw dev wlan0 interface add wlan1 type __ap` + `nmcli con add ifname wlan1 mode ap ipv4.method shared` + `nmcli con add ifname wlan0` pattern; “AP follows STA channel”.
+- [Nathan Lewis — AP+STA mode on Raspberry Pi 5](https://nrlewis.dev/blog/rpi-hotspot/) — same `iw … type __ap` recipe for Pi 5 with NetworkManager / Netplan.
+- [RaspAP docs — AP-STA mode](https://docs.raspap.com/features-experimental/ap-sta/) — `uap0` virtual interface + `iw phy` capability gate (`managed + AP`, `#channels <= 1`).
+- [Raspberry Pi Forums — AP + Wi‑Fi on same device (NetworkManager solution)](https://forums.raspberrypi.com/viewtopic.php?t=372305) — community-validated NM recipe.
+- [Raspberry Pi Forums — Run AP and Wi‑Fi simultaneously using nmcli](https://forums.raspberrypi.com/viewtopic.php?t=381051) — further community confirmation.
+- [raspberrypi/linux #7092 — brcmfmac concurrent STA+AP crash on kernel 6.12](https://github.com/raspberrypi/linux/issues/7092) — known caveat: **Bookworm** stable, **Trixie / kernel 6.12** exhibits firmware regressions in this mode; product should log and not rely on kernel stability.
+- [Raspberry Pi forums — virtual AP + STA state of the art](https://forums.raspberrypi.com/viewtopic.php?t=212991) — MAC address rule: **do not** randomize the virtual AP MAC on brcmfmac (clients get DHCP but cannot communicate).
+- [NetworkManager reference — 802-11-wireless](https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html) — authoritative `mode=ap` / `band` / `channel` / `cloned-mac-address` / `ipv4.method=shared` semantics.
+- [Baeldung — WiFi AP via nmcli with `ipv4.method shared`](https://www.baeldung.com/linux/nmcli-wap-sharing-internet) — canonical NM hotspot recipe reused on `ap0`.
+- [Red Hat — configuring NetworkManager to ignore devices](https://access.redhat.com/documentation/de-de/red_hat_enterprise_linux/8/html/configuring_and_managing_networking/configuring-networkmanager-to-ignore-certain-devices_configuring-and-managing-networking) — `conf.d` device rules; used when the local distro aggressively ignores or manages new `wlan*` vifs.
 
 ## Multi-interface scenarios (design)
 
@@ -173,6 +196,14 @@ All automation uses **`nmcli`** in **non-interactive** mode (no TTY prompts). Ev
 
 Before Wi‑Fi scan, Evo checks **`/sys/class/rfkill`** for **soft-blocked `wlan`** radios and runs **`rfkill unblock wifi`** (root) or **`sudo -n $VOLUMIO_EVO_RFKILL unblock wifi`** (see **`volumio-evo-rfkill`** sudoers). Install the **`rfkill`** package on minimal images if the binary is missing.
 
+### STA WPA‑PSK: `psk-flags` + `connection down` (contract)
+
+Non-interactive **`nmcli connection up`** on WPA‑PSK STA requires the profile to carry a **system-stored** PSK (**`wifi-sec.psk-flags 0`**) in the NM keyfile. Evo reads the passphrase from **`wifi-sta.psk`**, sets **`wifi-sec.psk-flags`** before **`wifi-sec.psk`**, and — because some NetworkManager versions do **not** reliably migrate off **agent-owned** secrets when both land in **one** `nmcli connection modify` line — runs **an additional dedicated** `nmcli connection modify <sta-profile> wifi-sec.psk-flags 0` **immediately before** the full STA profile update.
+
+When applying **`WifiRole::Sta`**, Evo also **`nmcli connection down`** the STA profile **before** rewriting credentials (`connection_down_lossy`). That avoids activation state holding stale secret metadata so **`connection up`** fails with *password for '802-11-wireless-security.psk' not given in 'passwd-file'* despite a valid sidecar (regression fixed 2026‑04; concurrent **`ap0`** STA+AP path exercised the bug most visibly).
+
+The on-disk **`psk=`** value in **`/etc/NetworkManager/system-connections/*.nmconnection`** remains readable to **root** (0600); that is normal NM behaviour for system-stored secrets.
+
 ## Persistence
 
 Desired state (SSID, keys, static IP, hotspot SSID, fallback flags) is stored under:
@@ -185,7 +216,7 @@ Runtime truth is always **what NM reports** (`nmcli device`, `nmcli connection s
 
 **Open hotspot (no AP passphrase):** The profile must have **no** `802-11-wireless-security` section — same as **`nmcli connection add type wifi … wifi.mode ap`** without any `wifi-sec.*` properties. **Do not** use **`wpa-psk`** with an **empty** **`psk`**: NetworkManager defines WPA-PSK as **8–63** ASCII characters (or **64** hex), and hostapd only treats the BSS as **open** when WPA options are **omitted**, not when the passphrase is empty; clients will still see **WPA** and demand a password. For profiles that **previously** had WPA, Evo runs **`nmcli connection modify … remove 802-11-wireless-security`** before bringing the AP up. When **`wifi-ap.psk`** / UI protection is set, Evo applies normal **WPA-PSK** with that passphrase.
 
-**Automatic hotspot `connection up` (STA mode):** `ensure_hotspot_profile` only maintains the NM profile (autoconnect **no**). When **Enable Hotspot** is on, Evo runs **`nmcli connection up`** on the hotspot profile with **retries** (several attempts, short delay — intermittent NM/driver init). **`Hotspot Fallback`** does **not** gate whether we **attempt** AP bring-up when hotspot is enabled; it remains relevant for future **runtime** watchdog behaviour. On a **single** Wi‑Fi interface, concurrent STA+AP requires chipset/driver/NM support. STA **`connection up`** is **nonfatal** when **Enable Hotspot** is on **and** STA and AP share an iface (so a bad STA link does not block trying the AP).
+**Automatic hotspot `connection up` (STA mode):** `ensure_hotspot_profile` only maintains the NM profile (autoconnect **no**). When **Enable Hotspot** is on, Evo runs **`nmcli connection up`** on the hotspot profile with **retries** (several attempts, short delay — intermittent NM/driver init). **`Hotspot Fallback`** does **not** gate whether we **attempt** AP bring-up when hotspot is enabled; it remains relevant for future **runtime** watchdog behaviour. On a **single** Wi‑Fi interface, concurrent STA+AP requires chipset/driver/NM support. STA **`connection up`** is **nonfatal** when **Enable Hotspot** is on (shared ifname, split radios, or STA on **`wlan0`** + AP on virtual **`ap0`**) so a bad STA link does not block bringing up the hotspot.
 
 If every **`connection up`** attempt fails **and** Ethernet intent targets an iface with **no carrier** ([**No LAN**](#no-lan-for-fallback-rules)), Evo applies **critical recovery**: **`nmcli connection modify … remove 802-11-wireless-security`** then retries **`connection up`** so an **open** AP can come up ([**Critical recovery**](#critical-recovery-single-wi-fi-interface-contract-intent)).
 

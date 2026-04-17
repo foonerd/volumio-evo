@@ -21,6 +21,7 @@ mod mpd;
 mod network_config;
 mod network_status_ui;
 mod nm_network;
+mod wifi_phy;
 mod rfkill_mgmt;
 mod playlist_library;
 mod plugins;

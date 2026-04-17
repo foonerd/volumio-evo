@@ -457,17 +457,34 @@ pub async fn network_nm_status(State(state): State<AppState>) -> impl IntoRespon
 pub async fn network_nm_wifi_devices(State(state): State<AppState>) -> impl IntoResponse {
     let effective = crate::nm_network::resolve_effective_wifi_iface(&state.config).await;
     let rows = crate::nm_network::nm_device_table().await.unwrap_or_default();
-    let devices: Vec<String> = rows
+    let wifi_rows: Vec<crate::nm_network::NmDeviceRow> = rows
         .into_iter()
         .filter(|r| {
             r.kind.eq_ignore_ascii_case("wifi")
                 && !r.device.starts_with("p2p-dev-")
                 && !r.device.trim().is_empty()
         })
-        .map(|r| r.device)
         .collect();
+    let iw_devs = crate::wifi_phy::list_wifi_devices().await.unwrap_or_default();
+    let devices: Vec<String> = wifi_rows.iter().map(|r| r.device.clone()).collect();
+    let mut detailed: Vec<serde_json::Value> = Vec::with_capacity(wifi_rows.len());
+    for r in &wifi_rows {
+        let iw_info = iw_devs.iter().find(|d| d.ifname == r.device);
+        let iftype = iw_info.map(|d| d.iftype.clone());
+        let phy = iw_info.map(|d| d.phy.clone());
+        let sta_capable = crate::wifi_phy::is_sta_capable(&r.device).await;
+        detailed.push(serde_json::json!({
+            "ifname": r.device,
+            "phy": phy,
+            "iftype": iftype,
+            "sta_capable": sta_capable,
+            "nm_state": r.state,
+            "nm_connection": r.connection,
+        }));
+    }
     Json(serde_json::json!({
         "devices": devices,
+        "devices_detailed": detailed,
         "effective": effective,
         "preferred_file": crate::network_config::read_wifi_iface_preferred(),
     }))

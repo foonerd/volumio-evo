@@ -125,6 +125,7 @@ Environment (common):
   EVO_INSTALL_MPD_SUDOERS=1             # 0 to skip sudoers for systemctl restart mpd (non-root service)
   EVO_INSTALL_RFKILL_SUDOERS=1          # 0 to skip sudoers for sudo -n rfkill unblock wifi (Wi-Fi soft block)
   EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
+  EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
@@ -177,6 +178,7 @@ configure_evo_runtime_user() {
   local mpd_sudoers="/etc/sudoers.d/volumio-evo-mpd"
   local rfkill_sudoers="/etc/sudoers.d/volumio-evo-rfkill"
   local nmcli_sudoers="/etc/sudoers.d/volumio-evo-nmcli"
+  local iw_sudoers="/etc/sudoers.d/volumio-evo-iw"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -186,6 +188,7 @@ configure_evo_runtime_user() {
     rm -f "${mpd_sudoers}" 2>/dev/null || true
     rm -f "${rfkill_sudoers}" 2>/dev/null || true
     rm -f "${nmcli_sudoers}" 2>/dev/null || true
+    rm -f "${iw_sudoers}" 2>/dev/null || true
     return 0
   fi
 
@@ -208,6 +211,15 @@ configure_evo_runtime_user() {
   nmcli_bin="$(command -v nmcli 2>/dev/null || true)"
   if [[ -z "${nmcli_bin}" || ! -x "${nmcli_bin}" ]]; then
     nmcli_bin="/usr/bin/nmcli"
+  fi
+
+  # Must match sudoers for iw and Environment=VOLUMIO_EVO_IW (see EVO_INSTALL_IW_SUDOERS).
+  # Needed for: phy capability probe (`iw phy info`, `iw dev`) and virtual AP vif management
+  # (`iw dev <sta> interface add <ap> type __ap` / `iw dev <ap> del`) on single-PHY AP+STA chips.
+  local iw_bin
+  iw_bin="$(command -v iw 2>/dev/null || true)"
+  if [[ -z "${iw_bin}" || ! -x "${iw_bin}" ]]; then
+    iw_bin="/usr/sbin/iw"
   fi
 
   if ! id -u "${u}" >/dev/null 2>&1; then
@@ -234,6 +246,7 @@ Environment=VOLUMIO_EVO_RUNTIME_USER=${u}
 Environment=VOLUMIO_EVO_SYSTEMCTL=${systemctl_bin}
 Environment=VOLUMIO_EVO_RFKILL=${rfkill_bin}
 Environment=VOLUMIO_EVO_NMCLI=${nmcli_bin}
+Environment=VOLUMIO_EVO_IW=${iw_bin}
 EOF
 
   usermod -aG audio "${u}" 2>/dev/null || true
@@ -325,6 +338,26 @@ EOF
     rm -f "${tmp_nm}"
   else
     rm -f "${nmcli_sudoers}" 2>/dev/null || true
+  fi
+
+  # `iw` NOPASSWD for phy capability + virtual AP vif lifecycle (single-PHY STA+AP; see docs/NETWORK_NM.md).
+  if [[ "${EVO_INSTALL_IW_SUDOERS:-1}" == "1" ]]; then
+    local tmp_iw
+    tmp_iw="$(mktemp)"
+    cat > "${tmp_iw}" <<EOF
+# volumio-evo: iw for 'phy info', 'dev', and virtual AP vif add/del on single-PHY AP+STA chips.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_IW in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${iw_bin}
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_iw}" 2>/dev/null; then
+      install -m 0440 "${tmp_iw}" "${iw_sudoers}"
+      echo "Installed ${iw_sudoers} (iw NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${iw_sudoers}. Install sudoers manually if needed."
+    fi
+    rm -f "${tmp_iw}"
+  else
+    rm -f "${iw_sudoers}" 2>/dev/null || true
   fi
 
   # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml (preferred Wi-Fi iface UI).
@@ -500,8 +533,9 @@ install_packages() {
   fi
   local -a nm_pkgs=()
   if [[ "${EVO_INSTALL_NETWORK_MANAGER:-1}" == "1" ]]; then
-    nm_pkgs+=(network-manager rfkill)
-    echo "Installing NetworkManager (nmcli): network-manager rfkill"
+    # `iw`: phy capability probe + virtual AP vif (single-PHY STA+AP). `rfkill`: Wi-Fi soft-block.
+    nm_pkgs+=(network-manager rfkill iw)
+    echo "Installing NetworkManager (nmcli): network-manager rfkill iw"
   fi
   apt-get update
   apt-get install -y \

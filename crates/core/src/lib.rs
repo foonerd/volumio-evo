@@ -15,6 +15,7 @@ pub mod mpd;
 pub mod network_config;
 pub mod network_status_ui;
 pub mod nm_network;
+pub mod wifi_phy;
 pub mod rfkill_mgmt;
 pub mod plugins;
 pub mod playlist_library;

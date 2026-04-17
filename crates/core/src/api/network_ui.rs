@@ -41,7 +41,7 @@ pub async fn network_settings_ui_config_merged_enriched(config: &Config) -> (Val
     let Ok(rows) = crate::nm_network::nm_device_table().await else {
         return (v, false);
     };
-    let wifi_ifaces: Vec<String> = rows
+    let mut wifi_ifaces: Vec<String> = rows
         .into_iter()
         .filter(|r| {
             r.kind.eq_ignore_ascii_case("wifi")
@@ -50,12 +50,27 @@ pub async fn network_settings_ui_config_merged_enriched(config: &Config) -> (Val
         })
         .map(|r| r.device.trim().to_string())
         .collect();
-    if wifi_ifaces.len() <= 1 {
+    // Filter: only offer **STA-capable** radios as "Preferred Wi-Fi interface" — exclude virtual
+    // AP vifs we create on the same PHY (e.g. `ap0` via `iw dev wlan0 interface add ap0 type __ap`).
+    // Uses `iw dev`/`iw phy` capability probe (see `crate::wifi_phy::is_sta_capable`).
+    let mut sta_only: Vec<String> = Vec::with_capacity(wifi_ifaces.len());
+    for ifn in wifi_ifaces.drain(..) {
+        if crate::wifi_phy::is_sta_capable(&ifn).await {
+            sta_only.push(ifn);
+        }
+    }
+    if sta_only.len() <= 1 {
+        // Only one real STA radio (plus any AP vif) — no need for the preferred-iface picker.
         return (v, false);
     }
     let prompt_modal = crate::network_config::read_wifi_iface_preferred().is_none();
     let current = crate::nm_network::resolve_effective_wifi_iface(config).await;
-    merge_preferred_wifi_iface_section(&mut v, &wifi_ifaces, &current);
+    merge_preferred_wifi_iface_section(&mut v, &sta_only, &current);
+    // Static sections are translated once at load-time via `OnceLock` (see `network_settings_ui_config`).
+    // The dynamic preferred-iface section we just inserted contains fresh `TRANSLATE.*` tokens —
+    // resolve them now so the UI template (`{{section.saveButton.label}}`, no `| translate`) renders
+    // localised text, matching what Node's `CoreCommandRouter.translateKeys` does before `pushUiConfig`.
+    super::sources_ui::resolve_translate_tokens(&mut v);
     (v, prompt_modal)
 }
 

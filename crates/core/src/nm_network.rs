@@ -617,6 +617,12 @@ async fn ethernet_intent_has_no_carrier(eth: &EthernetIntent) -> bool {
 const HOTSPOT_BRINGUP_ATTEMPTS: u32 = 4;
 const HOTSPOT_BRINGUP_DELAY_MS: u64 = 400;
 
+/// After `connection up hotspot` on a **shared iface**, the STA profile may briefly drop off
+/// **`nmcli --active`** while the radio reconfigures for **concurrent STA+AP** (e.g. Pi 5 brcmfmac).
+/// We sample a few times so we don't mistake that window for "AP displaced STA".
+const STA_AFTER_HOTSPOT_SETTLE_ATTEMPTS: u32 = 15;
+const STA_AFTER_HOTSPOT_SETTLE_DELAY_MS: u64 = 200;
+
 /// Returns **`true`** if **`nmcli connection up`** succeeded on any attempt (intermittent NM/driver bring-up).
 async fn connection_up_hotspot_with_retries(con_name: &str, steps: &mut Vec<String>) -> bool {
     if con_name.trim().is_empty() {
@@ -744,13 +750,64 @@ async fn restore_sta_after_hotspot_on_shared_radio(
     if ifname.is_empty() || hotspot_con.trim().is_empty() {
         return;
     }
-
-    let active_names = nm_active_connection_names_on_device(ifname).await;
     let hs = hotspot_con.trim();
-    let has_sta = active_names
-        .iter()
-        .any(|n| n.trim() == NM_CON_WIFI_STA);
-    let has_hs = active_names.iter().any(|n| n.trim() == hs);
+
+    // Prod concurrent-capable stacks (e.g. Pi 5 brcmfmac): re-raise STA **nonfatally** after AP.
+    // On single-mode radios this will fail or race; we then rely on the settle poll below to decide.
+    match nmcli_spawn_output(&["connection", "up", NM_CON_WIFI_STA]).await {
+        Ok(out) if out.status.success() => {
+            tracing::debug!(
+                "{} shared iface {}: nonfatal re-prod of {} after hotspot succeeded",
+                crate::log_tags::EVO_NET,
+                ifname,
+                NM_CON_WIFI_STA
+            );
+        }
+        Ok(out) => {
+            tracing::debug!(
+                "{} shared iface {}: nonfatal re-prod of {} after hotspot non-zero (exit {}): {}",
+                crate::log_tags::EVO_NET,
+                ifname,
+                NM_CON_WIFI_STA,
+                out.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
+        Err(e) => {
+            tracing::debug!(
+                "{} shared iface {}: nonfatal re-prod of {} after hotspot spawn: {}",
+                crate::log_tags::EVO_NET,
+                ifname,
+                NM_CON_WIFI_STA,
+                e
+            );
+        }
+    }
+
+    // Settle poll: on brcmfmac / Pi 5 NM may show STA missing for up to ~1–2 s while switching
+    // the phy into **STA+AP** operation. Sample a bounded window before concluding.
+    let mut has_sta = false;
+    let mut has_hs = false;
+    for attempt in 1..=STA_AFTER_HOTSPOT_SETTLE_ATTEMPTS {
+        let active = nm_active_connection_names_on_device(ifname).await;
+        has_sta = active.iter().any(|n| n.trim() == NM_CON_WIFI_STA);
+        has_hs = active.iter().any(|n| n.trim() == hs);
+        tracing::debug!(
+            "{} shared iface {}: settle {}/{} has_sta={} has_hs={}",
+            crate::log_tags::EVO_NET,
+            ifname,
+            attempt,
+            STA_AFTER_HOTSPOT_SETTLE_ATTEMPTS,
+            has_sta,
+            has_hs
+        );
+        if has_sta && has_hs {
+            break; // concurrent STA+AP converged
+        }
+        if attempt < STA_AFTER_HOTSPOT_SETTLE_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(STA_AFTER_HOTSPOT_SETTLE_DELAY_MS)).await;
+        }
+    }
 
     if has_sta && has_hs {
         tracing::debug!(
@@ -1056,6 +1113,25 @@ async fn ensure_wifi_sta(
     );
 
     if nm_connection_exists(NM_CON_WIFI_STA).await {
+        // Some NetworkManager builds do not reliably flip **agent-owned** secrets to **system-stored**
+        // when `psk-flags` and `psk` arrive in one `modify` line. Force `psk-flags 0` in its **own**
+        // `nmcli` invocation before we write SSID/security/PSK — otherwise `connection up` fails with
+        //   "password for '802-11-wireless-security.psk' not given in 'passwd-file'".
+        // Documented: **docs/NETWORK_NM.md** (section *STA WPA-PSK: psk-flags + connection down*).
+        if !wifi.sta_open && psk.is_some() {
+            nmcli_output_lossy(&[
+                "connection",
+                "modify",
+                NM_CON_WIFI_STA,
+                "wifi-sec.psk-flags",
+                "0",
+            ])
+            .await?;
+            steps.push(format!(
+                "{}: wifi-sec.psk-flags 0 (preflight, own nmcli call)",
+                NM_CON_WIFI_STA
+            ));
+        }
         let mut seq = vec![
             "connection".into(),
             "modify".into(),
@@ -1072,10 +1148,17 @@ async fn ensure_wifi_sta(
                     .cloned(),
             );
         } else if let Some(p) = psk {
+            // Order matters: `nmcli` applies properties **left-to-right**. Set
+            // `wifi-sec.psk-flags 0` (system-stored) FIRST, then `wifi-sec.psk <val>`; otherwise
+            // if the existing profile has `psk-flags=1` (agent-owned) the psk write is treated as
+            // agent-owned and **never persisted** to the keyfile → next `connection up` fails with
+            //   "password for '802-11-wireless-security.psk' not given in 'passwd-file'".
             seq.extend(
                 [
                     "wifi-sec.key-mgmt".into(),
                     "wpa-psk".into(),
+                    "wifi-sec.psk-flags".into(),
+                    "0".into(),
                     "wifi-sec.psk".into(),
                     p.to_string(),
                 ]
@@ -1116,6 +1199,8 @@ async fn ensure_wifi_sta(
             args.extend([
                 "wifi-sec.key-mgmt".into(),
                 "wpa-psk".into(),
+                "wifi-sec.psk-flags".into(),
+                "0".into(),
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
@@ -1275,9 +1360,12 @@ async fn ensure_wifi_ap(
             "ignore".into(),
         ]);
         if let Some(p) = psk {
+            // psk-flags BEFORE psk — see STA note above.
             seq.extend([
                 "wifi-sec.key-mgmt".into(),
                 "wpa-psk".into(),
+                "wifi-sec.psk-flags".into(),
+                "0".into(),
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
@@ -1316,6 +1404,8 @@ async fn ensure_wifi_ap(
             args.extend([
                 "wifi-sec.key-mgmt".into(),
                 "wpa-psk".into(),
+                "wifi-sec.psk-flags".into(),
+                "0".into(),
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
@@ -1387,6 +1477,8 @@ async fn ensure_hotspot_profile(
             seq.extend([
                 "wifi-sec.key-mgmt".into(),
                 "wpa-psk".into(),
+                "wifi-sec.psk-flags".into(),
+                "0".into(),
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
@@ -1424,6 +1516,8 @@ async fn ensure_hotspot_profile(
             args.extend([
                 "wifi-sec.key-mgmt".into(),
                 "wpa-psk".into(),
+                "wifi-sec.psk-flags".into(),
+                "0".into(),
                 "wifi-sec.psk".into(),
                 p.to_string(),
             ]);
@@ -1456,18 +1550,53 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
     let sta_psk_ref = sta_psk.as_deref();
     let ap_psk_ref = ap_psk.as_deref();
     let sta_ifname = crate::network_config::effective_wifi_ifname(&intent.wifi, Some(config));
-    let hotspot_ifname = crate::network_config::effective_hotspot_ifname(intent, Some(config));
+    let hotspot_ifname_intent = crate::network_config::effective_hotspot_ifname(intent, Some(config));
+    // Resolve **effective AP interface** per `NETWORK_NM.md`:
+    //   * explicit `fallback.hotspot_ifname` (or config `effective_hotspot_ifname`) wins
+    //   * else: probe STA's phy — if it supports **concurrent managed+AP**, auto-pick a virtual
+    //     `ap0` (env override `VOLUMIO_EVO_AP_IFNAME`); else fall back to the STA ifname (single-mode)
+    let intent_hotspot_if_is_explicit =
+        !intent.fallback.hotspot_ifname.trim().is_empty() && hotspot_ifname_intent != sta_ifname;
+    let phy_supports_concurrent =
+        crate::wifi_phy::sta_phy_supports_concurrent_sta_ap(&sta_ifname).await;
+    let resolved_ap_ifname = if intent_hotspot_if_is_explicit {
+        hotspot_ifname_intent.clone()
+    } else if phy_supports_concurrent {
+        std::env::var("VOLUMIO_EVO_AP_IFNAME")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "ap0".to_string())
+    } else {
+        sta_ifname.clone()
+    };
     debug_log_network_intent_snapshot(
         intent,
         sta_ifname.as_str(),
-        hotspot_ifname.as_str(),
+        resolved_ap_ifname.as_str(),
         sta_psk.is_some(),
         ap_psk.is_some(),
     );
-    if sta_ifname != hotspot_ifname {
+    tracing::debug!(
+        "{} phy_capability sta_if={} phy_supports_concurrent_managed_ap={} resolved_ap_if={} explicit_intent_hotspot_if={}",
+        crate::log_tags::EVO_NET,
+        sta_ifname,
+        phy_supports_concurrent,
+        resolved_ap_ifname,
+        intent_hotspot_if_is_explicit
+    );
+    if sta_ifname != resolved_ap_ifname {
         steps.push(format!(
-            "STA iface {} ≠ hotspot iface {} (split-radio / STA-only USB)",
-            sta_ifname, hotspot_ifname
+            "STA iface {} ≠ hotspot iface {} ({})",
+            sta_ifname,
+            resolved_ap_ifname,
+            if intent_hotspot_if_is_explicit {
+                "split-radio / STA-only USB per intent"
+            } else if phy_supports_concurrent {
+                "auto: concurrent STA+AP vif on same phy"
+            } else {
+                "single-mode fallback"
+            }
         ));
     }
 
@@ -1484,14 +1613,59 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
             WifiRole::Disabled => {
                 connection_down_lossy(NM_CON_WIFI_STA).await;
                 connection_down_lossy(hs).await;
+                if sta_ifname != resolved_ap_ifname {
+                    if let Err(e) =
+                        crate::wifi_phy::ensure_ap_vif_absent(&resolved_ap_ifname).await
+                    {
+                        tracing::debug!(
+                            "{} ensure_ap_vif_absent({}) nonfatal: {}",
+                            crate::log_tags::EVO_NET,
+                            resolved_ap_ifname,
+                            e
+                        );
+                    }
+                }
                 steps.push("wifi role disabled; brought down STA and hotspot (best effort)".into());
             }
             WifiRole::Sta => {
-                let same_iface = sta_ifname == hotspot_ifname;
-                if same_iface || !intent.fallback.hotspot_enabled {
-                    connection_down_lossy(hs).await;
+                let same_iface = sta_ifname == resolved_ap_ifname;
+                let concurrent_vif =
+                    !same_iface && !intent_hotspot_if_is_explicit && phy_supports_concurrent;
+                // Always bring the hotspot profile **down** before STA association/DHCP: leaving
+                // the AP active on a brcmfmac-class PHY can pin the radio at the AP channel and
+                // cause `IP configuration could not be reserved (… timeout …)` on the STA profile.
+                connection_down_lossy(hs).await;
+                // Concurrent-vif mode: tear the `ap0` vif down entirely so the phy is free for STA
+                // scan/associate. We recreate it **after** STA is up (canonical Ezurio / Pi 5 recipe).
+                if concurrent_vif {
+                    if let Err(e) =
+                        crate::wifi_phy::ensure_ap_vif_absent(&resolved_ap_ifname).await
+                    {
+                        tracing::debug!(
+                            "{} pre-STA ensure_ap_vif_absent({}) nonfatal: {}",
+                            crate::log_tags::EVO_NET,
+                            resolved_ap_ifname,
+                            e
+                        );
+                    } else {
+                        steps.push(format!(
+                            "pre-STA: removed AP vif {} to free phy for STA association",
+                            resolved_ap_ifname
+                        ));
+                    }
                 }
-                let sta_up_nonfatal = same_iface && intent.fallback.hotspot_enabled;
+                // Tear down any in‑progress STA activation before rewriting credentials; avoids NM
+                // holding agent-owned / stale secret state while we push a system-stored PSK.
+                connection_down_lossy(NM_CON_WIFI_STA).await;
+                steps.push(
+                    "pre-STA: nmcli connection down STA profile (best effort before modify/up)"
+                        .into(),
+                );
+                // Product rule from `NETWORK_NM.md` §Automatic hotspot: when **Enable Hotspot** is on,
+                // a failed STA `connection up` must NOT abort apply — the stack still brings up the AP
+                // so the device remains reachable for provisioning. This is true for single-mode shared
+                // iface, split-radio, and virtual-vif concurrent mode alike.
+                let sta_up_nonfatal = intent.fallback.hotspot_enabled;
                 ensure_wifi_sta(
                     &mut steps,
                     &sta_ifname,
@@ -1503,7 +1677,14 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
             }
             WifiRole::Ap => {
                 connection_down_lossy(NM_CON_WIFI_STA).await;
-                ensure_wifi_ap(&mut steps, &hotspot_ifname, &intent.wifi, ap_psk_ref, hs).await?;
+                ensure_wifi_ap(
+                    &mut steps,
+                    &resolved_ap_ifname,
+                    &intent.wifi,
+                    ap_psk_ref,
+                    hs,
+                )
+                .await?;
             }
         }
         tracing::debug!(
@@ -1513,10 +1694,67 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
         );
 
         if matches!(intent.wifi.role, WifiRole::Sta) {
+            // Single-PHY concurrent STA+AP: create the `__ap` vif on the STA's phy so NM can keep
+            // both profiles active on distinct ifnames (canonical `iw dev <sta> interface add <ap>
+            // type __ap` — see NETWORK_NM.md). No-op on split-radio or true single-mode.
+            if sta_ifname != resolved_ap_ifname && intent.fallback.hotspot_enabled {
+                if !intent_hotspot_if_is_explicit {
+                    if let Err(e) =
+                        crate::wifi_phy::ensure_ap_vif_present(&sta_ifname, &resolved_ap_ifname)
+                            .await
+                    {
+                        tracing::warn!(
+                            "{} ensure_ap_vif_present({} on phy of {}): {}",
+                            crate::log_tags::EVO_NET,
+                            resolved_ap_ifname,
+                            sta_ifname,
+                            e
+                        );
+                        steps.push(format!(
+                            "warning: could not add AP vif {}: {}",
+                            resolved_ap_ifname, e
+                        ));
+                    } else {
+                        steps.push(format!(
+                            "created AP vif {} on phy of {} (type __ap)",
+                            resolved_ap_ifname, sta_ifname
+                        ));
+                    }
+                }
+            }
+
+            // When AP shares a phy with STA (concurrent mode), the AP **must** follow the STA
+            // channel/band — brcmfmac, Ezurio and kernel `valid interface combinations` all say so.
+            // Derive overrides from `iw dev <sta> link`; fall back to user intent if not associated.
+            let mut wifi_for_ap = intent.wifi.clone();
+            if sta_ifname != resolved_ap_ifname && !intent_hotspot_if_is_explicit {
+                let link = crate::wifi_phy::sta_link_info(&sta_ifname).await;
+                if link.connected {
+                    if let (Some(ch), Some(band)) = (link.channel, link.band.as_deref()) {
+                        if wifi_for_ap.ap_channel != ch
+                            || !wifi_for_ap.ap_band.eq_ignore_ascii_case(band)
+                        {
+                            steps.push(format!(
+                                "AP follows STA: band={} channel={} (was band={:?} channel={})",
+                                band, ch, wifi_for_ap.ap_band, wifi_for_ap.ap_channel
+                            ));
+                        }
+                        wifi_for_ap.ap_channel = ch;
+                        wifi_for_ap.ap_band = band.to_string();
+                    }
+                } else {
+                    tracing::debug!(
+                        "{} AP channel follow-STA skipped (STA not associated yet on {})",
+                        crate::log_tags::EVO_NET,
+                        sta_ifname
+                    );
+                }
+            }
+
             ensure_hotspot_profile(
                 &mut steps,
-                &hotspot_ifname,
-                &intent.wifi,
+                &resolved_ap_ifname,
+                &wifi_for_ap,
                 ap_psk_ref,
                 &intent.fallback,
             )
@@ -1524,7 +1762,7 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
 
             let hs_name = hotspot_connection_name(&intent.fallback);
             if intent.fallback.hotspot_enabled && !hs_name.trim().is_empty() {
-                let same_iface = sta_ifname == hotspot_ifname;
+                let same_iface = sta_ifname == resolved_ap_ifname;
                 let ok = connection_up_hotspot_with_retries(hs_name, &mut steps).await;
                 let recovered = if !ok {
                     try_critical_open_hotspot_recovery(
@@ -1538,6 +1776,7 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
                     false
                 };
                 if same_iface {
+                    // True single-mode (no vif). Settle + restore STA per NETWORK_NM.md.
                     restore_sta_after_hotspot_on_shared_radio(
                         &intent.ethernet,
                         sta_ifname.trim(),
@@ -1548,7 +1787,7 @@ pub async fn apply_network_intent(intent: &NetworkIntent, config: &Config) -> Ne
                 } else {
                     steps.push(format!(
                         "intent: hotspot on {}, STA on {}",
-                        hotspot_ifname, sta_ifname
+                        resolved_ap_ifname, sta_ifname
                     ));
                 }
                 if !ok && !recovered {
