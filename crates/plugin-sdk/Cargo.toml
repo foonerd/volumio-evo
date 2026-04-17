@@ -1,6 +1,6 @@
 [package]
 name = "volumio-evo-plugin-sdk"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "SDK and ABI for Volumio Evo WASM plugins"
 
