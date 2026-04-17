@@ -17,6 +17,7 @@ See [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md)
 
 - **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — step-by-step from a plain OS (Raspberry Pi OS, Debian Trixie, Ubuntu 24.04) to a working setup and validation. By default the bootstrap script installs the **prebuilt** binary from **`layer/binaries/<triple>/`** when the repo checkout is present; use **`--build`** to compile on the device instead.
 - **One-command full player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — installs dependencies, clones or updates the repo, installs the backend (prebuilt from **`layer/binaries/`** by default, or **`cargo`** with **`--build`**), copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and serves the UI on port **80** (Evo API on **3000**).
+- **Fresh host, no git clone yet:** `curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh | sudo bash` — shallow-clones into **`/opt/volumio/volumio-evo`** and runs that bootstrap. Override clone URL or branch with **`EVO_REPO_URL`**, **`EVO_GIT_REF`**, or target dir with **`EVO_REPO_DIR`** / **`BASE_DIR`**. Pass bootstrap flags after **`--`**, e.g. `| sudo bash -s -- --build`.
 - **Build the binary:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — build `volumio-evo` for each architecture (native, arm64, amd64, armhf) and optionally refresh **`layer/binaries/`** for shipping.
 
 ## Build
