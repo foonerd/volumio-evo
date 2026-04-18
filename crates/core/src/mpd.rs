@@ -936,10 +936,13 @@ pub async fn list_playlist_content_connected(config: &MpdConfig, name: &str) -> 
     Ok(uris)
 }
 
-/// Load stored playlist into queue and start playing (replaces queue).
+/// Load stored playlist into queue and start playing.
+/// MPD **`load`** appends playlist tracks to the queue; we **`clear`** first so this matches
+/// replace-and-play / “clear and play” (same as JSON path via [`play_items_list_connected`]).
 pub async fn load_playlist_connected(config: &MpdConfig, name: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
+    client.command(ClearQueue).await?;
     client
         .raw_command(RawCommand::new("load").argument(name))
         .await?;

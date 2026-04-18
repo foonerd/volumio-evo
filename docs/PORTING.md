@@ -266,6 +266,8 @@ The UI sends **the same `uri` field** whether the user picked a row under **Musi
 - **`addToPlaylist`** (`socketio.rs`): if the target is **JSON** (file under `settings/playlist/`) or **`favourites`**, entries are stored via **`playlist_library::add_to_json_playlist`** — URIs are saved **as strings** (including virtual ones); MPD is not used for that append.
 - If the target is an **MPD-only** stored playlist (no JSON file for that name), Evo calls **`mpd::add_to_playlist_resolved`**, which runs **`resolve_uri_for_queue`** (`mpd.rs`) to expand **`albums://`**, **`artists://`**, and **`genres://`** into **`music-library/...`** song URIs, then issues **`playlistadd`** once per file (or **`add_to_playlist_connected`** when a single path remains).
 
+**Play stored playlist (`playPlaylist`, **`replaceAndPlay`** with **`playlists/Name`):** JSON/favourites content uses **`play_items_list_connected`** (**`clear`** then add URIs). The MPD fallback uses **`load`**, which **appends** to the queue in MPD unless the queue was cleared first — **`load_playlist_connected`** must **`clear`** before **`load`** so “clear and play” replaces the queue.
+
 **If you change playlist add behaviour:** never route virtual tag URIs straight to **`add_to_playlist_connected`** / **`playlistadd`**. Queue operations already used **`resolve_uri_for_queue`** for replace/add; playlist add must stay aligned.
 
 ---
