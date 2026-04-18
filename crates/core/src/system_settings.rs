@@ -313,9 +313,39 @@ pub fn list_timezones_cached() -> &'static [String] {
         .as_slice()
 }
 
+#[cfg(unix)]
+fn effective_uid_is_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+fn effective_uid_is_root() -> bool {
+    false
+}
+
+/// Path to **`hostnamectl`**. Must match **`/etc/sudoers.d/volumio-evo-hostname-timedate`** when non-root.
+/// Bootstrap sets **`Environment=VOLUMIO_EVO_HOSTNAMECTL=...`** in **`10-runtime-user.conf`**.
+pub fn hostnamectl_bin() -> String {
+    std::env::var("VOLUMIO_EVO_HOSTNAMECTL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/usr/bin/hostnamectl".to_string())
+}
+
+/// Path to **`timedatectl`**. Must match bootstrap sudoers when non-root.
+/// Bootstrap sets **`Environment=VOLUMIO_EVO_TIMEDATECTL=...`** in **`10-runtime-user.conf`**.
+pub fn timedatectl_bin() -> String {
+    std::env::var("VOLUMIO_EVO_TIMEDATECTL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/usr/bin/timedatectl".to_string())
+}
+
 /// Best-effort read of OS timezone (may differ from persisted file before apply).
 pub fn read_os_timezone() -> Option<String> {
-    let out = std::process::Command::new("timedatectl")
+    let out = std::process::Command::new(timedatectl_bin())
         .args(["show", "--property=Timezone", "--value"])
         .output()
         .ok()?;
@@ -331,9 +361,16 @@ pub fn read_os_timezone() -> Option<String> {
 }
 
 pub fn apply_timezone(tz: &str) -> Result<(), std::io::Error> {
-    let status = std::process::Command::new("timedatectl")
-        .args(["set-timezone", tz.trim()])
-        .status()?;
+    let bin = timedatectl_bin();
+    let status = if effective_uid_is_root() {
+        std::process::Command::new(&bin)
+            .args(["set-timezone", tz.trim()])
+            .status()?
+    } else {
+        std::process::Command::new("sudo")
+            .args(["-n", &bin, "set-timezone", tz.trim()])
+            .status()?
+    };
     if status.success() {
         Ok(())
     } else {
@@ -353,9 +390,16 @@ pub fn apply_reg_domain(country_alpha2: &str) -> Result<(), std::io::Error> {
             "country must be ISO 3166-1 alpha-2",
         ));
     }
-    let status = std::process::Command::new("iw")
-        .args(["reg", "set", &cc])
-        .status()?;
+    let bin = crate::wifi_phy::iw_bin();
+    let status = if effective_uid_is_root() {
+        std::process::Command::new(&bin)
+            .args(["reg", "set", &cc])
+            .status()?
+    } else {
+        std::process::Command::new("sudo")
+            .args(["-n", &bin, "reg", "set", &cc])
+            .status()?
+    };
     if status.success() {
         Ok(())
     } else {
@@ -371,9 +415,16 @@ pub fn apply_hostname(name: &str) -> Result<(), std::io::Error> {
     if n.is_empty() {
         return Ok(());
     }
-    let status = std::process::Command::new("hostnamectl")
-        .args(["set-hostname", n])
-        .status()?;
+    let bin = hostnamectl_bin();
+    let status = if effective_uid_is_root() {
+        std::process::Command::new(&bin)
+            .args(["set-hostname", n])
+            .status()?
+    } else {
+        std::process::Command::new("sudo")
+            .args(["-n", &bin, "set-hostname", n])
+            .status()?
+    };
     if status.success() {
         Ok(())
     } else {

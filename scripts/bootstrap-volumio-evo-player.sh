@@ -126,6 +126,7 @@ Environment (common):
   EVO_INSTALL_RFKILL_SUDOERS=1          # 0 to skip sudoers for sudo -n rfkill unblock wifi (Wi-Fi soft block)
   EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
   EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
+  EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1  # 0 to skip sudoers for sudo -n hostnamectl/timedatectl (Settings → System)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
@@ -179,6 +180,7 @@ configure_evo_runtime_user() {
   local rfkill_sudoers="/etc/sudoers.d/volumio-evo-rfkill"
   local nmcli_sudoers="/etc/sudoers.d/volumio-evo-nmcli"
   local iw_sudoers="/etc/sudoers.d/volumio-evo-iw"
+  local hostname_timedate_sudoers="/etc/sudoers.d/volumio-evo-hostname-timedate"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -189,6 +191,8 @@ configure_evo_runtime_user() {
     rm -f "${rfkill_sudoers}" 2>/dev/null || true
     rm -f "${nmcli_sudoers}" 2>/dev/null || true
     rm -f "${iw_sudoers}" 2>/dev/null || true
+    rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
+    rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     return 0
   fi
 
@@ -222,6 +226,18 @@ configure_evo_runtime_user() {
     iw_bin="/usr/sbin/iw"
   fi
 
+  local hostnamectl_bin
+  hostnamectl_bin="$(command -v hostnamectl 2>/dev/null || true)"
+  if [[ -z "${hostnamectl_bin}" || ! -x "${hostnamectl_bin}" ]]; then
+    hostnamectl_bin="/usr/bin/hostnamectl"
+  fi
+
+  local timedatectl_bin
+  timedatectl_bin="$(command -v timedatectl 2>/dev/null || true)"
+  if [[ -z "${timedatectl_bin}" || ! -x "${timedatectl_bin}" ]]; then
+    timedatectl_bin="/usr/bin/timedatectl"
+  fi
+
   if ! id -u "${u}" >/dev/null 2>&1; then
     echo "ERROR: EVO_SERVICE_USER='${u}' is not a valid login on this system. Create the user or fix EVO_SERVICE_USER."
     exit 1
@@ -247,6 +263,8 @@ Environment=VOLUMIO_EVO_SYSTEMCTL=${systemctl_bin}
 Environment=VOLUMIO_EVO_RFKILL=${rfkill_bin}
 Environment=VOLUMIO_EVO_NMCLI=${nmcli_bin}
 Environment=VOLUMIO_EVO_IW=${iw_bin}
+Environment=VOLUMIO_EVO_HOSTNAMECTL=${hostnamectl_bin}
+Environment=VOLUMIO_EVO_TIMEDATECTL=${timedatectl_bin}
 EOF
 
   usermod -aG audio "${u}" 2>/dev/null || true
@@ -358,6 +376,27 @@ EOF
     rm -f "${tmp_iw}"
   else
     rm -f "${iw_sudoers}" 2>/dev/null || true
+  fi
+
+  # hostnamectl / timedatectl for Settings → System (non-root service hits polkit without NOPASSWD sudo).
+  if [[ "${EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS:-1}" == "1" ]]; then
+    local tmp_ht
+    tmp_ht="$(mktemp)"
+    cat > "${tmp_ht}" <<EOF
+# volumio-evo: hostname and timezone apply (Settings → System) when service runs non-root.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_HOSTNAMECTL / VOLUMIO_EVO_TIMEDATECTL.
+${u} ALL=(root) NOPASSWD: ${hostnamectl_bin} set-hostname *
+${u} ALL=(root) NOPASSWD: ${timedatectl_bin} set-timezone *
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_ht}" 2>/dev/null; then
+      install -m 0440 "${tmp_ht}" "${hostname_timedate_sudoers}"
+      echo "Installed ${hostname_timedate_sudoers} (hostnamectl/timedatectl NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${hostname_timedate_sudoers}."
+    fi
+    rm -f "${tmp_ht}"
+  else
+    rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
   fi
 
   # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml (preferred Wi-Fi iface UI).
