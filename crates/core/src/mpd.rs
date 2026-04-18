@@ -1014,6 +1014,39 @@ pub async fn add_to_playlist_connected(config: &MpdConfig, name: &str, uri: &str
     Ok(())
 }
 
+/// Like [`add_to_playlist_connected`], but expands virtual browse URIs (`albums://`, `artists://`, `genres://`)
+/// via [`resolve_uri_for_queue`] and runs **`playlistadd`** once per concrete file (MPD cannot add virtual URIs).
+pub async fn add_to_playlist_resolved(
+    config: &MpdConfig,
+    music_root: &Path,
+    playlist_name: &str,
+    uri: &str,
+) -> Result<()> {
+    let paths = resolve_uri_for_queue(config, music_root, uri).await?;
+    if paths.is_empty() {
+        anyhow::bail!("no playable files resolved for playlist add");
+    }
+    if paths.len() == 1 {
+        return add_to_playlist_connected(config, playlist_name, &paths[0]).await;
+    }
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    for p in paths {
+        let path = volumio_uri_to_mpd_path(&p);
+        if path.is_empty() {
+            continue;
+        }
+        client
+            .raw_command(
+                RawCommand::new("playlistadd")
+                    .argument(playlist_name)
+                    .argument(path),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
 /// Remove song at position (0-based) from stored playlist.
 pub async fn remove_from_playlist_connected(
     config: &MpdConfig,
@@ -1884,6 +1917,27 @@ async fn find_artist_all_tracks(
     Ok(uris)
 }
 
+/// All tracks with this genre tag (`find Genre`). Used when resolving `genres://…` for queue / playlist add.
+async fn find_genre_all_tracks(
+    config: &MpdConfig,
+    music_root: &Path,
+    genre: &str,
+) -> Result<Vec<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let raw = RawCommand::new("find")
+        .argument("Genre")
+        .argument(genre);
+    let frame = client.raw_command(raw).await?;
+    let mut drill = AlbumDrillAgg::default();
+    let items = parse_lsinfo_frame(frame, "genres://explode", music_root, &mut drill, false);
+    Ok(items
+        .into_iter()
+        .filter(|i| i.item_type == "song")
+        .map(|i| i.uri)
+        .collect())
+}
+
 /// Node `music_service` `explodeUri`: turn virtual browse URIs into concrete `music-library/...` paths. Pass-through otherwise.
 pub async fn resolve_uri_for_queue(
     config: &MpdConfig,
@@ -1891,6 +1945,17 @@ pub async fn resolve_uri_for_queue(
     uri: &str,
 ) -> Result<Vec<String>> {
     let uri = uri.trim();
+    if uri.starts_with("genres://") {
+        let rest = uri.strip_prefix("genres://").unwrap_or("");
+        let rest_dec = decode(rest)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rest.to_string());
+        let genre = rest_dec.trim();
+        if genre.is_empty() {
+            return Ok(vec![]);
+        }
+        return find_genre_all_tracks(config, music_root, genre).await;
+    }
     if uri.starts_with("albums://") {
         let rest = uri.strip_prefix("albums://").unwrap_or("");
         let rest_dec = decode(rest)

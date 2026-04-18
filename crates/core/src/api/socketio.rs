@@ -2991,7 +2991,13 @@ async fn add_to_playlist(
         {
             crate::playlist_library::add_to_json_playlist(&payload.name, entry)
         } else {
-            mpd::add_to_playlist_connected(&config, &payload.name, &payload.uri).await
+            mpd::add_to_playlist_resolved(
+                &config,
+                &state.config.music_sources.music_root,
+                &payload.name,
+                &payload.uri,
+            )
+            .await
         };
     match res {
         Ok(()) => {
