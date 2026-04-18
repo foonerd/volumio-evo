@@ -26,6 +26,7 @@ mod network_status_ui;
 mod nm_network;
 mod wifi_phy;
 mod rfkill_mgmt;
+mod rtc_wake;
 mod playlist_library;
 mod plugins;
 
@@ -77,6 +78,12 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     tokio::spawn(api::run_startup_network_intent_apply(state.clone()));
     tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
+    if std::env::var("VOLUMIO_EVO_PROBE_RTC_WAKE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        crate::rtc_wake::log_startup_probe();
+    }
     let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
     tracing::info!("{} listening on {}", crate::log_tags::EVO_BOOT, state.config.bind);
 

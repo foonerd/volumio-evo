@@ -127,6 +127,7 @@ Environment (common):
   EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
   EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
   EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1  # 0 to skip sudoers for sudo -n hostnamectl/timedatectl (Settings → System)
+  EVO_INSTALL_RTCWAKE_SUDOERS=1            # 0 to skip sudoers for sudo -n rtcwake (RTC wake from suspend; see docs/ALARM_WAKE.md)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
@@ -181,6 +182,7 @@ configure_evo_runtime_user() {
   local nmcli_sudoers="/etc/sudoers.d/volumio-evo-nmcli"
   local iw_sudoers="/etc/sudoers.d/volumio-evo-iw"
   local hostname_timedate_sudoers="/etc/sudoers.d/volumio-evo-hostname-timedate"
+  local rtcwake_sudoers="/etc/sudoers.d/volumio-evo-rtcwake"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -192,6 +194,7 @@ configure_evo_runtime_user() {
     rm -f "${nmcli_sudoers}" 2>/dev/null || true
     rm -f "${iw_sudoers}" 2>/dev/null || true
     rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
+    rm -f "${rtcwake_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     return 0
   fi
@@ -238,6 +241,13 @@ configure_evo_runtime_user() {
     timedatectl_bin="/usr/bin/timedatectl"
   fi
 
+  # rtcwake from util-linux — RTC alarm for wake-from-suspend (alarm clock); must match sudoers / VOLUMIO_EVO_RTCWAKE.
+  local rtcwake_bin
+  rtcwake_bin="$(command -v rtcwake 2>/dev/null || true)"
+  if [[ -z "${rtcwake_bin}" || ! -x "${rtcwake_bin}" ]]; then
+    rtcwake_bin="/usr/sbin/rtcwake"
+  fi
+
   if ! id -u "${u}" >/dev/null 2>&1; then
     echo "ERROR: EVO_SERVICE_USER='${u}' is not a valid login on this system. Create the user or fix EVO_SERVICE_USER."
     exit 1
@@ -265,6 +275,7 @@ Environment=VOLUMIO_EVO_NMCLI=${nmcli_bin}
 Environment=VOLUMIO_EVO_IW=${iw_bin}
 Environment=VOLUMIO_EVO_HOSTNAMECTL=${hostnamectl_bin}
 Environment=VOLUMIO_EVO_TIMEDATECTL=${timedatectl_bin}
+Environment=VOLUMIO_EVO_RTCWAKE=${rtcwake_bin}
 EOF
 
   usermod -aG audio "${u}" 2>/dev/null || true
@@ -397,6 +408,26 @@ EOF
     rm -f "${tmp_ht}"
   else
     rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
+  fi
+
+  # rtcwake — program/clear RTC alarm (wake from suspend); full binary NOPASSWD like nmcli (see docs/ALARM_WAKE.md).
+  if [[ "${EVO_INSTALL_RTCWAKE_SUDOERS:-1}" == "1" ]]; then
+    local tmp_rw
+    tmp_rw="$(mktemp)"
+    cat > "${tmp_rw}" <<EOF
+# volumio-evo: rtcwake for alarm wake-from-suspend (non-root Evo). Package: util-linux.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_RTCWAKE in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${rtcwake_bin}
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_rw}" 2>/dev/null; then
+      install -m 0440 "${tmp_rw}" "${rtcwake_sudoers}"
+      echo "Installed ${rtcwake_sudoers} (rtcwake NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${rtcwake_sudoers}."
+    fi
+    rm -f "${tmp_rw}"
+  else
+    rm -f "${rtcwake_sudoers}" 2>/dev/null || true
   fi
 
   # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml (preferred Wi-Fi iface UI).

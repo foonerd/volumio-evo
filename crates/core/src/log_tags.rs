@@ -34,6 +34,8 @@ pub const EVO_OUTPUT: &str = "EVO OUTPUT -->";
 pub const EVO_UI: &str = "EVO UI -->";
 /// NetworkManager / `nmcli` (`journalctl | grep -F 'EVO NET'`).
 pub const EVO_NET: &str = "EVO NET -->";
+/// RTC / `rtcwake` alarm programming (`journalctl | grep -F 'EVO RTC'`).
+pub const EVO_RTC: &str = "EVO RTC -->";
 pub const EVO_DB: &str = "EVO DB -->";
 #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 pub const EVO_PLUGIN: &str = "EVO PLUGIN -->";

@@ -37,6 +37,7 @@ When a non-root user runs Evo:
 | `/etc/sudoers.d/volumio-evo-rfkill` | NOPASSWD **`rfkill unblock wifi`** | Root; **`rfkill`** path must match **`VOLUMIO_EVO_RFKILL`** |
 | `/etc/sudoers.d/volumio-evo-nmcli` | NOPASSWD **`nmcli`** (full binary path) | Root; path must match **`VOLUMIO_EVO_NMCLI`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
+| `/etc/sudoers.d/volumio-evo-rtcwake` | NOPASSWD **`rtcwake`** (full binary path) | Root; path must match **`VOLUMIO_EVO_RTCWAKE`** — alarm RTC wake / suspend tests (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 
 ## Runtime OS actions (Evo process)
 
@@ -50,6 +51,7 @@ When a non-root user runs Evo:
 | **`install`** (fixed paths) | Merge **`wifi_iface`** into **`/etc/volumio-evo/config.toml`** from **`…/settings/network/config.toml.pending`** | **Root**, or **`sudo -n /usr/bin/install -o root -g root -m 644 <pending> /etc/volumio-evo/config.toml`** — bootstrap installs **`/etc/sudoers.d/volumio-evo-config-install`** when **`EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1`** (paths must match Evo) |
 | **`hostnamectl`** (`set-hostname`) | Persisted device name → OS hostname (**Settings → System**) | **Root**, or **`sudo -n $VOLUMIO_EVO_HOSTNAMECTL set-hostname …`** — bootstrap installs **`volumio-evo-hostname-timedate`** when **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1`** (bare **`hostnamectl`** triggers polkit “Interactive authentication required” when non‑root) |
 | **`timedatectl`** (`set-timezone`) | Persisted timezone | **Root**, or **`sudo -n $VOLUMIO_EVO_TIMEDATECTL set-timezone …`** — same sudoers fragment as **`hostnamectl`** |
+| **`rtcwake`** | Program/clear RTC alarm for wake-from-suspend (**alarm clock** groundwork) | **Root**, or **`sudo -n $VOLUMIO_EVO_RTCWAKE …`** — bootstrap **`volumio-evo-rtcwake`** when **`EVO_INSTALL_RTCWAKE_SUDOERS=1`** (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 
 Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** session.
 
@@ -62,6 +64,7 @@ Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** sessio
 | **`EVO_INSTALL_NMCLI_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-nmcli`** for **`sudo -n nmcli`** (non-root network apply) |
 | **`EVO_INSTALL_CONFIG_INSTALL_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-config-install`** for **`sudo -n install`** (preferred **`wifi_iface`** → `/etc/volumio-evo/config.toml`) |
 | **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-hostname-timedate`** for **`sudo -n hostnamectl`** / **`timedatectl`** (device name + timezone when non‑root) |
+| **`EVO_INSTALL_RTCWAKE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-rtcwake`** for **`sudo -n rtcwake`** (RTC alarm / wake-from-suspend — **[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | **`EVO_SERVICE_USER`** | unset → auto | See **RUNTIME_USER.md** |
 
 Setting **`EVO_INSTALL_MPD_SUDOERS=0`** while running Evo **as non-root** means fragment writes may succeed but **MPD reload will fail** unless you run Evo as **root** or install an equivalent **NOPASSWD** rule yourself.

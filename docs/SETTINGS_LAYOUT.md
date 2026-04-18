@@ -57,6 +57,8 @@ Older builds stored ALSA state at **`settings/alsa-state.toml`** (file at the ro
 
 Add sibling directories as features land, for example:
 
+- `settings/alarm/` (or similar) — alarm clock + sleep timer persistence once Socket.IO handlers replace stubs; RTC wake-from-suspend uses **`rtcwake`** — see **[ALARM_WAKE.md](ALARM_WAKE.md)**
+
 - `settings/network/` — nmcli-backed intent, UI preferences (not necessarily full NetworkManager dump)
 - `settings/mounts/` — **implemented:** `shares.toml` lists shares; CIFS passwords use `cifs-<uuid>.cred` (0600) when needed
 - `settings/devices/` — other device handling if not better scoped elsewhere

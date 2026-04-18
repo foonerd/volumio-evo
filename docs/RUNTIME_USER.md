@@ -20,6 +20,7 @@ The shipped unit has **no `User=`** in the repo. **Bootstrap** decides whether t
 | **`EVO_INSTALL_RFKILL_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-rfkill`** with **NOPASSWD** for **`rfkill unblock wifi`** so Evo can clear Wi‑Fi soft block before **`nmcli`** when running non-root. Set `0` to skip. |
 | **`EVO_INSTALL_NMCLI_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-nmcli`** with **NOPASSWD** for **`nmcli`** (resolved path, matches **`VOLUMIO_EVO_NMCLI`** in the service drop-in) so Evo can add/up/modify NetworkManager connections when non-root. Set `0` to skip. |
 | **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-hostname-timedate`** so the service user may run **`sudo -n hostnamectl set-hostname`** and **`sudo -n timedatectl set-timezone`** (exact paths match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`**). Required for **Settings → System** when Evo is not root — otherwise **polkit** rejects bare **`hostnamectl`**. Set `0` to skip. |
+| **`EVO_INSTALL_RTCWAKE_SUDOERS`** | If `1` (default), install **`/etc/sudoers.d/volumio-evo-rtcwake`** so the service user may run **`sudo -n rtcwake`** (path **`VOLUMIO_EVO_RTCWAKE`**) for RTC alarm / wake-from-suspend (**[ALARM_WAKE.md](ALARM_WAKE.md)**). Set `0` to skip. |
 | **`EVO_INSTALL_NETWORK_STORAGE_PKGS`** | If `1` (default), **`apt install`** **`cifs-utils`**, **`nfs-common`**, **`smbclient`**, **`avahi-utils`** (CIFS/NFS mounts, **`smbclient`**, LAN **`avahi-browse`** for Network Drives discovery). Set `0` to skip. |
 
 Examples:
@@ -34,7 +35,7 @@ sudo EVO_SERVICE_USER=andrew ./scripts/bootstrap-volumio-evo-player.sh
 
 Bootstrap will:
 
-- Write **`/etc/systemd/system/volumio-evo.service.d/10-runtime-user.conf`** with `User=`, `Group=`, `SupplementaryGroups=audio`, `HOME=`, **`VOLUMIO_EVO_RUNTIME_USER=<name>`**, **`VOLUMIO_EVO_SYSTEMCTL=<path>`**, **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** (resolved **`hostnamectl`** / **`timedatectl`** — must match **`volumio-evo-hostname-timedate`** sudoers when installed).
+- Write **`/etc/systemd/system/volumio-evo.service.d/10-runtime-user.conf`** with `User=`, `Group=`, `SupplementaryGroups=audio`, `HOME=`, **`VOLUMIO_EVO_RUNTIME_USER=<name>`**, **`VOLUMIO_EVO_SYSTEMCTL=<path>`**, **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`**, **`VOLUMIO_EVO_RTCWAKE`** (paths must match **`volumio-evo-hostname-timedate`** / **`volumio-evo-rtcwake`** sudoers when installed).
 - Install **`/etc/sudoers.d/volumio-evo-mpd`** (unless **`EVO_INSTALL_MPD_SUDOERS=0`**) so the service user may run **`sudo -n <systemctl> restart mpd`** without a TTY after Evo rewrites the MPD fragment.
 - **`chown -R`** **`/var/lib/volumio-evo`**, **`MUSIC_ROOT`**, **`/usr/share/volumio-evo/plugins`** to that user.
 - Add the user to the **`audio`** group (`usermod -aG audio`).
