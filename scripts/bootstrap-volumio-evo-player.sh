@@ -994,7 +994,8 @@ build_and_install_evo() {
   mkdir -p /etc/volumio-evo /usr/share/volumio-evo/plugins /var/lib/volumio-evo/albumart \
     /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd \
     /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites \
-    /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network /mnt/NAS
+    /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network \
+    /var/lib/volumio-evo/settings/alarm /mnt/NAS
   install_dacs_catalog
   install_alsa_cards_json
   install_bundled_plugins_assets

@@ -7,6 +7,7 @@ pub mod network_share_discovery;
 pub mod alsa;
 pub mod alsa_cards;
 pub mod paths;
+pub mod alarm_clock;
 pub mod playback_options;
 pub mod albumart;
 pub mod i2s;

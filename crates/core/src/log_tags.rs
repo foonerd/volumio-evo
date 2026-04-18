@@ -32,6 +32,8 @@ pub const EVO_HTTP: &str = "EVO HTTP -->";
 pub const EVO_API: &str = "EVO API -->";
 pub const EVO_OUTPUT: &str = "EVO OUTPUT -->";
 pub const EVO_UI: &str = "EVO UI -->";
+/// Alarm / sleep timer — daily alarms follow **WYSIWYG** minute boundaries (`journalctl | grep -F 'EVO ALARM'`).
+pub const EVO_ALARM: &str = "EVO ALARM -->";
 /// NetworkManager / `nmcli` (`journalctl | grep -F 'EVO NET'`).
 pub const EVO_NET: &str = "EVO NET -->";
 /// RTC / `rtcwake` alarm programming (`journalctl | grep -F 'EVO RTC'`).

@@ -1333,7 +1333,7 @@ async fn get_shutdown_or_standby_mode(s: SocketRef) {
 async fn system_shutdown(_s: SocketRef, State(state): State<AppState>) {
     let state = state.clone();
     tokio::spawn(async move {
-        graceful_power_transition(state, false).await;
+        super::system_power::graceful_power_transition(state, false).await;
     });
 }
 
@@ -1341,77 +1341,7 @@ async fn system_shutdown(_s: SocketRef, State(state): State<AppState>) {
 async fn system_reboot(_s: SocketRef, State(state): State<AppState>) {
     let state = state.clone();
     tokio::spawn(async move {
-        graceful_power_transition(state, true).await;
-    });
-}
-
-/// Stop playback, release Samba daemons if present, unmount NAS shares, sync, then `systemctl` (with
-/// `/sbin/shutdown` or `/sbin/reboot` fallback after 3s, matching volumio3-backend `platformSpecific.js`).
-async fn graceful_power_transition(state: AppState, reboot: bool) {
-    let tag = crate::log_tags::EVO_UI;
-    let config = mpd_config(&state);
-    if let Err(e) = mpd::run_command_connected(&config, "stop", None, None, None, None).await {
-        tracing::warn!("{} pre-power: MPD stop: {}", tag, e);
-    }
-
-    // Best-effort: stop file-sharing daemons so nothing keeps listening or holds paths (ignore if absent).
-    let _ = tokio::process::Command::new("sudo")
-        .args(["/usr/bin/systemctl", "stop", "smbd", "nmbd"])
-        .output()
-        .await;
-
-    if let Err(e) = state.network_mounts.umount_all_shares().await {
-        tracing::warn!("{} pre-power: list shares / umount: {}", tag, e);
-    }
-
-    let sync_ok = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("/bin/sync")
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false);
-    if !sync_ok {
-        tracing::warn!("{} pre-power: sync did not report success", tag);
-    }
-
-    let action = if reboot { "reboot" } else { "poweroff" };
-    match tokio::process::Command::new("sudo")
-        .args(["/usr/bin/systemctl", action])
-        .output()
-        .await
-    {
-        Ok(o) if o.status.success() => {
-            tracing::info!("{} systemctl {} started", tag, action);
-        }
-        Ok(o) => {
-            tracing::warn!(
-                "{} systemctl {}: {}",
-                tag,
-                action,
-                String::from_utf8_lossy(&o.stderr).trim()
-            );
-        }
-        Err(e) => tracing::warn!("{} systemctl {}: {}", tag, action, e),
-    }
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        let fallback = if reboot {
-            tokio::process::Command::new("sudo")
-                .arg("/sbin/reboot")
-                .output()
-                .await
-        } else {
-            tokio::process::Command::new("sudo")
-                .args(["/sbin/shutdown", "-h", "now"])
-                .output()
-                .await
-        };
-        if let Err(e) = fallback {
-            tracing::warn!("{} fallback power command: {}", tag, e);
-        }
+        super::system_power::graceful_power_transition(state, true).await;
     });
 }
 
@@ -1432,24 +1362,58 @@ async fn get_infinity_playback(s: SocketRef) {
 /// No-op: Node calls metavolumio setInfinityPlayback; Evo has no infinity playback.
 async fn set_infinity_playback(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
 
-/// Stub: no sleep timer (Node: alarm-clock getSleep -> pushSleep).
-async fn get_sleep(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushSleep", &serde_json::json!({})).ok();
+/// Alarm-clock plugin: persisted sleep timer (`getSleep` → `pushSleep`).
+async fn get_sleep(s: SocketRef, State(state): State<AppState>) {
+    tracing::debug!(
+        "{} socket getSleep",
+        crate::log_tags::EVO_ALARM
+    );
+    let v = state.alarm_clock.push_sleep_payload().await;
+    s.emit("pushSleep", &v).ok();
 }
 
-/// Stub: accept set, emit pushSleep {} (Node: alarm-clock setSleep -> pushSleep).
-async fn set_sleep(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushSleep", &serde_json::json!({})).ok();
+/// Persist duration + schedule stop / poweroff (Node: `setSleep`).
+async fn set_sleep(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    tracing::debug!(
+        "{} socket setSleep",
+        crate::log_tags::EVO_ALARM
+    );
+    let payload = data.as_ref().ok().cloned();
+    state.alarm_clock.apply_set_sleep(&state, payload).await;
+    let v = state.alarm_clock.push_sleep_payload().await;
+    crate::alarm_clock::broadcast_push_sleep(&state, &v).await;
+    s.emit("pushSleep", &v).ok();
 }
 
-/// Stub: no alarms (Node: alarm-clock getAlarms -> pushAlarm).
-async fn get_alarms(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushAlarm", &serde_json::json!([])).ok();
+/// Daily alarms (`getAlarms` → `pushAlarm`).
+async fn get_alarms(s: SocketRef, State(state): State<AppState>) {
+    tracing::debug!(
+        "{} socket getAlarms",
+        crate::log_tags::EVO_ALARM
+    );
+    let v = state.alarm_clock.push_alarm_payload().await;
+    s.emit("pushAlarm", &v).ok();
 }
 
-/// Stub: accept save, emit pushSleep {} (Node: alarm-clock saveAlarm -> pushSleep).
-async fn save_alarm(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushSleep", &serde_json::json!({})).ok();
+/// Persist alarm rows + reschedule poll task (`saveAlarm`).
+async fn save_alarm(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    tracing::debug!(
+        "{} socket saveAlarm",
+        crate::log_tags::EVO_ALARM
+    );
+    let payload = data.as_ref().ok().cloned();
+    state.alarm_clock.apply_save_alarms(&state, payload).await;
+    let v = state.alarm_clock.push_alarm_payload().await;
+    crate::alarm_clock::broadcast_push_alarm(&state, &v).await;
+    s.emit("pushAlarm", &v).ok();
 }
 
 /// Stub: no multiroom state (Node: multiroom plugin getMultiroom -> pushMultiroom).

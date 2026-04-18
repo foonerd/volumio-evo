@@ -2,6 +2,7 @@
 
 mod http;
 mod network_ui;
+pub(crate) mod system_power;
 mod system_ui;
 mod playback_clock;
 mod pushstate_log;
@@ -9,6 +10,7 @@ mod socketio;
 mod sources_ui;
 mod v1;
 
+use crate::alarm_clock::AlarmClockCoordinator;
 use crate::alsa::AlsaSettings;
 use crate::config::Config;
 use crate::system_settings::SystemSettings;
@@ -64,6 +66,8 @@ pub struct RouterState {
     pub socket_io_broadcast: Arc<Mutex<Option<SocketIo>>>,
     /// Settings → System (locale, kiosk placeholders, privacy — `settings/system/state.toml`).
     pub system_settings: Arc<tokio::sync::RwLock<SystemSettings>>,
+    /// Alarm clock + sleep timer persistence + Tokio schedules (`settings/alarm/state.toml`).
+    pub alarm_clock: Arc<AlarmClockCoordinator>,
 }
 
 impl RouterState {
@@ -432,4 +436,31 @@ pub async fn run_startup_system_locale_apply(state: AppState) {
             warnings.join("; ")
         );
     }
+}
+
+/// Arm persisted sleep / alarm timers after boot (MPD may still be starting).
+/// Set `VOLUMIO_EVO_SKIP_STARTUP_ALARM_SCHEDULE=1` to disable.
+pub async fn run_startup_alarm_schedule(state: AppState) {
+    tracing::debug!(
+        "{} run_startup_alarm_schedule enter",
+        crate::log_tags::EVO_ALARM
+    );
+    if std::env::var("VOLUMIO_EVO_SKIP_STARTUP_ALARM_SCHEDULE")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!(
+            "{} skipping alarm/sleep reschedule (VOLUMIO_EVO_SKIP_STARTUP_ALARM_SCHEDULE=1)",
+            crate::log_tags::EVO_BOOT
+        );
+        return;
+    }
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    state.alarm_clock.clone().reschedule_all(state.clone()).await;
+    tracing::debug!(
+        "{} run_startup_alarm_schedule done",
+        crate::log_tags::EVO_ALARM
+    );
 }

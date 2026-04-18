@@ -26,3 +26,10 @@ pub fn default_mpd_playback_path() -> PathBuf {
 pub fn default_system_state_path() -> PathBuf {
     settings_dir().join("system").join("state.toml")
 }
+
+/// Alarm clock + sleep timer when `VOLUMIO_EVO_ALARM_STATE` is unset (`settings/alarm/state.toml`).
+pub fn default_alarm_clock_state_path() -> PathBuf {
+    std::env::var("VOLUMIO_EVO_ALARM_STATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| settings_dir().join("alarm").join("state.toml"))
+}

@@ -56,6 +56,18 @@ journalctl -u volumio-evo -f --no-pager | grep -F 'EVO PUSHSTATE -->'
 
 Enable with **`log_level = "verbose"`** or **`debug`**, or e.g. **`RUST_LOG=volumio_evo_core=debug`** when **`RUST_LOG`** overrides the file.
 
+## Alarm clock and sleep (`EVO ALARM -->`)
+
+Daily alarms and the sleep timer log under the domain tag **`EVO ALARM -->`**. Filter with:
+
+```bash
+journalctl -u volumio-evo -n 200 --no-pager | grep -F 'EVO ALARM -->'
+```
+
+When an alarm fires at **`INFO`**, you see **`firing alarm`**, **`target`** (scheduled UTC instant), **`actual`**, and **`skew_ms`** (scheduler accuracy). The **WYSIWYG** contract (clock face **HH:MM** only; persisted canonical **`HH:MM`**) is documented in **[SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md)** — daily alarms section.
+
+Sleep timer arm/disarm and fire lines also use **`EVO ALARM -->`** (e.g. **`sleep timer fired`**).
+
 ## Volume changes in the journal
 
 Successful UI/socket volume applies log a line containing **`EVO VOLUME -->`** and **`volume applied`** at **`DEBUG`** (to avoid journal noise when dragging the slider). At default **`log_level = "info"`** they do not appear; use **`log_level = "verbose"`** (Evo crates at **debug**), **`log_level = "debug"`**, or a targeted **`RUST_LOG`** (e.g. `RUST_LOG=volumio_evo_core=debug`) to see them. Failures (ALSA / MPD **`setvol`**) remain **`WARN`**.

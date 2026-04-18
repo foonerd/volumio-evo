@@ -13,6 +13,7 @@ mod network_share_discovery;
 mod alsa;
 mod alsa_cards;
 mod paths;
+mod alarm_clock;
 mod playback_options;
 mod albumart;
 mod i2s;
@@ -78,6 +79,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     tokio::spawn(api::run_startup_network_intent_apply(state.clone()));
     tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
+    tokio::spawn(api::run_startup_alarm_schedule(state.clone()));
     if std::env::var("VOLUMIO_EVO_PROBE_RTC_WAKE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)

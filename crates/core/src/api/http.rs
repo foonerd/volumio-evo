@@ -399,6 +399,7 @@ pub fn router(
     let (push_wake_tx, push_wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (push_queue_wake_tx, push_queue_wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let network_mounts = Arc::new(crate::network_mounts::NetworkMounts::new());
+    let alarm_clock = crate::alarm_clock::AlarmClockCoordinator::new(crate::paths::default_alarm_clock_state_path());
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         network_mounts: network_mounts.clone(),
@@ -413,6 +414,7 @@ pub fn router(
         push_queue_wake_tx,
         volume_ui_mute: Arc::new(tokio::sync::RwLock::new(crate::api::VolumeUiMuteState::default())),
         socket_io_broadcast: Arc::new(std::sync::Mutex::new(None)),
+        alarm_clock,
     });
 
     let cfg_nas = state.clone();
