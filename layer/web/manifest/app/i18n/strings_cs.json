@@ -1076,7 +1076,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Nastavte interní výstupní úroveň převodníku DAC ve voltech RMS tak, aby odpovídala vstupní citlivosti zesilovače.",
     "DISPLAY_UI_DOC": "Vyberte typ uživatelského rozhraní, které se má zobrazit na displeji.",
     "DISPLAY_UI2": "Uživatelské rozhraní displeje",
-    "DISPLAY_UI2_DOC": "Vyberte styl uživatelského rozhraní, který se má zobrazit na displeji."
+    "DISPLAY_UI2_DOC": "Vyberte styl uživatelského rozhraní, který se má zobrazit na displeji.",
+    "COUNTRY_DOC": "Nastaví regulační doménu Wi‑Fi (iw reg) podle země použití.",
+    "KIOSK_ENABLE": "Zapnout kiosk rozhraní",
+    "KIOSK_WPE": "Kiosk a displej (WPE)",
+    "KIOSK_WPE_DOC": "Vyhrazeno pro Wayland/WPE shell na zařízení; viz docs/KIOSK.md.",
+    "LOCALE_REGION": "Jazyk, region a časové pásmo",
+    "PRIMARY_DISPLAY": "Primární displej",
+    "PRIMARY_DISPLAY_DOC": "Který výstup zobrazuje celoobrazové rozhraní při zapnutém kiosku."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Nejlepší rádia",

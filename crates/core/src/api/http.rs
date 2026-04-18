@@ -402,6 +402,7 @@ pub fn router(
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         network_mounts: network_mounts.clone(),
+        system_settings: Arc::new(tokio::sync::RwLock::new(crate::system_settings::SystemSettings::load())),
         alsa: Arc::new(tokio::sync::RwLock::new(crate::alsa::AlsaSettings::load())),
         playback: Arc::new(tokio::sync::RwLock::new(crate::playback_options::PlaybackOptions::load())),
         albumart_clear_tx: tx,

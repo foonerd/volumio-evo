@@ -1075,7 +1075,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Ställ in den interna DAC-utgångsnivån i Volt RMS, så att den matchar förstärkarens ingångskänslighet",
     "DISPLAY_UI_DOC": "Välj vilken typ av användargränssnitt som ska visas på displayen",
     "DISPLAY_UI2": "Display Användargränssnitt",
-    "DISPLAY_UI2_DOC": "Välj vilken typ av användargränssnitt som ska visas på displayen"
+    "DISPLAY_UI2_DOC": "Välj vilken typ av användargränssnitt som ska visas på displayen",
+    "COUNTRY_DOC": "Anger Wi‑Fi‑regulatorisk domän (iw reg) för användningslandet.",
+    "KIOSK_ENABLE": "Aktivera kiosk‑gränssnitt",
+    "KIOSK_WPE": "Kiosk och skärm (WPE)",
+    "KIOSK_WPE_DOC": "Reserverat för Wayland/WPE‑skal på enheten; se docs/KIOSK.md.",
+    "LOCALE_REGION": "Språk, region och tidszon",
+    "PRIMARY_DISPLAY": "Primär skärm",
+    "PRIMARY_DISPLAY_DOC": "Vilken utgång visar helskärms‑UI när kiosk är aktiv."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Bäst radio",

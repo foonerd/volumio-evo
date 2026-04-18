@@ -250,26 +250,29 @@ pub async fn ping() -> &'static str {
     "pong"
 }
 
-/// GET /api/v1/getSystemVersion - stub for UI (Node returns systemversion, variant, hardware, os, builddate)
-pub async fn get_system_version() -> impl IntoResponse {
+/// GET /api/v1/getSystemVersion — **`systemversion`** is the **volumio-evo** daemon semver (`CARGO_PKG_VERSION`).
+pub async fn get_system_version(State(state): State<AppState>) -> impl IntoResponse {
+    let hostname = state.system_settings.read().await.device_name.clone();
     Json(serde_json::json!({
-        "systemversion": "4.0",
-        "variant": "volumio-evo",
-        "hardware": "generic",
-        "os": null,
-        "builddate": null
-    }))
-}
-
-/// GET /api/v1/getSystemInfo - stub for UI (Node returns getSystemVersion + hostname, hwUuid, etc.)
-pub async fn get_system_info() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "systemversion": "4.0",
+        "systemversion": crate::version::VOLUMIO_EVO_VERSION,
         "variant": "volumio-evo",
         "hardware": "generic",
         "os": null,
         "builddate": null,
-        "hostname": "volumio-evo",
+        "hostname": hostname
+    }))
+}
+
+/// GET /api/v1/getSystemInfo — same as [`get_system_version`] plus **`hwUuid`** stub.
+pub async fn get_system_info(State(state): State<AppState>) -> impl IntoResponse {
+    let hostname = state.system_settings.read().await.device_name.clone();
+    Json(serde_json::json!({
+        "systemversion": crate::version::VOLUMIO_EVO_VERSION,
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null,
+        "hostname": hostname,
         "hwUuid": "evo-stub"
     }))
 }

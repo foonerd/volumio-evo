@@ -2,6 +2,7 @@
 
 mod http;
 mod network_ui;
+mod system_ui;
 mod playback_clock;
 mod pushstate_log;
 mod socketio;
@@ -10,6 +11,7 @@ mod v1;
 
 use crate::alsa::AlsaSettings;
 use crate::config::Config;
+use crate::system_settings::SystemSettings;
 use crate::mpd::{self, MpdConfig, VolumioState};
 use crate::network_mounts::NetworkMounts;
 use crate::playback_options::PlaybackOptions;
@@ -60,6 +62,8 @@ pub struct RouterState {
     /// Filled after [`crate::api::http::router`] builds [`SocketIo`]; used to **broadcast** events
     /// (same role as Node `broadcastMessage`). See [`super::socketio::schedule_push_info_network_refresh`].
     pub socket_io_broadcast: Arc<Mutex<Option<SocketIo>>>,
+    /// Settings → System (locale, kiosk placeholders, privacy — `settings/system/state.toml`).
+    pub system_settings: Arc<tokio::sync::RwLock<SystemSettings>>,
 }
 
 impl RouterState {
@@ -362,4 +366,70 @@ pub async fn run_startup_network_intent_apply(state: AppState) {
     let cfg = state.config.as_ref();
     let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
     crate::nm_network::log_network_apply_result("startup", &report);
+}
+
+/// After boot, re-apply persisted **Settings → System** locale so the OS matches `settings/system/state.toml`
+/// (timezone, `iw reg` country, hostname) — same commands as **Save** on the locale section.  
+/// Set `VOLUMIO_EVO_SKIP_STARTUP_SYSTEM_LOCALE=1` to disable.
+pub async fn run_startup_system_locale_apply(state: AppState) {
+    if std::env::var("VOLUMIO_EVO_SKIP_STARTUP_SYSTEM_LOCALE")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!(
+            "{} skipping startup system locale apply (VOLUMIO_EVO_SKIP_STARTUP_SYSTEM_LOCALE=1)",
+            crate::log_tags::EVO_BOOT
+        );
+        return;
+    }
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let snapshot = state.system_settings.read().await.clone();
+    let tz = snapshot.timezone.clone();
+    let cc = snapshot.country_code.clone();
+    let host = snapshot.device_name.clone();
+
+    let warnings = match tokio::task::spawn_blocking(move || {
+        let mut out = Vec::new();
+        if let Err(e) = crate::system_settings::apply_timezone(&tz) {
+            out.push(format!("timedatectl timezone {:?}: {}", tz, e));
+        }
+        if let Err(e) = crate::system_settings::apply_reg_domain(&cc) {
+            out.push(format!("iw reg {:?}: {}", cc, e));
+        }
+        if let Err(e) = crate::system_settings::apply_hostname(&host) {
+            out.push(format!("hostnamectl {:?}: {}", host, e));
+        }
+        out
+    })
+    .await
+    {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::warn!(
+                "{} startup system locale apply join: {}",
+                crate::log_tags::EVO_BOOT,
+                e
+            );
+            return;
+        }
+    };
+
+    if warnings.is_empty() {
+        tracing::info!(
+            "{} startup system locale applied (timezone={:?}, regdom={:?}, hostname={:?})",
+            crate::log_tags::EVO_BOOT,
+            snapshot.timezone,
+            snapshot.country_code,
+            snapshot.device_name
+        );
+    } else {
+        tracing::warn!(
+            "{} startup system locale partial failure: {}",
+            crate::log_tags::EVO_BOOT,
+            warnings.join("; ")
+        );
+    }
 }

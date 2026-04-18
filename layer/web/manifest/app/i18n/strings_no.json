@@ -541,7 +541,14 @@
     "TURN_OFF_IN": "",
     "UPDATE_ALREADY_LATEST_VERSION": "",
     "UPDATE_FAILED": "",
-    "VIDEO_OUT_OPTIONS": ""
+    "VIDEO_OUT_OPTIONS": "",
+    "COUNTRY_DOC": "Setter Wi‑Fi-regulatorisk domene (iw reg) for bruksstedet.",
+    "KIOSK_ENABLE": "Aktiver kiosk-grensesnitt",
+    "KIOSK_WPE": "Kiosk og skjerm (WPE)",
+    "KIOSK_WPE_DOC": "Reservert til Wayland/WPE-skall på enheten; se docs/KIOSK.md.",
+    "LOCALE_REGION": "Språk, region og tidssone",
+    "PRIMARY_DISPLAY": "Primær skjerm",
+    "PRIMARY_DISPLAY_DOC": "Hvilken utgang viser fullskjerms-UI når kiosk er på."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "",

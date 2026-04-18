@@ -1074,7 +1074,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Stellen Sie den internen DAC-Ausgangspegel in Volt RMS ein, der der Eingangsempfindlichkeit Ihres Verstärkers entspricht.",
     "DISPLAY_UI_DOC": "Wählen Sie die Art der Benutzeroberfläche, die auf dem Display angezeigt werden soll",
     "DISPLAY_UI2": "Benutzeroberfläche anzeigen",
-    "DISPLAY_UI2_DOC": "Wählen Sie den Stil der Benutzeroberfläche, der auf dem Display angezeigt werden soll"
+    "DISPLAY_UI2_DOC": "Wählen Sie den Stil der Benutzeroberfläche, der auf dem Display angezeigt werden soll",
+    "COUNTRY_DOC": "Legt die WLAN-Regulatory-Domain fest (iw reg) für den Einsatzort des Geräts.",
+    "KIOSK_ENABLE": "Kiosk-Oberfläche aktivieren",
+    "KIOSK_WPE": "Kiosk & Anzeige (WPE)",
+    "KIOSK_WPE_DOC": "Reserviert für die Wayland-/WPE-Shell auf dem Gerät; siehe docs/KIOSK.md.",
+    "LOCALE_REGION": "Sprache, Region und Zeit",
+    "PRIMARY_DISPLAY": "Primäre Anzeige",
+    "PRIMARY_DISPLAY_DOC": "Welcher Ausgang zeigt die Vollbild-Oberfläche bei aktivierter Kiosk-Funktion."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Die besten Sender",

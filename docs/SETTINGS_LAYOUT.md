@@ -26,6 +26,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |
 | `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
 | `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml`: **`ethernet.enabled`** (default **true**; set **false** for Wi‑Fi‑only), **`fallback.hotspot_ifname`** when STA iface ≠ AP iface, optional `wifi-sta.psk` / `wifi-ap.psk` (0600), **`wifi_iface_preferred`** (one line: UI-chosen STA `wlan*`), staging **`config.toml.pending`** (full merged TOML before `install` to `/etc`) |
+| `settings/system/` | Settings → System: hostname, timezone, country code (→ `iw reg`), UI language code, kiosk placeholders, privacy/update flags | `state.toml` |
 
 Full default paths (when no env override):
 
@@ -62,11 +63,23 @@ Add sibling directories as features land, for example:
 
 Keep **secrets** out of generic `*.toml` that might be world-readable; use root-only paths or `systemd-creds` and reference them from config.
 
+## Later phases (not implemented yet)
+
+### System-wide OS locale (language)
+
+Persisted **language** today drives only the **web UI** (Angular `translate` / `pushUiSettings`), not system **`LANG`/`LC_*`**.
+
+A **later phase** may apply the same choice OS-wide via **`locale-gen`**, **`/etc/default/locale`**, and related Debian/systemd mechanics so shells, journals, and services see a consistent locale. That needs explicit product and installer policy (UTF-8 defaults, impact on scripts that assume **`C.UTF-8`**, reboot/session rules).
+
+### Regulatory domain via NetworkManager (optional)
+
+**Country** currently maps to **`iw reg set`** plus an ISO 3166-1 alpha-2 code (cfg80211). An optional future enhancement could add **NetworkManager-aligned** hints on platforms where NM exposes them, without removing the **`iw`** baseline.
+
 ## Required directories on install
 
 Bootstrap creates:
 
-`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network`
+`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network /var/lib/volumio-evo/settings/system`
 
 so the daemon can write state before the first save.
 

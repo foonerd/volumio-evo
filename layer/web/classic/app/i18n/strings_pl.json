@@ -1074,7 +1074,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Ustaw poziom wyjściowy wewnętrznego przetwornika cyfrowo-analogowego w woltach RMS, aby dopasować go do czułości wejściowej wzmacniacza.",
     "DISPLAY_UI_DOC": "Wybór typu interfejsu użytkownika wyświetlanego na wyświetlaczu",
     "DISPLAY_UI2": "Interfejs użytkownika wyświetlacza",
-    "DISPLAY_UI2_DOC": "Wybór stylu interfejsu użytkownika wyświetlanego na ekranie"
+    "DISPLAY_UI2_DOC": "Wybór stylu interfejsu użytkownika wyświetlanego na ekranie",
+    "COUNTRY_DOC": "Ustawia domenę regulacyjną Wi‑Fi (iw reg) dla kraju użytkowania.",
+    "KIOSK_ENABLE": "Włącz interfejs kiosku",
+    "KIOSK_WPE": "Kiosk i wyświetlacz (WPE)",
+    "KIOSK_WPE_DOC": "Zarezerwowane dla powłoki Wayland/WPE na urządzeniu; zob. docs/KIOSK.md.",
+    "LOCALE_REGION": "Język, region i strefa czasowa",
+    "PRIMARY_DISPLAY": "Główny ekran",
+    "PRIMARY_DISPLAY_DOC": "Które wyjście pokazuje pełnoekranowy interfejs przy włączonym kiosku."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Najlepsze stacje radiowe",

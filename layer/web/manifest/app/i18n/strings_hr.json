@@ -793,7 +793,14 @@
     "TURN_OFF_IN": "Isključi se",
     "UPDATE_ALREADY_LATEST_VERSION": "Već ste na najnovijoj verziji",
     "UPDATE_FAILED": "Ažuriranje nije uspjelo",
-    "VIDEO_OUT_OPTIONS": "Opcije video izlaza"
+    "VIDEO_OUT_OPTIONS": "Opcije video izlaza",
+    "COUNTRY_DOC": "Postavlja regulatornu Wi‑Fi domenu (iw reg) za zemlju korištenja.",
+    "KIOSK_ENABLE": "Omogući kiosk sučelje",
+    "KIOSK_WPE": "Kiosk i zaslon (WPE)",
+    "KIOSK_WPE_DOC": "Rezervirano za Wayland/WPE ljusku na uređaju; vidi docs/KIOSK.md.",
+    "LOCALE_REGION": "Jezik, regija i vremenska zona",
+    "PRIMARY_DISPLAY": "Primarni zaslon",
+    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje sučelje preko cijelog zaslona kad je kiosk uključen."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Najbolje radio postaje",

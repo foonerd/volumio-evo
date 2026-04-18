@@ -552,7 +552,14 @@
     "TURN_OFF_IN": "",
     "UPDATE_ALREADY_LATEST_VERSION": "",
     "UPDATE_FAILED": "",
-    "VIDEO_OUT_OPTIONS": ""
+    "VIDEO_OUT_OPTIONS": "",
+    "COUNTRY_DOC": "Задає регуляторний домен Wi‑Fi (iw reg) для країни використання.",
+    "KIOSK_ENABLE": "Увімкнути інтерфейс кіоску",
+    "KIOSK_WPE": "Кіоск і дисплей (WPE)",
+    "KIOSK_WPE_DOC": "Зарезервовано для Wayland/WPE на пристрої; див. docs/KIOSK.md.",
+    "LOCALE_REGION": "Мова, регіон і часовий пояс",
+    "PRIMARY_DISPLAY": "Основний дисплей",
+    "PRIMARY_DISPLAY_DOC": "Який вивід показує повноекранний інтерфейс за увімкненого кіоску."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "",

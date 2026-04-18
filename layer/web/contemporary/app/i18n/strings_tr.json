@@ -1075,7 +1075,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Dahili DAC Çıkış Seviyesini Volt RMS cinsinden amplifikatörünüzün giriş hassasiyetine uyacak şekilde ayarlayın",
     "DISPLAY_UI_DOC": "Ekranda görüntülenecek Kullanıcı Arayüzü türünü seçin",
     "DISPLAY_UI2": "Ekran Kullanıcı Arayüzü",
-    "DISPLAY_UI2_DOC": "Ekranda gösterilecek Kullanıcı Arayüzü stilini seçin"
+    "DISPLAY_UI2_DOC": "Ekranda gösterilecek Kullanıcı Arayüzü stilini seçin",
+    "COUNTRY_DOC": "Kullanım ülkesine göre Wi‑Fi düzenleme alanını (iw reg) ayarlar.",
+    "KIOSK_ENABLE": "Kiosk arayüzünü etkinleştir",
+    "KIOSK_WPE": "Kiosk ve ekran (WPE)",
+    "KIOSK_WPE_DOC": "Cihaz üzerinde Wayland/WPE kabuğu için ayrılmıştır; bkz. docs/KIOSK.md.",
+    "LOCALE_REGION": "Dil, bölge ve saat dilimi",
+    "PRIMARY_DISPLAY": "Birincil ekran",
+    "PRIMARY_DISPLAY_DOC": "Kiosk açıkken tam ekran arayüzü hangi çıkış gösterir."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "En iyi Radyolar",

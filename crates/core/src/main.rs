@@ -3,6 +3,9 @@
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+mod version;
+mod system_updates;
+mod system_settings;
 mod log_tags;
 mod evo_log_fmt;
 mod network_mounts;
@@ -73,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     tokio::spawn(api::run_startup_network_intent_apply(state.clone()));
+    tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
     let listener = tokio::net::TcpListener::bind(&state.config.bind).await?;
     tracing::info!("{} listening on {}", crate::log_tags::EVO_BOOT, state.config.bind);
 

@@ -1074,7 +1074,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "앰프 입력 감도에 맞게 내부 DAC 출력 레벨을 볼트 RMS로 설정합니다.",
     "DISPLAY_UI_DOC": "디스플레이에 표시할 사용자 인터페이스 유형을 선택합니다.",
     "DISPLAY_UI2": "디스플레이 사용자 인터페이스",
-    "DISPLAY_UI2_DOC": "디스플레이에 표시할 사용자 인터페이스 스타일을 선택합니다."
+    "DISPLAY_UI2_DOC": "디스플레이에 표시할 사용자 인터페이스 스타일을 선택합니다.",
+    "COUNTRY_DOC": "사용 국가에 따라 Wi‑Fi 규제 도메인(iw reg)을 설정합니다.",
+    "KIOSK_ENABLE": "키오스크 UI 사용",
+    "KIOSK_WPE": "키오스크 및 디스플레이 (WPE)",
+    "KIOSK_WPE_DOC": "기기의 Wayland/WPE 셸용 예약됨. docs/KIOSK.md 참고.",
+    "LOCALE_REGION": "언어, 국가 및 표준 시간대",
+    "PRIMARY_DISPLAY": "기본 디스플레이",
+    "PRIMARY_DISPLAY_DOC": "키오스크가 켜졌을 때 전체 화면 UI를 표시하는 출력입니다."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "베스트 라디오",

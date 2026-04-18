@@ -929,7 +929,14 @@
     "TURN_OFF_IN": "Apagar en",
     "UPDATE_ALREADY_LATEST_VERSION": "Ja tens la darrera versió",
     "UPDATE_FAILED": "Actualització fallida",
-    "VIDEO_OUT_OPTIONS": "Opcions de sortida de vídeo"
+    "VIDEO_OUT_OPTIONS": "Opcions de sortida de vídeo",
+    "COUNTRY_DOC": "Defineix el domini regulatori Wi‑Fi (iw reg) segons el lloc d’ús.",
+    "KIOSK_ENABLE": "Activa la interfície de quiosc",
+    "KIOSK_WPE": "Quiosc i pantalla (WPE)",
+    "KIOSK_WPE_DOC": "Reservat per a la shell Wayland/WPE al dispositiu; vegeu docs/KIOSK.md.",
+    "LOCALE_REGION": "Idioma, regió i zona horària",
+    "PRIMARY_DISPLAY": "Pantalla principal",
+    "PRIMARY_DISPLAY_DOC": "Quina sortida mostra la interfície a pantalla completa amb el quiosc activat."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Millors ràdios",

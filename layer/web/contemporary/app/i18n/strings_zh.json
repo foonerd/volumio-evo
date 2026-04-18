@@ -1075,7 +1075,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "以伏特有效值为单位设置内部 DAC 输出电平，以匹配放大器的输入灵敏度",
     "DISPLAY_UI_DOC": "选择要在显示屏上显示的用户界面类型",
     "DISPLAY_UI2": "显示用户界面",
-    "DISPLAY_UI2_DOC": "选择要在显示屏上显示的用户界面样式"
+    "DISPLAY_UI2_DOC": "选择要在显示屏上显示的用户界面样式",
+    "COUNTRY_DOC": "根据使用地区设置 Wi‑Fi 管制域（iw reg）。",
+    "KIOSK_ENABLE": "启用展台界面",
+    "KIOSK_WPE": "展台与显示器（WPE）",
+    "KIOSK_WPE_DOC": "预留给设备上的 Wayland/WPE 壳层；见 docs/KIOSK.md。",
+    "LOCALE_REGION": "语言、地区与时区",
+    "PRIMARY_DISPLAY": "主显示器",
+    "PRIMARY_DISPLAY_DOC": "开启展台时由哪个输出显示全屏界面。"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "最佳收音机",

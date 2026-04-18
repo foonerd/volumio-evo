@@ -1128,7 +1128,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Stel het interne uitgangsniveau van de DAC in Volt RMS in, zodat het overeenkomt met de ingangsgevoeligheid van je versterker.",
     "DISPLAY_UI_DOC": "Selecteer het type gebruikersinterface dat moet worden weergegeven op het scherm",
     "DISPLAY_UI2": "Gebruikersinterface weergeven",
-    "DISPLAY_UI2_DOC": "Selecteer de gebruikersinterfacestijl die op het scherm moet worden weergegeven"
+    "DISPLAY_UI2_DOC": "Selecteer de gebruikersinterfacestijl die op het scherm moet worden weergegeven",
+    "COUNTRY_DOC": "Stelt het Wi‑Fi-regulatory-domein in (iw reg) voor het gebruiksland.",
+    "KIOSK_ENABLE": "Kiosk-ui inschakelen",
+    "KIOSK_WPE": "Kiosk en scherm (WPE)",
+    "KIOSK_WPE_DOC": "Gereserveerd voor Wayland/WPE-shell op het apparaat; zie docs/KIOSK.md.",
+    "LOCALE_REGION": "Taal, regio en tijdzone",
+    "PRIMARY_DISPLAY": "Primair scherm",
+    "PRIMARY_DISPLAY_DOC": "Welke uitgang toont de volledige scherm-interface als kiosk actief is."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Beste radiostations",

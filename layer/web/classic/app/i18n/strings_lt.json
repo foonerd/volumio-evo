@@ -1031,7 +1031,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Nustatykite vidinį DAC išvesties lygį voltų vidutine kvadratine verte, kad jis atitiktų jūsų stiprintuvo įvesties jautrumą.",
     "DISPLAY_UI_DOC": "Pasirinkite naudotojo sąsajos, kuri bus rodoma ekrane, tipą",
     "DISPLAY_UI2": "Ekrano naudotojo sąsaja",
-    "DISPLAY_UI2_DOC": "Pasirinkite naudotojo sąsajos stilių, kuris bus rodomas ekrane"
+    "DISPLAY_UI2_DOC": "Pasirinkite naudotojo sąsajos stilių, kuris bus rodomas ekrane",
+    "COUNTRY_DOC": "Nustato Wi‑Fi reguliavimo domeną (iw reg) pagal naudojimo šalį.",
+    "KIOSK_ENABLE": "Įjungti kiosko sąsają",
+    "KIOSK_WPE": "Kioskas ir ekranas (WPE)",
+    "KIOSK_WPE_DOC": "Skirta Wayland/WPE apvalkalui įrenginyje; žr. docs/KIOSK.md.",
+    "LOCALE_REGION": "Kalba, regionas ir laiko juosta",
+    "PRIMARY_DISPLAY": "Pagrindinis ekranas",
+    "PRIMARY_DISPLAY_DOC": "Kuris išėjimas rodo viso ekrano sąsają įjungus kioską."
   },
   "MAIN_MENU": {
     "ALARM": "Žadintuvas",

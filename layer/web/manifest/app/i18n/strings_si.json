@@ -17,5 +17,14 @@
   },
   "ALARM": {
     "SLEEP_MODE_HOUR": "හෝරා(ව)"
+  },
+  "SYSTEM": {
+    "COUNTRY_DOC": "භාවිතයේ ප්‍රදේශය අනුව Wi‑Fi නියාමන වසම (iw reg) සකසයි.",
+    "KIOSK_ENABLE": "කියෝස්ක UI සක්‍රීය කරන්න",
+    "KIOSK_WPE": "කියෝස්ක හා සංදර්ශකය (WPE)",
+    "KIOSK_WPE_DOC": "උපාංගයේ Wayland/WPE කවචය සඳහා වෙන් කර ඇත; බලන්න docs/KIOSK.md.",
+    "LOCALE_REGION": "භාෂාව, කලාපය සහ කාල කලාපය",
+    "PRIMARY_DISPLAY": "ප්‍රාථමික සංදර්ශකය",
+    "PRIMARY_DISPLAY_DOC": "කියෝස්ක සක්‍රිය විට පුර්ණතිර අතුරුමුහුණත් පෙන්වන්නේ කුමන ප්‍රදානයද."
   }
 }

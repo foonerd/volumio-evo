@@ -184,6 +184,9 @@ async fn on_connect(s: SocketRef) {
     s.on("getBrowseFilters", get_browse_filters);
     s.on("getSystemVersion", get_system_version);
     s.on("getSystemInfo", get_system_info);
+    // Stock UI Settings → System (“Check updates”, factory reset confirmation).
+    s.on("updateCheck", update_check_placeholder);
+    s.on("deleteUserData", delete_user_data_stub);
     s.on("getMenuItems", get_menu_items);
     s.on("getUiConfig", get_ui_config);
     s.on("getDSPUiConfig", get_dsp_ui_config);
@@ -575,28 +578,80 @@ async fn get_browse_filters(s: SocketRef) {
     s.emit("pushBrowseFilters", &serde_json::json!([])).ok();
 }
 
-async fn get_system_version(s: SocketRef) {
+async fn get_system_version(s: SocketRef, State(state): State<AppState>) {
+    let hostname = state.system_settings.read().await.device_name.clone();
     let data = serde_json::json!({
-        "systemversion": "4.0",
-        "variant": "volumio-evo",
-        "hardware": "generic",
-        "os": null,
-        "builddate": null
-    });
-    s.emit("pushSystemVersion", &data).ok();
-}
-
-async fn get_system_info(s: SocketRef) {
-    let data = serde_json::json!({
-        "systemversion": "4.0",
+        "systemversion": crate::version::VOLUMIO_EVO_VERSION,
         "variant": "volumio-evo",
         "hardware": "generic",
         "os": null,
         "builddate": null,
-        "hostname": "volumio-evo",
+        "hostname": hostname
+    });
+    s.emit("pushSystemVersion", &data).ok();
+}
+
+async fn get_system_info(s: SocketRef, State(state): State<AppState>) {
+    let hostname = state.system_settings.read().await.device_name.clone();
+    let data = serde_json::json!({
+        "systemversion": crate::version::VOLUMIO_EVO_VERSION,
+        "variant": "volumio-evo",
+        "hardware": "generic",
+        "os": null,
+        "builddate": null,
+        "hostname": hostname,
         "hwUuid": "evo-stub"
     });
     s.emit("pushSystemInfo", &data).ok();
+}
+
+async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
+    let zones: Vec<String> = crate::system_settings::list_timezones_cached().to_vec();
+    let sys = state.system_settings.read().await.clone();
+    let cfg = super::system_ui::system_settings_ui_config(&sys, &zones);
+    let _ = s.emit("pushUiConfig", &cfg);
+}
+
+/// Factory reset / delete user data — not implemented on Evo yet (stock emits this after confirm).
+async fn delete_user_data_stub(s: SocketRef) {
+    let _ = s.emit(
+        "pushToastMessage",
+        &serde_json::json!({
+            "type": "info",
+            "title": "Factory reset",
+            "message": "Factory reset is not implemented in volumio-evo yet."
+        }),
+    );
+}
+
+/// Placeholder for stock **Check updates**: no OTA yet; open-source vs commercial paths TBD ([`crate::system_updates`]).
+///
+/// Payload may include `hideModal` (Node); when false, emits `updateWaitMsg` then `updateReady`.
+async fn update_check_placeholder(s: SocketRef, TryData(payload): TryData<serde_json::Value>) {
+    let hide_modal = payload
+        .as_ref()
+        .ok()
+        .and_then(|p| p.as_object())
+        .and_then(|o| o.get("hideModal"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let edition = crate::system_updates::UpdateEdition::from_env();
+    if !hide_modal {
+        match serde_json::to_value(crate::system_updates::UpdateReadyMessage::checking()) {
+            Ok(wait) => {
+                let _ = s.emit("updateWaitMsg", &wait);
+            }
+            Err(e) => tracing::warn!("{} updateCheck updateWaitMsg serialize: {}", crate::log_tags::EVO_UI, e),
+        }
+    }
+    let ready = crate::system_updates::placeholder_update_ready_json(edition);
+    let _ = s.emit("updateReady", &ready);
+    tracing::debug!(
+        "{} socket updateCheck hideModal={} edition={:?}",
+        crate::log_tags::EVO_UI,
+        hide_modal,
+        edition
+    );
 }
 
 /// Main menu for Evo. Node merges `mainmenu.json` with i18n so **names are already human text** before
@@ -677,6 +732,12 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
                 &super::network_ui::preferred_wifi_iface_info_modal_payload(),
             );
         }
+    } else if page == "system_controller/system" {
+        tracing::debug!(
+            "{} getUiConfig page=system_controller/system (System)",
+            crate::log_tags::EVO_UI
+        );
+        emit_system_ui_config(&s, &state).await;
     } else {
         tracing::debug!(
             "{} getUiConfig page={:?} (empty stub)",
@@ -1082,40 +1143,73 @@ async fn get_dsp_ui_config(s: SocketRef) {
     s.emit("pushDSPUiConfig", &empty_ui_config()).ok();
 }
 
-/// Stub: English only (Node reads appearance plugin languages.json).
-async fn get_available_languages(s: SocketRef) {
-    let data = serde_json::json!({
-        "defaultLanguage": { "language": "English", "code": "en" },
-        "available": [{ "language": "English", "code": "en" }]
-    });
+async fn get_available_languages(s: SocketRef, State(state): State<AppState>) {
+    let code = state.system_settings.read().await.language_code.clone();
+    let data = super::system_ui::available_languages_payload(&code);
     s.emit("pushAvailableLanguages", &data).ok();
 }
 
-async fn get_device_name(s: SocketRef) {
-    let data = serde_json::json!({ "name": "Volumio Evo" });
+async fn get_device_name(s: SocketRef, State(state): State<AppState>) {
+    let name = state.system_settings.read().await.device_name.clone();
+    let data = serde_json::json!({ "name": name });
     s.emit("pushDeviceName", &data).ok();
 }
 
-/// No-op: Node calls appearance plugin setLanguage; Evo has no persistence for language.
-async fn set_language(_s: SocketRef, TryData(_payload): TryData<SetLanguagePayload>) {
-    // Accept payload so client doesn't error; do nothing.
+/// Persists language under **Settings → System** (`settings/system/state.toml`) and refreshes UI settings.
+async fn set_language(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<serde_json::Value>) {
+    let Some(p) = payload.as_ref().ok() else {
+        return;
+    };
+    let code = p
+        .get("defaultLanguage")
+        .and_then(|d| d.get("code"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("en");
+    let mut sys = state.system_settings.write().await;
+    if sys.language_code != code {
+        sys.language_code = code.to_string();
+        if let Err(e) = sys.save() {
+            tracing::warn!("{} setLanguage save: {}", crate::log_tags::EVO_UI, e);
+        }
+    }
+    drop(sys);
+    get_ui_settings(s.clone(), State(state.clone())).await;
+    emit_system_ui_config(&s, &state).await;
 }
 
-/// Stub: UTC only (Node uses system plugin getAvailableTimezones).
+/// Host `timedatectl list-timezones` (fallback `UTC` only).
 async fn get_available_timezones(s: SocketRef) {
-    let data = serde_json::json!([{ "value": "UTC", "label": "UTC" }]);
+    let zones = crate::system_settings::list_timezones_cached();
+    let data = serde_json::to_value(zones).unwrap_or_else(|_| serde_json::json!(["UTC"]));
     s.emit("pushAvailableTimezones", &data).ok();
 }
 
-/// Stub: current timezone UTC (Node uses system plugin getCurrentTimezone).
-async fn get_current_timezone(s: SocketRef) {
-    let data = serde_json::json!({ "value": "UTC", "label": "UTC" });
+async fn get_current_timezone(s: SocketRef, State(state): State<AppState>) {
+    let persisted = state.system_settings.read().await.timezone.clone();
+    let tz = crate::system_settings::read_os_timezone().unwrap_or(persisted);
+    let data = serde_json::json!({ "value": tz, "label": tz });
     s.emit("pushCurrentTimezone", &data).ok();
 }
 
-/// No-op: Node calls system plugin setTimezone; Evo has no timezone persistence.
-async fn set_timezone(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {
-    // Accept any payload; do nothing.
+async fn set_timezone(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<serde_json::Value>) {
+    let Some(p) = payload.as_ref().ok() else {
+        return;
+    };
+    let tz = p
+        .get("value")
+        .and_then(|v| v.as_str())
+        .or_else(|| p.as_str())
+        .unwrap_or("UTC");
+    let mut sys = state.system_settings.write().await;
+    sys.timezone = tz.to_string();
+    if let Err(e) = sys.save() {
+        tracing::warn!("{} setTimezone save: {}", crate::log_tags::EVO_UI, e);
+    }
+    drop(sys);
+    if let Err(e) = crate::system_settings::apply_timezone(tz) {
+        tracing::warn!("{} timedatectl set-timezone {:?}: {}", crate::log_tags::EVO_UI, tz, e);
+    }
+    get_current_timezone(s, State(state)).await;
 }
 
 /// No-op: Node calls volumiodiscovery plugin initSocket; Evo has no discovery.
@@ -1186,8 +1280,27 @@ async fn update_all_metadata(_s: SocketRef) {}
 /// No-op: Node calls playlistFS.importServicePlaylists; Evo has no service playlists to import.
 async fn import_service_playlists(_s: SocketRef) {}
 
-/// No-op: Node saves player_name via system plugin; Evo has no device-name persistence.
-async fn set_device_name(_s: SocketRef, TryData(_payload): TryData<serde_json::Value>) {}
+async fn set_device_name(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<serde_json::Value>) {
+    let Some(p) = payload.as_ref().ok() else {
+        return;
+    };
+    let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let name = name.trim();
+    if name.is_empty() {
+        return;
+    }
+    let mut sys = state.system_settings.write().await;
+    sys.device_name = name.to_string();
+    if let Err(e) = sys.save() {
+        tracing::warn!("{} setDeviceName save: {}", crate::log_tags::EVO_UI, e);
+    }
+    drop(sys);
+    if let Err(e) = crate::system_settings::apply_hostname(name) {
+        tracing::warn!("{} hostnamectl {:?}: {}", crate::log_tags::EVO_UI, name, e);
+    }
+    let data = serde_json::json!({ "name": name });
+    let _ = s.emit("pushDeviceName", &data);
+}
 
 /// Stub: same as getSystemInfo hwUuid (Node: commandRouter.getHwuuid -> pushDeviceHWUUID).
 async fn get_device_hw_uuid(s: SocketRef) {
@@ -1199,10 +1312,11 @@ async fn get_device_hw_uuid(s: SocketRef) {
 /// otherwise the UI shows raw keys (`COMMON.TAB_BROWSE`, …).
 /// `active_layout` mirrors stock `volumioUisList.json` `uiName` (manifest / contemporary / classic).
 async fn get_ui_settings(s: SocketRef, State(state): State<AppState>) {
+    let lang = state.system_settings.read().await.language_code.clone();
     s.emit(
         "pushUiSettings",
         &serde_json::json!({
-            "language": "en",
+            "language": lang,
             "theme": "volumio3",
             "active_layout": state.config.ui.active_layout
         }),
@@ -1301,9 +1415,13 @@ async fn graceful_power_transition(state: AppState, reboot: bool) {
     });
 }
 
-/// Stub: empty privacy settings (Node: system plugin getPrivacySettings -> pushPrivacySettings).
-async fn get_privacy_settings(s: SocketRef) {
-    s.emit("pushPrivacySettings", &serde_json::json!({})).ok();
+async fn get_privacy_settings(s: SocketRef, State(state): State<AppState>) {
+    let allow = state.system_settings.read().await.allow_ui_statistics;
+    s.emit(
+        "pushPrivacySettings",
+        &serde_json::json!({ "allow_ui_statistics": allow }),
+    )
+    .ok();
 }
 
 /// Stub: infinity playback disabled (Node: metavolumio getInfinityPlayback -> pushInfinityPlayback).
@@ -1617,16 +1735,6 @@ async fn wireless_sta_join_apply_core(
     let report = crate::nm_network::apply_network_intent_exclusive(&intent, cfg).await;
     crate::nm_network::log_network_apply_result("socket_wizard_sta_join", &report);
     Ok(report)
-}
-
-#[derive(Debug, Deserialize)]
-struct SetLanguagePayload {
-    #[serde(default, rename = "defaultLanguage")]
-    #[allow(dead_code)]
-    default_language: Option<serde_json::Value>,
-    #[serde(default, rename = "disallowReload")]
-    #[allow(dead_code)]
-    disallow_reload: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3108,6 +3216,156 @@ async fn call_method(
             crate::log_tags::EVO_UI
         );
         state.send_clear_albumart_cache();
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("saveGeneralSettings")
+    {
+        let mut sys = state.system_settings.write().await;
+        let changed = sys.merge_general_payload(&payload.data);
+        if changed {
+            let name = sys.device_name.clone();
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} saveGeneralSettings: {}", crate::log_tags::EVO_UI, e);
+            }
+            drop(sys);
+            if let Err(e) = crate::system_settings::apply_hostname(&name) {
+                tracing::warn!(
+                    "{} saveGeneralSettings hostnamectl {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    name,
+                    e
+                );
+            }
+            let _ = s.emit("pushDeviceName", &serde_json::json!({ "name": name }));
+            emit_system_ui_config(&s, &state).await;
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "System",
+                    "message": "Settings saved"
+                }),
+            );
+        }
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("saveLocaleSettings")
+    {
+        let mut sys = state.system_settings.write().await;
+        let changed = sys.merge_locale_payload(&payload.data);
+        if changed {
+            let tz = sys.timezone.clone();
+            let cc = sys.country_code.clone();
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} saveLocaleSettings: {}", crate::log_tags::EVO_UI, e);
+            }
+            drop(sys);
+            if let Err(e) = crate::system_settings::apply_timezone(&tz) {
+                tracing::warn!(
+                    "{} saveLocaleSettings timedatectl {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    tz,
+                    e
+                );
+            }
+            if let Err(e) = crate::system_settings::apply_reg_domain(&cc) {
+                tracing::warn!(
+                    "{} saveLocaleSettings iw reg {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    cc,
+                    e
+                );
+            }
+            get_ui_settings(s.clone(), State(state.clone())).await;
+            get_current_timezone(s.clone(), State(state.clone())).await;
+            emit_system_ui_config(&s, &state).await;
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "System",
+                    "message": "Locale saved"
+                }),
+            );
+        }
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("saveUpdateSettings")
+    {
+        let mut sys = state.system_settings.write().await;
+        let changed = sys.merge_update_payload(&payload.data);
+        if changed {
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} saveUpdateSettings: {}", crate::log_tags::EVO_UI, e);
+            }
+            drop(sys);
+            emit_system_ui_config(&s, &state).await;
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "System",
+                    "message": "Update preferences saved"
+                }),
+            );
+        }
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("savePrivacySettings")
+    {
+        let mut sys = state.system_settings.write().await;
+        let changed = sys.merge_privacy_payload(&payload.data);
+        if changed {
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} savePrivacySettings: {}", crate::log_tags::EVO_UI, e);
+            }
+            let allow = sys.allow_ui_statistics;
+            drop(sys);
+            let _ = s.emit(
+                "pushPrivacySettings",
+                &serde_json::json!({ "allow_ui_statistics": allow }),
+            );
+            emit_system_ui_config(&s, &state).await;
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "System",
+                    "message": "Privacy settings saved"
+                }),
+            );
+        }
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("saveKioskSettings")
+    {
+        let mut sys = state.system_settings.write().await;
+        let changed = sys.merge_kiosk_payload(&payload.data);
+        if changed {
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} saveKioskSettings: {}", crate::log_tags::EVO_UI, e);
+            }
+            drop(sys);
+            emit_system_ui_config(&s, &state).await;
+            let _ = s.emit(
+                "pushToastMessage",
+                &serde_json::json!({
+                    "type": "success",
+                    "title": "System",
+                    "message": "Display settings saved"
+                }),
+            );
+        }
         return;
     }
 

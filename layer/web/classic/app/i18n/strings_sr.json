@@ -28,5 +28,14 @@
     "ALBUMARTIST": "Izvođač",
     "ALBUMART_CACHE_CLEAR_ERROR": "Greška prilikom brisanja keša. Pokušaj ponovo za par minuta.",
     "ALBUMART_RESET_CACHE_DOC": "Sistem kešira Albumart da bi poboljšao performanse. Ovo onemogućava nove Albumarte da budu prikazani. Resetuj keš da vidiš novododate Albumarte."
+  },
+  "SYSTEM": {
+    "COUNTRY_DOC": "Postavlja regulatorski Wi‑Fi domen (iw reg) za zemlju korišćenja.",
+    "KIOSK_ENABLE": "Uključi kiosk interfejs",
+    "KIOSK_WPE": "Kiosk i ekran (WPE)",
+    "KIOSK_WPE_DOC": "Rezervisano za Wayland/WPE ljusku na uređaju; vidi docs/KIOSK.md.",
+    "LOCALE_REGION": "Jezik, region i vremenska zona",
+    "PRIMARY_DISPLAY": "Primarni ekran",
+    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje full screen interfejs kad je kiosk uključen."
   }
 }

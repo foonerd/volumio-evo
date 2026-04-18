@@ -1077,7 +1077,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Réglez le niveau de sortie du CNA interne en Volt RMS, pour correspondre à la sensibilité d'entrée de votre amplificateur.",
     "DISPLAY_UI_DOC": "Sélectionner le type d'interface utilisateur à afficher sur l'écran",
     "DISPLAY_UI2": "Affichage de l'interface utilisateur",
-    "DISPLAY_UI2_DOC": "Sélectionner le style d'interface utilisateur à afficher sur l'écran"
+    "DISPLAY_UI2_DOC": "Sélectionner le style d'interface utilisateur à afficher sur l'écran",
+    "COUNTRY_DOC": "Définit le domaine réglementaire Wi‑Fi (iw reg) selon le lieu d'utilisation.",
+    "KIOSK_ENABLE": "Activer l'interface kiosque",
+    "KIOSK_WPE": "Kiosque et affichage (WPE)",
+    "KIOSK_WPE_DOC": "Réservé au shell Wayland/WPE sur l'appareil ; voir docs/KIOSK.md.",
+    "LOCALE_REGION": "Langue, région et fuseau horaire",
+    "PRIMARY_DISPLAY": "Écran principal",
+    "PRIMARY_DISPLAY_DOC": "Sortie vidéo qui affiche l'interface plein écran lorsque le mode kiosque est activé."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Meilleures Radios",

@@ -1074,7 +1074,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Ajuste el nivel de salida del DAC interno en voltios RMS, para que coincida con la sensibilidad de entrada de su amplificador.",
     "DISPLAY_UI_DOC": "Seleccione el tipo de interfaz de usuario que se mostrará en la pantalla",
     "DISPLAY_UI2": "Pantalla Interfaz de usuario",
-    "DISPLAY_UI2_DOC": "Seleccione el estilo de interfaz de usuario que se mostrará en la pantalla"
+    "DISPLAY_UI2_DOC": "Seleccione el estilo de interfaz de usuario que se mostrará en la pantalla",
+    "COUNTRY_DOC": "Define el dominio regulatorio Wi‑Fi (iw reg) según el país de uso.",
+    "KIOSK_ENABLE": "Activar interfaz de quiosco",
+    "KIOSK_WPE": "Quiosco y pantalla (WPE)",
+    "KIOSK_WPE_DOC": "Reservado para el shell Wayland/WPE en el dispositivo; véase docs/KIOSK.md.",
+    "LOCALE_REGION": "Idioma, región y zona horaria",
+    "PRIMARY_DISPLAY": "Pantalla principal",
+    "PRIMARY_DISPLAY_DOC": "Qué salida muestra la interfaz a pantalla completa con el quiosco activado."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Mejores radios",

@@ -989,7 +989,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "アンプの入力感度に合うように、内部DAC出力レベルをボルトRMSで設定する。",
     "DISPLAY_UI_DOC": "ディスプレイに表示するユーザーインターフェースの種類を選択する。",
     "DISPLAY_UI2": "ディスプレイ・ユーザー・インターフェース",
-    "DISPLAY_UI2_DOC": "ディスプレイに表示するユーザーインターフェースのスタイルを選択する。"
+    "DISPLAY_UI2_DOC": "ディスプレイに表示するユーザーインターフェースのスタイルを選択する。",
+    "COUNTRY_DOC": "使用地域に応じて Wi‑Fi の規制ドメイン (iw reg) を設定します。",
+    "KIOSK_ENABLE": "キオスク UI を有効にする",
+    "KIOSK_WPE": "キオスクとディスプレイ (WPE)",
+    "KIOSK_WPE_DOC": "オンデバイスの Wayland/WPE シェル用 (詳細は docs/KIOSK.md)。",
+    "LOCALE_REGION": "言語・地域・タイムゾーン",
+    "PRIMARY_DISPLAY": "プライマリディスプレイ",
+    "PRIMARY_DISPLAY_DOC": "キオスク有効時に全画面 UI を表示する出力。"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "ベストラジオ",

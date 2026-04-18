@@ -1074,7 +1074,14 @@
     "DAC_OUTPUT_LEVEL_DOC": "Állítsa be a belső DAC kimeneti szintjét Volt RMS-ben, hogy megfeleljen az erősítő bemeneti érzékenységének.",
     "DISPLAY_UI_DOC": "A kijelzőn megjelenítendő felhasználói felület típusának kiválasztása",
     "DISPLAY_UI2": "Felhasználói felület megjelenítése",
-    "DISPLAY_UI2_DOC": "A kijelzőn megjelenítendő felhasználói felület stílusának kiválasztása"
+    "DISPLAY_UI2_DOC": "A kijelzőn megjelenítendő felhasználói felület stílusának kiválasztása",
+    "COUNTRY_DOC": "Beállítja a Wi‑Fi szabályozási tartományt (iw reg) a használat helye szerint.",
+    "KIOSK_ENABLE": "Kioszk felület engedélyezése",
+    "KIOSK_WPE": "Kioszk és kijelző (WPE)",
+    "KIOSK_WPE_DOC": "Fenntartva az eszköz Wayland/WPE héjához; lásd docs/KIOSK.md.",
+    "LOCALE_REGION": "Nyelv, régió és időzóna",
+    "PRIMARY_DISPLAY": "Elsődleges kijelző",
+    "PRIMARY_DISPLAY_DOC": "Melyik kimenet mutatja a teljes képernyős felületet kioszk módban."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Legjobb rádiók",

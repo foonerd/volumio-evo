@@ -21,3 +21,8 @@ pub fn default_alsa_state_path() -> PathBuf {
 pub fn default_mpd_playback_path() -> PathBuf {
     settings_dir().join("mpd").join("playback.toml")
 }
+
+/// **Settings → System** persisted state when `VOLUMIO_EVO_SYSTEM_STATE` is unset.
+pub fn default_system_state_path() -> PathBuf {
+    settings_dir().join("system").join("state.toml")
+}
