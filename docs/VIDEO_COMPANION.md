@@ -104,7 +104,7 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 
 ## 10. Implementation (Scenario 1 — in-tree)
 
-- **`playback_router`** — same entry points as above; when a single resolved library path is video, **`video_companion`** runs **`ffmpeg`** (ALSA + **HLS** into **`/run/volumio-evo/hls/live/`**, overridable via **`VOLUMIO_EVO_HLS_DIR`**) and exposes **`GET /hls/...`** via Axum **`ServeDir`**.
+- **`playback_router`** — same entry points as above; when the resolved library path for the command is video, **`video_companion`** runs **`ffmpeg`** (ALSA + **HLS** into **`/run/volumio-evo/hls/live/`**, overridable via **`VOLUMIO_EVO_HLS_DIR`**) and exposes **`GET /hls/...`** via Axum **`ServeDir`**. For **`playItemsList`**, only the URI at the **played index** is considered (browse often sends many rows).
 - **`video_companion`** — **`stop_clear_queue_connected`** MPD first; transport uses **SIGSTOP/SIGCONT** (pause) and **seek** restarts **`ffmpeg`** with **`-ss`**.
 - **`VolumioState.videoStreamUrl`** — **`/hls/live/index.m3u8`** while a session is active; **`pushState`** / **`getState`** / **`getQueue`** use the video snapshot when **`video_playback_active`**.
 - **UI** — **`layer/web/*/index.html`** loads **`/evo-hls.min.js`** (vendored **hls.js**) and **`/evo-video-overlay.js`** (Angular **`socket:pushState`** hook, `<video muted>`).

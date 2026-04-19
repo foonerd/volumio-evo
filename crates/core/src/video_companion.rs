@@ -396,9 +396,11 @@ pub(crate) async fn try_take_over_play_items_list(
     uris: &[String],
     index: usize,
 ) -> anyhow::Result<Option<()>> {
-    if uris.len() != 1 || index >= uris.len() {
+    if index >= uris.len() {
         return Ok(None);
     }
+    // Take over for **the row being played**, not the whole list — browse often sends many URIs
+    // (e.g. folder contents) with a play index; MPD would get the full queue otherwise.
     try_take_over_inner(state, &uris[index], VideoRouteIntent::PlayItemsList).await
 }
 
