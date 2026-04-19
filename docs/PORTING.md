@@ -20,6 +20,8 @@ On stock Volumio, **`volumio/volumioUisList.json`** defines **`uiName`** + **`ui
 
 If the UI still spins: check the browser console (**`connect_error`**), that **`GET /api/host`** returns a reachable **`http://<ip>:3000`**, and that nothing blocks port **3000** from the client. The default bootstrap does **not** proxy **`/socket.io`** through nginx; the socket goes to Evo on **3000** directly.
 
+**LAN video overlay (evo-hls / HLS):** Evo serves **`/evo-hls.min.js`**, **`/evo-video-overlay.js`**, and **`/hls/…`** on **`${EVO_HTTP_PORT}`**. The stock UI is usually opened on port **80** via nginx static **`root`**; **`bootstrap-volumio-evo-player.sh`** adds **`nginx`** **`proxy_pass`** for those paths to Evo so the same-origin URLs from **`index.html`** resolve. Without that (or a manual equivalent), **`try_files`** would SPA-fallback and break HLS/scripts.
+
 **UI layout from the stock UI:** **`callMethod`** **`miscellanea/appearance`** **`setVolumio3UI`** (System → UI layout design) persists **`[ui] active_layout`** (**`config.toml`**), updates in-memory layout, runs **`bootstrap-volumio-evo-player.sh --apply-ui-only`** (**`sudo -n`**), then broadcasts **`reloadUi`**. Requires bootstrap script + sudoers on device ([`scripts/bootstrap-volumio-evo-player.sh`](../scripts/bootstrap-volumio-evo-player.sh)); override script with **`VOLUMIO_EVO_BOOTSTRAP_SCRIPT`**.
 
 ---

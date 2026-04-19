@@ -118,6 +118,7 @@ mod tests {
             bitdepth: None,
             bitrate: None,
             updatedb: false,
+            video_stream_url: None,
         }
     }
 

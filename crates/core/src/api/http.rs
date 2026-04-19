@@ -13,6 +13,7 @@ use socketioxide::SocketIo;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::albumart;
@@ -423,7 +424,18 @@ pub fn router(
             state.ui.active_layout.clone(),
         )),
         video_playback_active: Arc::new(AtomicBool::new(false)),
+        video_session: Arc::new(crate::video_companion::VideoSessionCtl::default()),
     });
+
+    let hls_root = crate::paths::video_hls_root();
+    if let Err(e) = std::fs::create_dir_all(hls_root.join("live")) {
+        tracing::warn!(
+            "{} could not mkdir {:?}: {}",
+            crate::log_tags::EVO_UI,
+            hls_root,
+            e
+        );
+    }
 
     let cfg_nas = state.clone();
     let nm_boot = network_mounts.clone();
@@ -501,6 +513,9 @@ pub fn router(
         .route("/albumart-upload", post(album_art_upload))
         .route("/backgrounds-upload", post(backgrounds_upload))
         .nest("/api/v1", v1_routes)
+        .route("/evo-hls.min.js", get(serve_hls_bundle_js))
+        .route("/evo-video-overlay.js", get(serve_video_overlay_js))
+        .nest_service("/hls", ServeDir::new(crate::paths::video_hls_root()))
         .route(
             "/backgrounds/:name",
             get(backgrounds_static).head(backgrounds_static_head),
@@ -517,6 +532,32 @@ pub fn router(
 
 async fn health() -> &'static str {
     "ok"
+}
+
+/// `hls.js` (MIT) — vendored for offline LAN playback in Chromium-based browsers.
+async fn serve_hls_bundle_js() -> impl IntoResponse {
+    static BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/hls.min.js"));
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("application/javascript")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400")),
+        ],
+        BYTES,
+    )
+}
+
+async fn serve_video_overlay_js() -> impl IntoResponse {
+    static SRC: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/evo-video-overlay.js"
+    ));
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static("application/javascript")),
+            (header::CACHE_CONTROL, HeaderValue::from_static("public, max-age=86400")),
+        ],
+        SRC,
+    )
 }
 
 /// GET /status - return system status string (Volumio uses process.env.VOLUMIO_SYSTEM_STATUS).

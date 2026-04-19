@@ -26,6 +26,24 @@ pub fn mpd_config_from_app(state: &AppState) -> MpdConfig {
 pub async fn get_state(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
     let master = read_master_volume_percent(&state).await;
+    if state.video_playback_is_active() {
+        if let Some(mut s) =
+            crate::video_companion::volumio_state_for_video_session(&state, master).await
+        {
+            {
+                let clock = state.playback_clock.read().await;
+                s.seek =
+                    ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration);
+            }
+            apply_volume_mute_overlay(&state, &mut s).await;
+            state.store_mpd_snapshot(&s).await;
+            pushstate_log::debug_volumio_state(
+                "REST GET /api/v1/getState (video session)",
+                &s,
+            );
+            return Json::<VolumioState>(s).into_response();
+        }
+    }
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(mut s) => {
             s.seek = {
@@ -192,6 +210,15 @@ pub async fn commands(
 /// GET /api/v1/getQueue
 pub async fn get_queue(State(state): State<AppState>) -> impl IntoResponse {
     let config = mpd_config_from_app(&state);
+    if state.video_playback_is_active() {
+        if let Some(items) = crate::video_companion::video_queue_items(&state).await {
+            pushstate_log::debug_queue_snapshot(
+                "REST GET /api/v1/getQueue (video session)",
+                items.len(),
+            );
+            return Json(serde_json::json!({ "queue": items })).into_response();
+        }
+    }
     match mpd::get_queue_connected(&config, &state.config.music_sources.music_root).await {
         Ok(items) => {
             pushstate_log::debug_queue_snapshot("REST GET /api/v1/getQueue (response body)", items.len());

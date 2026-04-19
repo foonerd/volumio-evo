@@ -12,30 +12,26 @@ fn mpd_cfg(state: &AppState) -> mpd::MpdConfig {
     }
 }
 
-/// MPD is about to own the queue; clear the “video session” flag (no-op when never set).
-fn clear_video_then_mpd(state: &AppState) {
-    state.clear_video_playback_active();
+/// MPD is about to own the queue; kill any **ffmpeg** video encode session first.
+async fn clear_video_then_mpd(state: &AppState) {
+    crate::video_companion::stop_session(state).await;
 }
 
 /// Clear queue, add resolved URIs, play — [`mpd::replace_and_play_resolved`] plus optional video takeover.
 pub async fn replace_and_play_uri(state: &AppState, uri: &str) -> anyhow::Result<()> {
-    #[cfg(feature = "video-companion")]
     if let Some(()) = crate::video_companion::try_take_over_replace_and_play(state, uri).await? {
-        state.set_video_playback_active(true);
         return Ok(());
     }
-    clear_video_then_mpd(state);
+    clear_video_then_mpd(state).await;
     mpd::replace_and_play_resolved(&mpd_cfg(state), &state.config.music_sources.music_root, uri).await
 }
 
 /// Append URI and jump to it — [`mpd::add_play_append_resolved`] plus optional video takeover.
 pub async fn add_play_append_uri(state: &AppState, uri: &str) -> anyhow::Result<()> {
-    #[cfg(feature = "video-companion")]
     if let Some(()) = crate::video_companion::try_take_over_add_play_append(state, uri).await? {
-        state.set_video_playback_active(true);
         return Ok(());
     }
-    clear_video_then_mpd(state);
+    clear_video_then_mpd(state).await;
     mpd::add_play_append_resolved(&mpd_cfg(state), &state.config.music_sources.music_root, uri).await
 }
 
@@ -45,19 +41,17 @@ pub async fn play_items_list_uri(
     uris: &[String],
     index: usize,
 ) -> anyhow::Result<()> {
-    #[cfg(feature = "video-companion")]
     if let Some(()) =
         crate::video_companion::try_take_over_play_items_list(state, uris, index).await?
     {
-        state.set_video_playback_active(true);
         return Ok(());
     }
-    clear_video_then_mpd(state);
+    clear_video_then_mpd(state).await;
     mpd::play_items_list_connected(&mpd_cfg(state), uris, index).await
 }
 
-/// Same wire contract as [`mpd::run_command_connected`]. When **`video_playback_is_active`** and feature
-/// **`video-companion`**, playback-like commands go to the video layer first (stub until mpv).
+/// Same wire contract as [`mpd::run_command_connected`]. When **`video_playback_is_active`**, playback-like
+/// commands go to the **ffmpeg** video layer first.
 pub async fn run_command_connected_with_video(
     state: &AppState,
     cmd: &str,
@@ -66,16 +60,13 @@ pub async fn run_command_connected_with_video(
     repeat: Option<bool>,
     random: Option<bool>,
 ) -> anyhow::Result<()> {
-    #[cfg(feature = "video-companion")]
-    {
-        if state.video_playback_is_active() {
-            match cmd {
-                "seek" | "play" | "pause" | "toggle" | "stop" | "next" | "prev" | "clearQueue" => {
-                    crate::video_companion::transport_dispatch(state, cmd, position).await?;
-                    return Ok(());
-                }
-                _ => {}
+    if state.video_playback_is_active() {
+        match cmd {
+            "seek" | "play" | "pause" | "toggle" | "stop" | "next" | "prev" | "clearQueue" => {
+                crate::video_companion::transport_dispatch(state, cmd, position).await?;
+                return Ok(());
             }
+            _ => {}
         }
     }
     mpd::run_command_connected(
@@ -91,7 +82,6 @@ pub async fn run_command_connected_with_video(
 
 /// Skip forward / backward within the current track (`skipForward` / `skipBackwards` socket events).
 pub async fn skip_within_track_seconds(state: &AppState, delta_secs: i64) -> anyhow::Result<()> {
-    #[cfg(feature = "video-companion")]
     if state.video_playback_is_active() {
         return crate::video_companion::transport_skip_relative(state, delta_secs).await;
     }

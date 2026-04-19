@@ -75,10 +75,11 @@ pub struct RouterState {
     pub backgrounds: Arc<tokio::sync::RwLock<BackgroundAppearance>>,
     /// Effective UI layout (**`manifest`** / **`contemporary`** / **`classic`**); persisted to **`/etc/volumio-evo/config.toml`** **`[ui] active_layout`** when layout changes.
     pub active_layout: Arc<tokio::sync::RwLock<String>>,
-    /// Set when a non-MPD video session is active (see **video-companion** / `playback_router`). MPD transport
+    /// Set when a non-MPD video session is active (`playback_router` / **ffmpeg** + HLS). MPD transport
     /// is idle in that mode; cleared on MPD-backed playback or explicit stop.
-    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
     pub video_playback_active: Arc<AtomicBool>,
+    /// Single-track **ffmpeg** encode session (`video_companion`).
+    pub video_session: Arc<crate::video_companion::VideoSessionCtl>,
 }
 
 impl RouterState {
@@ -88,14 +89,12 @@ impl RouterState {
             .store(false, Ordering::Release);
     }
 
-    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
     #[inline]
     pub fn set_video_playback_active(&self, active: bool) {
         self.video_playback_active
             .store(active, Ordering::Release);
     }
 
-    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
     #[inline]
     pub fn video_playback_is_active(&self) -> bool {
         self.video_playback_active.load(Ordering::Acquire)

@@ -1250,6 +1250,33 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
+    # Video companion (Scenario 1): scripts + HLS are served by Evo on ${EVO_HTTP_PORT}, not from the static UI tree.
+    location = /evo-hls.min.js {
+        proxy_pass http://127.0.0.1:${EVO_HTTP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    location = /evo-video-overlay.js {
+        proxy_pass http://127.0.0.1:${EVO_HTTP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    location /hls/ {
+        proxy_pass http://127.0.0.1:${EVO_HTTP_PORT};
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
     # Prevent browser from caching backend config (stale IP breaks Socket.IO).
     location = /app/local-config.json {
         add_header Cache-Control "no-store, no-cache, must-revalidate";

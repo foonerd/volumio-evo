@@ -46,7 +46,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) | Online album-art provider behaviour. |
 | [ALARM_WAKE.md](ALARM_WAKE.md) | **`rtcwake`** / alarm persistence. |
 | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) | Timer and **`pushState`** expectations for the UI. |
-| [VIDEO_COMPANION.md](VIDEO_COMPANION.md) | Headless LAN + local HDMI video; router vs MPD; **branch `video-companion`**. |
+| [VIDEO_COMPANION.md](VIDEO_COMPANION.md) | Headless LAN (**HLS** + overlay); router vs MPD; Scenario 1 implemented. |
 | [KIOSK.md](KIOSK.md) | Wayland kiosk — **reference only**, not shipped. |
 
 ## Documentation update rule (non-negotiable)

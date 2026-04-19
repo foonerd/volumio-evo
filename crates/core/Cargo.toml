@@ -12,15 +12,13 @@ path = "src/main.rs"
 # WASM plugins via wasmtime (arm64, amd64). Disable for armhf (wasmtime runtime does not build for 32-bit ARM).
 default = ["wasm"]
 wasm = ["dep:wasmtime", "wasmtime/cranelift"]
-# Video routing hooks (`playback_router`, `video_companion` takeover path). Decoder/player not included yet.
-video-companion = []
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["json", "multipart"] }
 # Feature `v4` = Engine.IO v3 path in socketioxide (socket.io-client 1.x/2.x). Without it, only client 3+.
 socketioxide = { version = "0.18", features = ["state", "v4"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }

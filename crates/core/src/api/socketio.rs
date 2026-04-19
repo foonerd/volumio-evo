@@ -318,6 +318,41 @@ fn schedule_push_info_network_refresh(s: &SocketRef, state: &AppState) {
 async fn get_state(s: SocketRef, State(state): State<AppState>) {
     let config = mpd_config(&state);
     let master = read_master_volume_percent(&state).await;
+    if state.video_playback_is_active() {
+        if let Some(mut payload) =
+            crate::video_companion::volumio_state_for_video_session(&state, master).await
+        {
+            payload.seek = {
+                let clock = state.playback_clock.read().await;
+                ui_seek_ms(clock.seek_for_emit_before_resync(&payload), payload.duration)
+            };
+            apply_volume_mute_overlay(&state, &mut payload).await;
+            state.store_mpd_snapshot(&payload).await;
+            match s.emit("pushState", &payload) {
+                Ok(()) => {
+                    pushstate_log::debug_socket_push_state_after_emit(
+                        "handler getState",
+                        &payload,
+                        true,
+                    );
+                }
+                Err(e) => {
+                    pushstate_log::debug_socket_push_state_after_emit(
+                        "handler getState",
+                        &payload,
+                        false,
+                    );
+                    pushstate_log::warn_socket_push_state_emit("handler getState", e);
+                }
+            }
+            let uf = crate::playlist_library::urifavourites_for_state(
+                payload.service.clone(),
+                payload.uri.clone(),
+            );
+            s.emit("urifavourites", &uf).ok();
+            return;
+        }
+    }
     match mpd::get_state_connected(&config, &state.config.music_sources.music_root, master).await {
         Ok(mut payload) => {
             payload.seek = {
@@ -4419,14 +4454,43 @@ pub async fn push_state_queue_loop(
         config: &MpdConfig,
         music_root: &std::path::Path,
     ) {
+        let master = read_master_volume_percent(state).await;
+        if state.video_playback_is_active() {
+            if let Some(mut s) =
+                crate::video_companion::volumio_state_for_video_session(state, master).await
+            {
+                s.seek = {
+                    let clock = state.playback_clock.read().await;
+                    ui_seek_ms(clock.seek_for_emit_before_resync(&s), s.duration)
+                };
+                apply_volume_mute_overlay(state, &mut s).await;
+                state.store_mpd_snapshot(&s).await;
+                match io.emit("pushState", &s).await {
+                    Ok(()) => pushstate_log::debug_broadcast_push_state_after_emit(&s, true),
+                    Err(e) => {
+                        pushstate_log::debug_broadcast_push_state_after_emit(&s, false);
+                        pushstate_log::warn_broadcast_push_state_emit(e);
+                    }
+                }
+                let uf =
+                    crate::playlist_library::urifavourites_for_state(s.service.clone(), s.uri.clone());
+                if io.emit("urifavourites", &uf).await.is_err() {
+                    tracing::debug!(
+                        "{} broadcast urifavourites failed (non-fatal)",
+                        crate::log_tags::EVO_PUSHSTATE
+                    );
+                }
+                return;
+            }
+        }
+
         // Parallelize ALSA read and MPD TCP — serializing both added noticeable lag on `pushState`.
-        let master_fut = read_master_volume_percent(state);
         let client_fut = async {
             let stream = TcpStream::connect(config.addr()).await?;
             let (client, _) = Client::connect(stream).await?;
             Ok::<_, anyhow::Error>(client)
         };
-        let (master, client_res) = tokio::join!(master_fut, client_fut);
+        let client_res = client_fut.await;
         let mut client = match client_res {
             Ok(c) => c,
             Err(e) => {
@@ -4462,10 +4526,24 @@ pub async fn push_state_queue_loop(
     }
 
     async fn emit_push_queue(
+        state: &AppState,
         io: &socketioxide::SocketIo,
         config: &MpdConfig,
         music_root: &std::path::Path,
     ) {
+        if state.video_playback_is_active() {
+            if let Some(items) = crate::video_companion::video_queue_items(state).await {
+                let len = items.len();
+                match io.emit("pushQueue", &items).await {
+                    Ok(()) => pushstate_log::debug_broadcast_push_queue_after_emit(len, true),
+                    Err(e) => {
+                        pushstate_log::debug_broadcast_push_queue_after_emit(len, false);
+                        pushstate_log::warn_broadcast_push_queue_emit(e);
+                    }
+                }
+                return;
+            }
+        }
         match mpd::get_queue_connected(config, music_root).await {
             Ok(items) => {
                 let len = items.len();
@@ -4484,7 +4562,7 @@ pub async fn push_state_queue_loop(
     state_tick.tick().await;
     queue_tick.tick().await;
     emit_push_state(&state, &io, &config, &music_root).await;
-    emit_push_queue(&io, &config, &music_root).await;
+    emit_push_queue(&state, &io, &config, &music_root).await;
 
     loop {
         tokio::select! {
@@ -4495,13 +4573,13 @@ pub async fn push_state_queue_loop(
             }
             Some(()) = queue_wake_rx.recv() => {
                 while queue_wake_rx.try_recv().is_ok() {}
-                emit_push_queue(&io, &config, &music_root).await;
+                emit_push_queue(&state, &io, &config, &music_root).await;
             }
             _ = state_tick.tick() => {
                 emit_push_state(&state, &io, &config, &music_root).await;
             }
             _ = queue_tick.tick() => {
-                emit_push_queue(&io, &config, &music_root).await;
+                emit_push_queue(&state, &io, &config, &music_root).await;
             }
         }
     }

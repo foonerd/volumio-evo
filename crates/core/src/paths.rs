@@ -81,3 +81,16 @@ pub fn boot_branding_run_script_path() -> PathBuf {
 pub fn boot_branding_install_script_path() -> PathBuf {
     evo_repo_dir().join("scripts").join("volumio-boot-branding.sh")
 }
+
+/// Live HLS output directory for LAN browser playback (`GET /hls/...`).
+/// Override with **`VOLUMIO_EVO_HLS_DIR`** (full path to the directory that contains **`live/`**).
+pub fn video_hls_root() -> PathBuf {
+    std::env::var("VOLUMIO_EVO_HLS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| Path::new("/run/volumio-evo/hls").to_path_buf())
+}
+
+/// Segment + playlist directory (`…/hls/live/index.m3u8`).
+pub fn video_hls_live_dir() -> PathBuf {
+    video_hls_root().join("live")
+}

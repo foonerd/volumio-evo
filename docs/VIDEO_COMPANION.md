@@ -1,6 +1,6 @@
 # Video companion (design concept)
 
-**Status:** concept / git branch **`video-companion`** — not part of stock parity until explicitly merged. **Scope:** Rust **volumio-evo** only; no Node.
+**Status:** **Scenario 1 (headless + LAN HLS)** is implemented in **volumio-evo** (single `ffmpeg` process: ALSA + HLS under `GET /hls/...`, `pushState.videoStreamUrl`, stock layer `index.html` + `evo-video-overlay.js` + vendored `hls.js`). **Local HDMI** and “audio+video in browser” remain future work. **Scope:** Rust **volumio-evo** only; no Node.
 
 **Related:** [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) (`pushState` / timer contract), [CONCEPT.md](CONCEPT.md) (Evo architecture).
 
@@ -102,17 +102,14 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 
 ---
 
-## 10. Implementation stub (in-tree)
+## 10. Implementation (Scenario 1 — in-tree)
 
-- **`playback_router::replace_and_play_uri`** — Socket.IO **`replaceAndPlay`** (non-playlist), **`POST /api/v1/replaceAndPlay`**. Video hook then **`mpd::replace_and_play_resolved`**; clears **`RouterState.video_playback_active`** before MPD when not taking over.
-- **`playback_router::add_play_append_uri`** — Socket **`addPlay`**, **`GET /api/v1/commands?cmd=addPlay`**.
-- **`playback_router::play_items_list_uri`** — Socket **`playItemsList`** (multi-row).
-- **`playback_router::run_command_connected_with_video`** — Socket **`play`**, **`pause`**, **`toggle`**, **`stop`**, **`next`**, **`prev`**, **`seek`**, **`volume`** (after ALSA path), **`clearQueue`**, **`volatilePlay`**; **`GET /api/v1/commands`** for the same commands; sleep timer stop; graceful power-off/reboot stop. When **`video_playback_active`** and **`--features video-companion`**, playback-like commands hit **`video_companion::transport_dispatch`** (stub).
-- **`playback_router::skip_within_track_seconds`** — **`skipForward`** / **`skipBackwards`**.
-- **`RouterState.video_playback_active`** — `Arc<AtomicBool>`; cleared via **`RouterState::clear_video_playback_active`** (direct use optional). Set **`true`** only after a takeover returns **`Some(())`** (future).
-- **`video_companion::is_video_volumio_uri`** — extension classification (always built).
+- **`playback_router`** — same entry points as above; when a single resolved library path is video, **`video_companion`** runs **`ffmpeg`** (ALSA + **HLS** into **`/run/volumio-evo/hls/live/`**, overridable via **`VOLUMIO_EVO_HLS_DIR`**) and exposes **`GET /hls/...`** via Axum **`ServeDir`**.
+- **`video_companion`** — **`stop_clear_queue_connected`** MPD first; transport uses **SIGSTOP/SIGCONT** (pause) and **seek** restarts **`ffmpeg`** with **`-ss`**.
+- **`VolumioState.videoStreamUrl`** — **`/hls/live/index.m3u8`** while a session is active; **`pushState`** / **`getState`** / **`getQueue`** use the video snapshot when **`video_playback_active`**.
+- **UI** — **`layer/web/*/index.html`** loads **`/evo-hls.min.js`** (vendored **hls.js**) and **`/evo-video-overlay.js`** (Angular **`socket:pushState`** hook, `<video muted>`).
 
-Build with video hooks: **`cargo build -p volumio-evo-core --features video-companion`** (default unchanged).
+Build: plain **`cargo build -p volumio-evo-core`** (video path is always compiled). Runtime needs **`ffmpeg`** / **`ffprobe`** on **`PATH`** (or **`EVO_FFMPEG_PATH`** / **`EVO_FFPROBE_PATH`**).
 
 ---
 

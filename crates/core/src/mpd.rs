@@ -187,6 +187,15 @@ pub async fn clear_and_add_connected(config: &MpdConfig, uri: &str) -> Result<()
     Ok(())
 }
 
+/// Stop playback and clear MPD queue (idle MPD before a non-MPD video encode session takes ALSA).
+pub async fn stop_clear_queue_connected(config: &MpdConfig) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    client.command(Stop).await?;
+    client.command(ClearQueue).await?;
+    Ok(())
+}
+
 /// Clear queue, add URIs in order, start playing at play_index (0-based). For playItemsList.
 pub async fn play_items_list_connected(
     config: &MpdConfig,
@@ -2207,6 +2216,9 @@ pub struct VolumioState {
     /// Mirrors Node `parseState` / `stateService.updatedb`: MPD is updating the music database (`status` → `updating_db`).
     #[serde(rename = "updatedb")]
     pub updatedb: bool,
+    /// When set, Evo’s **`video-companion`** session streams HLS here (typically **`/hls/live/index.m3u8`**).
+    #[serde(rename = "videoStreamUrl", skip_serializing_if = "Option::is_none")]
+    pub video_stream_url: Option<String>,
 }
 
 /// Map MPD `file` URL to Volumio `music-library/...` for album-art + browse parity.
@@ -2558,6 +2570,7 @@ pub async fn get_state(
         bitdepth,
         bitrate,
         updatedb: updating_db,
+        video_stream_url: None,
     })
 }
 
