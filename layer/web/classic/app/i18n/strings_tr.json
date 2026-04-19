@@ -970,6 +970,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "UI İstatistiklerinin toplanmasına izin ver",
     "ALLOW_UI_STATISTICS_DOC": "Volumio UI üzerinde davranışsal ve kullanım istatistiklerinin toplanmasına izin verin. Bu veriler Volumio kullanıcı deneyimini geliştirmek için kullanılır. Verileri nasıl topladığımız ve işlediğimiz hakkında daha fazla bilgi için lütfen volumio.com/privacy-policy adresine bakın",
+    "BOOT_BRANDING": "Önyükleme markalama",
+    "BOOT_BRANDING_ROTATION": "Splash dönüşü",
+    "BOOT_BRANDING_ROTATION_DOC": "Plymouth öğeleri için dönüş ipucu (çekirdek plymouth=N). Ekran yönüyle eşleştirin.",
+    "INSTALL_BOOT_BRANDING": "Kur ve etkinleştir",
     "CANNOT_REMOVE_MEDIA": "Medya kaldırılamıyor",
     "CHECKING_SYSTEM_INTEGRITY": "Sistem bütünlüğü denetleme",
     "CHECK_UPDATES": "Güncellemeleri denetle",

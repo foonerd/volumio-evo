@@ -840,6 +840,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Tillad indsamling af UI-statistik",
     "ALLOW_UI_STATISTICS_DOC": "Tillad indsamling af adfærds- og brugsstatistikker på Volumio UI. Disse data bruges til at forbedre Volumio-brugeroplevelsen. For yderligere oplysninger om, hvordan vi indsamler og behandler data, henvises til volumio.com/privacy-policy.",
+    "BOOT_BRANDING": "Boot-branding",
+    "BOOT_BRANDING_ROTATION": "Splash-rotation",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotationshint til Plymouth-aktiver (kerneparameter plymouth=N). Tilpas skærmens orientering.",
+    "INSTALL_BOOT_BRANDING": "Installer og aktiver",
     "CANNOT_REMOVE_MEDIA": "Kan ikke fjerne medier",
     "CHECKING_SYSTEM_INTEGRITY": "Kontrol af systemets integritet",
     "CHECK_UPDATES": "Check for opdateringer",

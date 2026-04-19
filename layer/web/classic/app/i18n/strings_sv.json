@@ -970,6 +970,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Tillåt insamling av UI-statistik",
     "ALLOW_UI_STATISTICS_DOC": "Tillåt insamling av beteende- och användningsstatistik för Volumio UI via Facebook Pixel och Google Analytics. Dessa data används för att förbättra Volumios användarupplevelse. För ytterligare information om hur vi samlar in och behandlar data hänvisar vi till volumio.org/privacy-policy",
+    "BOOT_BRANDING": "Boot-branding",
+    "BOOT_BRANDING_ROTATION": "Splash-rotation",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotationshint för Plymouth-resurser (kärnparameter plymouth=N). Matcha skärmorientering.",
+    "INSTALL_BOOT_BRANDING": "Installera och aktivera",
     "CANNOT_REMOVE_MEDIA": "Det gick inte att ta bort media",
     "CHECKING_SYSTEM_INTEGRITY": "Kontrollerar systemintegritet",
     "CHECK_UPDATES": "Sök efter uppdateringar",

@@ -36,6 +36,10 @@
     "KIOSK_WPE_DOC": "Rezervisano za Wayland/WPE ljusku na uređaju; vidi docs/KIOSK.md.",
     "LOCALE_REGION": "Jezik, region i vremenska zona",
     "PRIMARY_DISPLAY": "Primarni ekran",
-    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje full screen interfejs kad je kiosk uključen."
+    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje full screen interfejs kad je kiosk uključen.",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Ротација splash-а",
+    "BOOT_BRANDING_ROTATION_DOC": "Савет за ротацију Plymouth ресурса (параметар plymouth=N). Ускладите са оријентацијом екрана.",
+    "INSTALL_BOOT_BRANDING": "Инсталирај и омогући"
   }
 }

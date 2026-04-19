@@ -25,6 +25,10 @@
     "KIOSK_WPE_DOC": "උපාංගයේ Wayland/WPE කවචය සඳහා වෙන් කර ඇත; බලන්න docs/KIOSK.md.",
     "LOCALE_REGION": "භාෂාව, කලාපය සහ කාල කලාපය",
     "PRIMARY_DISPLAY": "ප්‍රාථමික සංදර්ශකය",
-    "PRIMARY_DISPLAY_DOC": "කියෝස්ක සක්‍රිය විට පුර්ණතිර අතුරුමුහුණත් පෙන්වන්නේ කුමන ප්‍රදානයද."
+    "PRIMARY_DISPLAY_DOC": "කියෝස්ක සක්‍රිය විට පුර්ණතිර අතුරුමුහුණත් පෙන්වන්නේ කුමන ප්‍රදානයද.",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Rotacija začetnega zaslona",
+    "BOOT_BRANDING_ROTATION_DOC": "Namig za rotacijo sredstev Plymouth (jedro plymouth=N). Ujemanje z orientacijo zaslona.",
+    "INSTALL_BOOT_BRANDING": "Namesti in omogoči"
   }
 }

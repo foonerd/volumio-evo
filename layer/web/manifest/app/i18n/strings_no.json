@@ -483,6 +483,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "",
     "ALLOW_UI_STATISTICS_DOC": "",
+    "BOOT_BRANDING": "Oppstartsbranding",
+    "BOOT_BRANDING_ROTATION": "Splash-rotasjon",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotasjonshint for Plymouth-ressurser (kjerneparameter plymouth=N). Tilpass skjermretningen.",
+    "INSTALL_BOOT_BRANDING": "Installer og aktiver",
     "CANNOT_REMOVE_MEDIA": "",
     "CHECKING_SYSTEM_INTEGRITY": "",
     "CHECK_UPDATES": "Sjekk oppdateringer",

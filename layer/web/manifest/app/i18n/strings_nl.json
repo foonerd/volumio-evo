@@ -1023,6 +1023,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Toestaan verzamelen UI-statistieken",
     "ALLOW_UI_STATISTICS_DOC": "Sta het verzamelen van gedrags- en gebruiksstatistieken van de Volumio UI toe via Facebbook Pixel en Google Analytics. Deze gegevens worden gebruikt om de gebruikerservaring van Volumio te verbeteren. Voor meer informatie over hoe we gegevens verzamelen en verwerken, verwijzen we je naar volumio.org/privacy-policy",
+    "BOOT_BRANDING": "Opstartbranding",
+    "BOOT_BRANDING_ROTATION": "Splash-rotatie",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotatiehint voor Plymouth-assets (kernelparameter plymouth=N). Stem af op schermoriëntatie.",
+    "INSTALL_BOOT_BRANDING": "Installeren en inschakelen",
     "CANNOT_REMOVE_MEDIA": "Kan media niet verwijderen",
     "CHECKING_SYSTEM_INTEGRITY": "Systeemintegriteit controleren",
     "CHECK_UPDATES": "Controleer op updates",

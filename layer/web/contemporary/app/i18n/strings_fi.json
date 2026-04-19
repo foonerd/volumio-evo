@@ -849,6 +849,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Salli UI-tilastojen kerääminen",
     "ALLOW_UI_STATISTICS_DOC": "Salli käyttäytymis- ja käyttötilastojen kerääminen Volumio UI:ssa. Näitä tietoja käytetään Volumion käyttökokemuksen parantamiseen. Lisätietoja siitä, miten keräämme ja käsittelemme tietoja, on osoitteessa volumio.com/privacy-policy.",
+    "BOOT_BRANDING": "Käynnistyksen brändäys",
+    "BOOT_BRANDING_ROTATION": "Splash-kierto",
+    "BOOT_BRANDING_ROTATION_DOC": "Kiertovihje Plymouth-resursseille (kernel-parametri plymouth=N). Sovita näytön suuntaan.",
+    "INSTALL_BOOT_BRANDING": "Asenna ja ota käyttöön",
     "CANNOT_REMOVE_MEDIA": "Ei voi poistaa mediaa",
     "CHECKING_SYSTEM_INTEGRITY": "Järjestelmän eheyden tarkistaminen",
     "CHECK_UPDATES": "Tarkista päivitykset",

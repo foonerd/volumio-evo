@@ -1022,6 +1022,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Allow UI Statistics collection",
     "ALLOW_UI_STATISTICS_DOC": "Allow the collection of behavioral and usage statistics on Volumio UI. These data are used to improve Volumio user experience. For further information about how we collect and process data please refer to volumio.com/privacy-policy",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Splash rotation",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotation hint for Plymouth assets (kernel parameter plymouth=N). Match your display orientation.",
+    "INSTALL_BOOT_BRANDING": "Install and enable",
     "CANNOT_REMOVE_MEDIA": "Cannot remove media",
     "CHECKING_SYSTEM_INTEGRITY": "Checking system integrity",
     "CHECK_UPDATES": "Check Updates",

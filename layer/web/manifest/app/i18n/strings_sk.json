@@ -970,6 +970,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Povolenie zberu štatistík používateľského rozhrania",
     "ALLOW_UI_STATISTICS_DOC": "Povolenie zhromažďovania štatistík správania a používania v používateľskom rozhraní Volumio. Tieto údaje sa používajú na zlepšenie používateľského zážitku Volumio. Ďalšie informácie o tom, ako zhromažďujeme a spracovávame údaje, nájdete na stránke volumio.com/privacy-policy",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Otáčanie splash",
+    "BOOT_BRANDING_ROTATION_DOC": "Nápoveda rotácie pre Plymouth (parameter plymouth=N). Zlaďte s orientáciou displeja.",
+    "INSTALL_BOOT_BRANDING": "Nainštalovať a povoliť",
     "CANNOT_REMOVE_MEDIA": "Médium sa nedá odobrať",
     "CHECKING_SYSTEM_INTEGRITY": "Kontrola integrity systému",
     "CHECK_UPDATES": "Vyhľadať aktualizácie",

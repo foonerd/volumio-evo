@@ -970,6 +970,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "允许收集UI统计数据",
     "ALLOW_UI_STATISTICS_DOC": "允许收集Volumio用户界面上的行为和使用统计数据。这些数据将用于改善Volumio的用户体验。关于我们如何收集和处理数据的进一步信息，请参考volumio.com/privacy-policy。",
+    "BOOT_BRANDING": "启动画面品牌",
+    "BOOT_BRANDING_ROTATION": "开机动画旋转",
+    "BOOT_BRANDING_ROTATION_DOC": "Plymouth 资源的旋转提示（内核参数 plymouth=N）。请与显示屏方向一致。",
+    "INSTALL_BOOT_BRANDING": "安装并启用",
     "CANNOT_REMOVE_MEDIA": "不能移除媒体",
     "CHECKING_SYSTEM_INTEGRITY": "检查系统的完整性",
     "CHECK_UPDATES": "检测更新",

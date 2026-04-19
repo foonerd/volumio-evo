@@ -478,6 +478,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "",
     "ALLOW_UI_STATISTICS_DOC": "",
+    "BOOT_BRANDING": "Επωνυμία εκκίνησης",
+    "BOOT_BRANDING_ROTATION": "Περιστροφή splash",
+    "BOOT_BRANDING_ROTATION_DOC": "Υπόδειξη περιστροφής για τα στοιχεία Plymouth (παράμετρος plymouth=N). Ταιριάξτε με τον προσανατολισμό της οθόνης.",
+    "INSTALL_BOOT_BRANDING": "Εγκατάσταση και ενεργοποίηση",
     "CANNOT_REMOVE_MEDIA": "",
     "CHECKING_SYSTEM_INTEGRITY": "",
     "CHECK_UPDATES": "Έλεγχος για ενημερώσεις",

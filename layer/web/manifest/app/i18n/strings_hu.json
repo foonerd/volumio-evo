@@ -969,6 +969,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "A Felhasználói Felület statisztikák gyűjtésének engedélyezése",
     "ALLOW_UI_STATISTICS_DOC": "Engedélyezze a viselkedési és használati statisztikák gyűjtését a Volumio felhasználói felületen a Facebook Pixel és a Google Analytitcs segítségével. Ezeket az adatokat a Volumio felhasználói élményének javítására használják. Az adatok gyűjtésével és feldolgozásával kapcsolatos további információk a volumio.org/privacy-policy oldalon találhatók",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Splash elforgatás",
+    "BOOT_BRANDING_ROTATION_DOC": "Forgatási jelzés Plymouth elemekhez (kernel plymouth=N). Igazítsa a kijelző tájolásához.",
+    "INSTALL_BOOT_BRANDING": "Telepítés és engedélyezés",
     "CANNOT_REMOVE_MEDIA": "Nem lehet eltávolítani az adathordozót",
     "CHECKING_SYSTEM_INTEGRITY": "A rendszer integritásának ellenőrzése",
     "CHECK_UPDATES": "Frissítések keresése",

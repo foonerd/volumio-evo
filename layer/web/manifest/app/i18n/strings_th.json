@@ -970,6 +970,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "อนุญาตการรวบรวมสถิติ UI",
     "ALLOW_UI_STATISTICS_DOC": "อนุญาตให้รวบรวมสถิติพฤติกรรมและการใช้งานบน Volumio UI ผ่าน Facebbook Pixel และ Google Analytics ข้อมูลเหล่านี้ใช้เพื่อปรับปรุงประสบการณ์ผู้ใช้ Volumio สําหรับข้อมูลเพิ่มเติมเกี่ยวกับวิธีการที่เรารวบรวมและประมวลผลข้อมูล โปรดดูที่ volumio.org/privacy-policy",
+    "BOOT_BRANDING": "แบรนด์ขณะบูต",
+    "BOOT_BRANDING_ROTATION": "การหมุนสแปลช",
+    "BOOT_BRANDING_ROTATION_DOC": "คำแนะนำการหมุนสำหรับ Plymouth (พารามิเตอร์ plymouth=N) ให้ตรงกับทิศทางจอ",
+    "INSTALL_BOOT_BRANDING": "ติดตั้งและเปิดใช้งาน",
     "CANNOT_REMOVE_MEDIA": "ไม่สามารถลบสื่อได้",
     "CHECKING_SYSTEM_INTEGRITY": "ตรวจสอบความสมบูรณ์ของระบบ",
     "CHECK_UPDATES": "ตรวจสอบการอัปเดต",

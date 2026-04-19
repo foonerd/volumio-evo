@@ -969,6 +969,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "UI 통계 수집 허락",
     "ALLOW_UI_STATISTICS_DOC": "페이스북 Pixel과 구글 어낼리틱스를 통한 Volumio UI 사용 통계 수집을 허락합니다. 이들 데이터는 볼류미오 사용자 경험을 향상시키는데 사용됩니다. 데이터 수집에 대한 추가 정보는 volumio.org/privacy-policy 를 참고하세요",
+    "BOOT_BRANDING": "부트 브랜딩",
+    "BOOT_BRANDING_ROTATION": "스플래시 회전",
+    "BOOT_BRANDING_ROTATION_DOC": "Plymouth 리소스 회전 안내(커널 plymouth=N). 디스플레이 방향에 맞추세요.",
+    "INSTALL_BOOT_BRANDING": "설치 및 사용",
     "CANNOT_REMOVE_MEDIA": "미디어 제거 못함",
     "CHECKING_SYSTEM_INTEGRITY": "시스템 무결성 확인",
     "CHECK_UPDATES": "업데이트 확인",

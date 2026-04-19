@@ -972,6 +972,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Autoriser la collecte d'informations sur l'utilisation",
     "ALLOW_UI_STATISTICS_DOC": "Autoriser la collecte d'information sur l'utilisation de l'interface de Volummio via Facebook Pixel et Google Analytics. Ces données sont utilisées pour améliorer Volumio. Pour plus d'information sur ce qui est collecté, merci de consulter volumio.org/privacy-policy",
+    "BOOT_BRANDING": "Écran de démarrage",
+    "BOOT_BRANDING_ROTATION": "Rotation du splash",
+    "BOOT_BRANDING_ROTATION_DOC": "Indication de rotation pour les ressources Plymouth (paramètre plymouth=N). À faire correspondre à l’orientation de l’écran.",
+    "INSTALL_BOOT_BRANDING": "Installer et activer",
     "CANNOT_REMOVE_MEDIA": "Impossible de retirer le périphérique",
     "CHECKING_SYSTEM_INTEGRITY": "Vérification de l’intégrité du système",
     "CHECK_UPDATES": "Vérifier les mises à jour",

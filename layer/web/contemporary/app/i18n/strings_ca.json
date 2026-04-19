@@ -871,6 +871,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Permetre la recopilació d'estadístiques de la interfície d'usuari",
     "ALLOW_UI_STATISTICS_DOC": "Permet la recopilació d'estadístiques de comportament i ús en la interfície d'usuari de Volumio a través de Facebbook Pixel i Google Analytics. Aquestes dades s'utilitzen per millorar l'experiència de l'usuari de Volumio. Per obtenir més informació sobre com recollim i processem les dades, consulta volumio.org/privacy-policy",
+    "BOOT_BRANDING": "Marca d'arrencada",
+    "BOOT_BRANDING_ROTATION": "Rotació de la pantalla inicial",
+    "BOOT_BRANDING_ROTATION_DOC": "Indicació de rotació per als recursos Plymouth (paràmetre plymouth=N del nucli). Alineu amb l'orientació de la pantalla.",
+    "INSTALL_BOOT_BRANDING": "Instal·lar i activar",
     "CANNOT_REMOVE_MEDIA": "No es poden treure els mitjans",
     "CHECKING_SYSTEM_INTEGRITY": "Comprovació de la integritat del sistema",
     "CHECK_UPDATES": "Comprovar actualitzacions",

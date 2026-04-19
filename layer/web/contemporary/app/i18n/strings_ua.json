@@ -494,6 +494,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "",
     "ALLOW_UI_STATISTICS_DOC": "",
+    "BOOT_BRANDING": "Брендинг завантаження",
+    "BOOT_BRANDING_ROTATION": "Обертання заставки",
+    "BOOT_BRANDING_ROTATION_DOC": "Підказка обертання для ресурсів Plymouth (параметр plymouth=N). Відповідає орієнтації дисплея.",
+    "INSTALL_BOOT_BRANDING": "Установити й увімкнути",
     "CANNOT_REMOVE_MEDIA": "",
     "CHECKING_SYSTEM_INTEGRITY": "",
     "CHECK_UPDATES": "Перевірити оновлення",

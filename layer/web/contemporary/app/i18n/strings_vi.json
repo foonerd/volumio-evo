@@ -969,6 +969,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "Cho phép thu thập thống kê giao diện người dùng (UI)",
     "ALLOW_UI_STATISTICS_DOC": "Cho phép thu thập dữ liệu thống kê về hành vi và cách sử dụng trên giao diện người dùng Volumio. Các dữ liệu này được sử dụng để cải thiện trải nghiệm người dùng của Volumio. Để biết thêm thông tin về cách chúng tôi thu thập và xử lý dữ liệu, vui lòng tham khảo volumio.com/privacy-policy.",
+    "BOOT_BRANDING": "Branding khi khởi động",
+    "BOOT_BRANDING_ROTATION": "Xoay splash",
+    "BOOT_BRANDING_ROTATION_DOC": "Gợi ý xoay cho tài nguyên Plymouth (tham số plymouth=N). Khớp hướng màn hình.",
+    "INSTALL_BOOT_BRANDING": "Cài đặt và bật",
     "CANNOT_REMOVE_MEDIA": "Không thể xóa dữ liệu media",
     "CHECKING_SYSTEM_INTEGRITY": "Kiểm tra tính toàn vẹn của hệ thống",
     "CHECK_UPDATES": "Kiểm tra các bản cập nhật",

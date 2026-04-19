@@ -735,6 +735,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "",
     "ALLOW_UI_STATISTICS_DOC": "",
+    "BOOT_BRANDING": "Boot branding",
+    "BOOT_BRANDING_ROTATION": "Rotacija splasha",
+    "BOOT_BRANDING_ROTATION_DOC": "Rotacijski savjet za Plymouth resurse (parametar jezgra plymouth=N). Uskladite s orijentacijom zaslona.",
+    "INSTALL_BOOT_BRANDING": "Instaliraj i omogući",
     "CANNOT_REMOVE_MEDIA": "Nije moguće ukloniti medij",
     "CHECKING_SYSTEM_INTEGRITY": "Provjera integriteta sustava",
     "CHECK_UPDATES": "Provjeri ažuriranja",

@@ -884,6 +884,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "UI統計収集を許可",
     "ALLOW_UI_STATISTICS_DOC": "Volumio UIの使用統計を収集することを許可します。これらのデータは、Volumioのユーザー体験を向上させるために使用されます。データの収集と処理方法については、volumio.com/privacy-policy をご覧ください。",
+    "BOOT_BRANDING": "起動ブランディング",
+    "BOOT_BRANDING_ROTATION": "スプラッシュの向き",
+    "BOOT_BRANDING_ROTATION_DOC": "Plymouth アセットの回転ヒント（カーネルパラメータ plymouth=N）。ディスプレイの向きに合わせます。",
+    "INSTALL_BOOT_BRANDING": "インストールして有効化",
     "CANNOT_REMOVE_MEDIA": "メディアを削除できません",
     "CHECKING_SYSTEM_INTEGRITY": "システムの整合性を確認しています",
     "CHECK_UPDATES": "更新の確認",

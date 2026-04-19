@@ -551,6 +551,10 @@
   "SYSTEM": {
     "ALLOW_UI_STATISTICS": "",
     "ALLOW_UI_STATISTICS_DOC": "",
+    "BOOT_BRANDING": "開機畫面品牌",
+    "BOOT_BRANDING_ROTATION": "開機動畫旋轉",
+    "BOOT_BRANDING_ROTATION_DOC": "Plymouth 資源的旋轉提示（核心參數 plymouth=N）。請配合螢幕方向。",
+    "INSTALL_BOOT_BRANDING": "安裝並啟用",
     "CANNOT_REMOVE_MEDIA": "無法移除媒體",
     "CHECKING_SYSTEM_INTEGRITY": "",
     "CHECK_UPDATES": "檢查更新",
