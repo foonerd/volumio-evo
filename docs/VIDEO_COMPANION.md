@@ -92,6 +92,7 @@ Exact field names should be aligned with [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBA
 
 - Add **mpv** or **GStreamer** (+ plugins) to the Volumio layer / package set; document in the same place other optional binaries are described (e.g. tester/bootstrap docs when packaging is fixed).
 - Optional: hardware decode packages per board profile.
+- **Runtime user** for groups / permissions: §11 — **never hardcode** a login name in scripts or docs.
 
 ---
 
@@ -112,3 +113,27 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 - **`video_companion::is_video_volumio_uri`** — extension classification (always built).
 
 Build with video hooks: **`cargo build -p volumio-evo-core --features video-companion`** (default unchanged).
+
+---
+
+## 11. Runtime user — **never hardcode a login**
+
+Canonical policy is **[RUNTIME_USER.md](RUNTIME_USER.md)**: Evo does **not** assume **`volumio`**, uid **1000**, or any fixed account. The **`volumio-evo`** service runs as **`EVO_SERVICE_USER`** after bootstrap resolution (or **root** when explicitly configured).
+
+**Companion OS packages** (**`mpv`**, **`ffmpeg`**, …) are installed **as root** (`apt`); package installs do **not** encode a login.
+
+**DRM / V4L2 device access** (`/dev/dri`, `/dev/video*`) requires the **same UID as the Evo service** to be in supplementary groups **`audio`**, **`video`**, and **`render`**. Bootstrap should set **`SupplementaryGroups=`** and **`usermod`** for **whatever user owns the service** — the variable **`${u}`** in **`bootstrap-volumio-evo-player.sh`**, **not** a literal string.
+
+For **one-off** fixes on a live system, resolve the service user from systemd first, then fall back to the invoking login:
+
+```bash
+EVO_USER="$(grep -h '^User=' /etc/systemd/system/volumio-evo.service.d/*.conf 2>/dev/null | head -1)"
+EVO_USER="${EVO_USER#User=}"
+EVO_USER="$(echo "$EVO_USER" | tr -d '[:space:]')"
+if [[ -z "$EVO_USER" ]]; then
+  EVO_USER="${SUDO_USER:-$(id -un)}"
+fi
+sudo usermod -aG audio,video,render "$EVO_USER"
+```
+
+After changing groups, **restart** **`volumio-evo`** (or re-login for SSH-only checks). Future bootstrap changes should extend **`SupplementaryGroups=`** beyond **`audio`** when video companion packages are enabled.
