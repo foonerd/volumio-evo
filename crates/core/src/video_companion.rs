@@ -1,4 +1,4 @@
-//! LAN browser video (**HLS** via **ffmpeg**). **Default:** device audio through **MPD** (same path as normal playback); optional legacy second **ffmpeg** → ALSA (`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`). Scenario 1 — see [VIDEO_COMPANION.md](../../../docs/VIDEO_COMPANION.md).
+//! LAN browser video (**HLS** via **ffmpeg**). **Scenario 1 (`EVO_VIDEO_LAN_SYNC=split`):** device audio (**MPD** or legacy ALSA **ffmpeg**) + muted **video-only** HLS. **Scenario 2 (`EVO_VIDEO_LAN_SYNC=browser`):** one encode muxes **H.264 + AAC** into **HLS** so the browser keeps lip-sync (recommended when split clocks drift). See [VIDEO_COMPANION.md](../../../docs/VIDEO_COMPANION.md).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,6 +22,27 @@ fn companion_device_audio_via_mpd() -> bool {
             "ffmpeg" | "ffmpeg_alsa" | "legacy"
         ),
         Err(_) => true,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LanSyncMode {
+    /// Scenario 1: room speakers + **video-only** HLS (muted in the browser).
+    Split,
+    /// Scenario 2: **AAC** + **H.264** in **HLS** — single timeline in the browser (no **MPD** audio for this file).
+    BrowserMuxed,
+}
+
+/// **`EVO_VIDEO_LAN_SYNC`**: unset / **`split`** → Scenario 1; **`browser`** / **`muxed`** / **`scenario2`** → muxed **HLS** (**Scenario 2**).
+fn companion_lan_sync_mode() -> LanSyncMode {
+    match std::env::var("EVO_VIDEO_LAN_SYNC") {
+        Ok(v) => match v.trim().to_ascii_lowercase().as_str() {
+            "browser" | "muxed" | "mux" | "scenario2" | "inbrowser" | "html" => {
+                LanSyncMode::BrowserMuxed
+            }
+            _ => LanSyncMode::Split,
+        },
+        Err(_) => LanSyncMode::Split,
     }
 }
 
@@ -111,6 +132,8 @@ pub struct VideoSessionInner {
     pub alsa_ffmpeg_pid: Option<u32>,
     /// **`true`**: jack audio from **MPD** (recommended). **`false`**: **`alsa_ffmpeg_pid`** decodes to ALSA.
     pub audio_via_mpd: bool,
+    /// **`true`**: **Scenario 2** — **AAC** muxed in **HLS** (browser is the only audio sink for this item).
+    pub browser_muxed_hls: bool,
     pub volumio_uri: String,
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -465,12 +488,13 @@ async fn spawn_ffmpeg_alsa_only(
     Ok(child)
 }
 
-/// **Video only** → HLS (browser). No ALSA in this process — avoids encoder/RTP competing with sound card.
-async fn spawn_ffmpeg_hls_only(
+/// **HLS** → browser. **`mux_audio`**: **AAC** in the same **MPEG-TS** segments (**Scenario 2** — one decode clock).
+async fn spawn_ffmpeg_hls(
     source: &Path,
     seek_secs: f64,
     playlist_path: &Path,
     segment_pattern: &str,
+    mux_audio: bool,
 ) -> anyhow::Result<tokio::process::Child> {
     let ffmpeg = ffmpeg_binary();
     let mut cmd = tokio::process::Command::new(&ffmpeg);
@@ -489,6 +513,10 @@ async fn spawn_ffmpeg_hls_only(
     cmd.arg("-max_muxing_queue_size").arg("4096");
     cmd.arg("-map").arg("0:v:0");
     append_video_encoder_args(&mut cmd, resolve_video_encoder());
+    if mux_audio {
+        cmd.arg("-map").arg("0:a:0");
+        cmd.args(["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k"]);
+    }
     cmd.args(["-f", "hls", "-hls_time", HLS_SEGMENT_SECS, "-hls_list_size", "12"]);
     cmd.arg("-hls_flags").arg(
         "delete_segments+append_list+omit_endlist+program_date_time",
@@ -497,7 +525,8 @@ async fn spawn_ffmpeg_hls_only(
     cmd.arg(playlist_path);
     let mut child = cmd.spawn().with_context(|| {
         format!(
-            "spawn `{ffmpeg}` (HLS leg; set EVO_FFMPEG_PATH if needed; PATH={})",
+            "spawn `{ffmpeg}` (HLS{}; set EVO_FFMPEG_PATH if needed; PATH={})",
+            if mux_audio { " + AAC mux" } else { "" },
             std::env::var("PATH").unwrap_or_default()
         )
     })?;
@@ -633,7 +662,10 @@ pub(crate) async fn start_video_session(
         host: state.config.mpd_host.clone(),
         port: state.config.mpd_port,
     };
-    let audio_mpd = companion_device_audio_via_mpd() && probe.has_audio;
+    let browser_muxed = matches!(companion_lan_sync_mode(), LanSyncMode::BrowserMuxed);
+    let audio_mpd =
+        companion_device_audio_via_mpd() && probe.has_audio && !browser_muxed;
+    let mux_audio_into_hls = browser_muxed && probe.has_audio;
 
     {
         let mut g = state.video_session.inner.lock().await;
@@ -656,7 +688,7 @@ pub(crate) async fn start_video_session(
     let generation = state.video_session.next_generation();
     let seek0 = 0_f64;
 
-    let use_ffmpeg_alsa = probe.has_audio && !audio_mpd;
+    let use_ffmpeg_alsa = probe.has_audio && !audio_mpd && !browser_muxed;
     let mut alsa_child = if use_ffmpeg_alsa {
         Some(
             spawn_ffmpeg_alsa_only(&source, seek0, &alsa_device)
@@ -666,7 +698,14 @@ pub(crate) async fn start_video_session(
     } else {
         None
     };
-    let mut hls_child = match spawn_ffmpeg_hls_only(&source, seek0, &playlist_path, &segment_pattern).await
+    let mut hls_child = match spawn_ffmpeg_hls(
+        &source,
+        seek0,
+        &playlist_path,
+        &segment_pattern,
+        mux_audio_into_hls,
+    )
+    .await
     {
         Ok(c) => c,
         Err(e) => {
@@ -688,7 +727,7 @@ pub(crate) async fn start_video_session(
     };
     let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
-    if audio_mpd {
+    if audio_mpd || browser_muxed {
         if let Err(e) =
             wait_for_hls_manifest_ready(&playlist_path, Duration::from_secs(30)).await
         {
@@ -696,8 +735,10 @@ pub(crate) async fn start_video_session(
             if let Some(mut ac) = alsa_child.take() {
                 let _ = ac.kill().await;
             }
-            return Err(e).context("HLS playlist not ready before MPD play (audio_via_mpd)");
+            return Err(e).context("HLS playlist not ready (video companion bootstrap)");
         }
+    }
+    if audio_mpd {
         if let Err(e) =
             crate::mpd::add_play_connected(&mpd_cfg, volumio_uri.trim()).await
         {
@@ -714,6 +755,7 @@ pub(crate) async fn start_video_session(
         hls_ffmpeg_pid: hls_pid,
         alsa_ffmpeg_pid: alsa_pid,
         audio_via_mpd: audio_mpd,
+        browser_muxed_hls: browser_muxed,
         volumio_uri: volumio_uri.clone(),
         title,
         artist,
@@ -740,13 +782,14 @@ pub(crate) async fn start_video_session(
     state.notify_push_queue();
 
     tracing::info!(
-        "{} video session started ({:?}) gen={} hls_pid={} alsa_pid={:?} audio_via_mpd={} intent={:?} uri={}",
+        "{} video session started ({:?}) gen={} hls_pid={} alsa_pid={:?} audio_via_mpd={} browser_muxed={} intent={:?} uri={}",
         crate::log_tags::EVO_PLAY,
         source,
         generation,
         hls_pid,
         alsa_pid,
         audio_mpd,
+        browser_muxed,
         intent,
         volumio_uri
     );
@@ -799,14 +842,31 @@ async fn restart_ffmpeg_at(
         let has_audio = inner.has_audio;
         let alsa_dev = inner.alsa_device.clone();
         let audio_via_mpd = inner.audio_via_mpd;
+        let browser_muxed_hls = inner.browser_muxed_hls;
         let _ = pid_kill(inner.hls_ffmpeg_pid, libc::SIGKILL);
         if let Some(a) = inner.alsa_ffmpeg_pid {
             let _ = pid_kill(a, libc::SIGKILL);
         }
-        (generation, source, has_audio, alsa_dev, capped_ms, audio_via_mpd)
+        (
+            generation,
+            source,
+            has_audio,
+            alsa_dev,
+            capped_ms,
+            audio_via_mpd,
+            browser_muxed_hls,
+        )
     };
 
-    let (generation, source, has_audio, alsa_dev, capped_ms, audio_via_mpd) = snapshot;
+    let (
+        generation,
+        source,
+        has_audio,
+        alsa_dev,
+        capped_ms,
+        audio_via_mpd,
+        browser_muxed_hls,
+    ) = snapshot;
     let seek_secs = (capped_ms as f64) / 1000.0;
 
     let live_dir = prepare_hls_directory().await?;
@@ -819,13 +879,22 @@ async fn restart_ffmpeg_at(
         .ok_or_else(|| anyhow!("invalid utf-8 in HLS path"))?
         .to_string();
 
-    let use_ffmpeg_alsa = has_audio && !audio_via_mpd;
+    let use_ffmpeg_alsa = has_audio && !audio_via_mpd && !browser_muxed_hls;
+    let mux_audio_into_hls = browser_muxed_hls && has_audio;
     let mut alsa_child = if use_ffmpeg_alsa {
         Some(spawn_ffmpeg_alsa_only(&source, seek_secs, &alsa_dev).await?)
     } else {
         None
     };
-    let mut hls_child = match spawn_ffmpeg_hls_only(&source, seek_secs, &playlist_path, &segment_pattern).await {
+    let mut hls_child = match spawn_ffmpeg_hls(
+        &source,
+        seek_secs,
+        &playlist_path,
+        &segment_pattern,
+        mux_audio_into_hls,
+    )
+    .await
+    {
         Ok(c) => c,
         Err(e) => {
             if let Some(mut ac) = alsa_child.take() {
@@ -846,7 +915,7 @@ async fn restart_ffmpeg_at(
     };
     let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
-    if audio_via_mpd && has_audio {
+    if browser_muxed_hls || audio_via_mpd {
         if let Err(e) =
             wait_for_hls_manifest_ready(&playlist_path, Duration::from_secs(30)).await
         {
@@ -870,7 +939,7 @@ async fn restart_ffmpeg_at(
             state.clear_video_playback_active();
             state.notify_push_state();
             state.notify_push_queue();
-            return Err(e).context("HLS playlist not ready after seek (audio_via_mpd)");
+            return Err(e.context("HLS playlist not ready after seek"));
         }
     }
 
@@ -972,6 +1041,7 @@ pub async fn volumio_state_for_video_session(
 ) -> Option<crate::mpd::VolumioState> {
     let (
         audio_via_mpd,
+        browser_muxed_hls,
         paused_fallback,
         snapshot_elapsed,
         duration_secs,
@@ -986,6 +1056,7 @@ pub async fn volumio_state_for_video_session(
         let s = inner.as_ref()?;
         (
             s.audio_via_mpd,
+            s.browser_muxed_hls,
             s.paused,
             s.snapshot_elapsed_ms(),
             s.duration_secs,
@@ -1059,6 +1130,7 @@ pub async fn volumio_state_for_video_session(
         bitrate: None,
         updatedb: false,
         video_stream_url: Some("/hls/live/index.m3u8".to_string()),
+        video_browser_muxed: Some(browser_muxed_hls),
     })
 }
 

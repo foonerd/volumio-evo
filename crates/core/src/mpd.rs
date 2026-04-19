@@ -2250,6 +2250,9 @@ pub struct VolumioState {
     /// When set, Evo’s **`video-companion`** session streams HLS here (typically **`/hls/live/index.m3u8`**).
     #[serde(rename = "videoStreamUrl", skip_serializing_if = "Option::is_none")]
     pub video_stream_url: Option<String>,
+    /// **`true`**: **Scenario 2** — **AAC**/**H.264** muxed in **HLS**; audio comes from the browser (lip-sync). **`false`/unset**: Scenario 1 (device audio + muted browser).
+    #[serde(rename = "videoBrowserMuxed", skip_serializing_if = "Option::is_none")]
+    pub video_browser_muxed: Option<bool>,
 }
 
 /// Map MPD `file` URL to Volumio `music-library/...` for album-art + browse parity.
@@ -2602,6 +2605,7 @@ pub async fn get_state(
         bitrate,
         updatedb: updating_db,
         video_stream_url: None,
+        video_browser_muxed: None,
     })
 }
 

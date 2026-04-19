@@ -119,6 +119,7 @@ mod tests {
             bitrate: None,
             updatedb: false,
             video_stream_url: None,
+            video_browser_muxed: None,
         }
     }
 

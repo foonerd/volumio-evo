@@ -118,6 +118,18 @@
     wrap.insertBefore(tb, wrap.firstChild);
   }
 
+  /** Scenario 2 (`pushState.videoBrowserMuxed`): HLS carries **AAC** — unmute so the built-in sync is audible. */
+  function applyBrowserMuxMute(v, browserMuxed) {
+    if (!v) return;
+    if (browserMuxed) {
+      v.muted = false;
+      v.removeAttribute('muted');
+    } else {
+      v.muted = true;
+      v.setAttribute('muted', '');
+    }
+  }
+
   function buildHlsInstance() {
     return new window.Hls({
       enableWorker: true,
@@ -137,7 +149,7 @@
     });
   }
 
-  function ensureVideo(url) {
+  function ensureVideo(url, browserMuxed) {
     var id = 'evo-video-companion-overlay';
     var wrap = document.getElementById(id);
     if (!wrap) {
@@ -157,11 +169,11 @@
     if (!v) {
       v = document.createElement('video');
       v.setAttribute('playsinline', '');
-      v.setAttribute('muted', '');
       v.setAttribute('controls', '');
       v.style.cssText = 'width:100%;height:auto;display:block;background:#000;flex:1;min-height:0;';
       wrap.appendChild(v);
     }
+    applyBrowserMuxMute(v, !!browserMuxed);
 
     if (wrap._evoUrl !== url) {
       destroyHls(wrap);
@@ -214,7 +226,7 @@
     if (!state) return;
     var u = state.videoStreamUrl;
     if (u && state.status && state.status !== 'stop') {
-      ensureVideo(u);
+      ensureVideo(u, !!state.videoBrowserMuxed);
     } else {
       hideVideo();
     }

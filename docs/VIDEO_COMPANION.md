@@ -1,6 +1,6 @@
 # Video companion (design concept)
 
-**Status:** **Scenario 1 (headless + LAN HLS)** is implemented in **volumio-evo** (**default:** room audio through **MPD** — same stack as normal playback — plus one **`ffmpeg`** process for **HLS** under `GET /hls/...`; **`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`** restores the older second **`ffmpeg`** straight to ALSA). **`pushState.videoStreamUrl`**, stock layer `index.html` + `evo-video-overlay.js` + vendored `hls.js`. **Local HDMI** and “audio+video in browser” remain future work. **Scope:** Rust **volumio-evo** only; no Node.
+**Status:** **Scenario 1** (**`EVO_VIDEO_LAN_SYNC=split`**, default) and **Scenario 2** (**`EVO_VIDEO_LAN_SYNC=browser`**) are implemented. **Scenario 1:** room audio (**MPD** or legacy ALSA **ffmpeg**) + **video-only** muted **HLS**. **Scenario 2:** one **`ffmpeg`** muxes **H.264 + AAC** into **`GET /hls/...`** — the browser decodes **one** timeline (**`pushState.videoBrowserMuxed: true`**); use this when split clocks drift. **`EVO_VIDEO_DEVICE_AUDIO`** applies only to Scenario 1. **Scope:** Rust **volumio-evo** only; no Node.
 
 **Related:** [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) (`pushState` / timer contract), [CONCEPT.md](CONCEPT.md) (Evo architecture).
 
@@ -12,7 +12,7 @@
 |----------|-----------|
 | **Must** | **Headless player + LAN browser:** audio from the device’s normal path (ALSA / Evo playback options); **video picture** in the browser (Chrome, Safari, Firefox, Opera). Browser video is **muted**; sound comes only from the player. |
 | **Must** | **Local display** (HDMI, DSI, framebuffer-class output): **video on the attached screen**, audio from the **same** player audio path as today. |
-| **Later** | **Remote client:** audio **and** video both in the browser — different product mode (duplicate sink or browser-only audio); defer. |
+| **Optional** | **Scenario 2** (`EVO_VIDEO_LAN_SYNC=browser`): lip-sync **in the browser** — **AAC** + video in **HLS** (`videoBrowserMuxed` in pushState); same-origin overlay unmutes playback. Room speakers stay idle for that track — use when Scenario 1 A/V drift is unacceptable. |
 
 ---
 
