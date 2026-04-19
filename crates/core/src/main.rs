@@ -21,6 +21,8 @@ mod ui_bootstrap;
 mod albumart;
 mod i2s;
 mod api;
+mod video_companion;
+mod playback_router;
 mod artist_normalize;
 mod config;
 mod metavolumio;

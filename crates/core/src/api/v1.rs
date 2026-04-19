@@ -386,13 +386,7 @@ pub async fn replace_and_play(
         )
             .into_response();
     }
-    let config = mpd_config_from_app(&state);
-    match mpd::replace_and_play_resolved(
-        &config,
-        &state.config.music_sources.music_root,
-        &body.uri,
-    )
-    .await
+    match crate::playback_router::replace_and_play_uri(&state, &body.uri).await
     {
         Ok(()) => {
             state.notify_push_state();

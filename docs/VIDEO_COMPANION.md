@@ -98,3 +98,13 @@ Exact field names should be aligned with [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBA
 ## 9. Branch
 
 Work for this concept lives on **`video-companion`** until reviewed for merge to `main`.
+
+---
+
+## 10. Implementation stub (in-tree)
+
+- **`playback_router::replace_and_play_uri`** — used by Socket.IO **`replaceAndPlay`** (non-playlist) and **`POST /api/v1/replaceAndPlay`**. Calls **`video_companion::try_take_over_replace_and_play`** when built with **`--features video-companion`**, then **`mpd::replace_and_play_resolved`**.
+- **`video_companion::is_video_volumio_uri`** — extension-based classification (always built; unit-tested).
+- Stub takeover currently logs and returns **fall through** to MPD until a real **`VideoCompanionSession`** exists.
+
+Build with hooks: **`cargo build -p volumio-evo-core --features video-companion`** (default remains unchanged).

@@ -15,6 +15,8 @@ pub mod ui_bootstrap;
 pub mod albumart;
 pub mod i2s;
 pub mod api;
+pub mod video_companion;
+pub mod playback_router;
 pub mod artist_normalize;
 pub mod config;
 pub mod metavolumio;

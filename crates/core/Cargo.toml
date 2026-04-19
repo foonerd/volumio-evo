@@ -12,6 +12,8 @@ path = "src/main.rs"
 # WASM plugins via wasmtime (arm64, amd64). Disable for armhf (wasmtime runtime does not build for 32-bit ARM).
 default = ["wasm"]
 wasm = ["dep:wasmtime", "wasmtime/cranelift"]
+# Video routing hooks (`playback_router`, `video_companion` takeover path). Decoder/player not included yet.
+video-companion = []
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

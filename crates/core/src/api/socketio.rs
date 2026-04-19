@@ -2136,12 +2136,7 @@ async fn mpd_replace_and_play_uri(state: &AppState, uri: &str) {
         let name = uri.strip_prefix("playlists/").unwrap_or(uri).to_string();
         mpd::play_playlist_by_name(&config, &name).await
     } else {
-        mpd::replace_and_play_resolved(
-            &config,
-            &state.config.music_sources.music_root,
-            uri,
-        )
-        .await
+        crate::playback_router::replace_and_play_uri(state, uri).await
     };
     match result {
         Ok(()) => {
