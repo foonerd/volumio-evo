@@ -6,6 +6,9 @@ After=network.target sound.target mpd.service
 # User=/Group= are optional: bootstrap can add volumio-evo.service.d/10-runtime-user.conf
 # (see docs/RUNTIME_USER.md; default is session user when EVO_SERVICE_USER is unset).
 Type=simple
+# Non-root service users cannot mkdir under /run themselves; video HLS uses /run/volumio-evo/hls/live/.
+RuntimeDirectory=volumio-evo
+RuntimeDirectoryMode=0755
 ExecStart=/usr/local/bin/volumio-evo
 Restart=on-failure
 RestartSec=5

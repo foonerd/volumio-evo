@@ -267,7 +267,13 @@ fn track_type_from_uri(uri: &str) -> Option<String> {
 
 async fn prepare_hls_directory() -> anyhow::Result<PathBuf> {
     let live = crate::paths::video_hls_live_dir();
-    tokio::fs::create_dir_all(&live).await?;
+    tokio::fs::create_dir_all(&live).await.with_context(|| {
+        format!(
+            "create HLS directory {live:?} (for a non-root service user, install \
+             `RuntimeDirectory=volumio-evo` in the systemd unit — see layer/systemd/volumio-evo.service; \
+             or set VOLUMIO_EVO_HLS_DIR to a writable path under /var/lib/volumio-evo)"
+        )
+    })?;
     Ok(live)
 }
 
