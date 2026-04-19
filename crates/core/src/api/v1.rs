@@ -363,8 +363,9 @@ pub async fn get_zones() -> impl IntoResponse {
 
 /// GET /api/v1/getActiveUi — which stock UI layout is configured (`volumioUisList.json` `uiName` values).
 pub async fn get_active_ui(State(state): State<AppState>) -> impl IntoResponse {
+    let layout = state.active_layout.read().await.clone();
     Json(serde_json::json!({
-        "active_layout": state.config.ui.active_layout,
+        "active_layout": layout,
     }))
 }
 

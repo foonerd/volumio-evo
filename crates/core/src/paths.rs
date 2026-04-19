@@ -34,6 +34,33 @@ pub fn default_alarm_clock_state_path() -> PathBuf {
         .unwrap_or_else(|_| settings_dir().join("alarm").join("state.toml"))
 }
 
+/// Wallpaper files + **`state.toml`** (unity with other **`settings/*/`** trees).
+/// Env **`VOLUMIO_EVO_BACKGROUNDS_DIR`** overrides; default **`settings/backgrounds/`** under
+/// [`settings_dir`].
+pub fn backgrounds_data_dir() -> PathBuf {
+    std::env::var("VOLUMIO_EVO_BACKGROUNDS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| settings_dir().join("backgrounds"))
+}
+
+/// **`settings/backgrounds/state.toml`**: current color vs image selection.
+pub fn backgrounds_state_path() -> PathBuf {
+    backgrounds_data_dir().join("state.toml")
+}
+
+/// **`settings/ui/active_layout`**: one-line mirror of **`[ui] active_layout`** (written when layout is saved;
+/// fallback when **`/etc`** could not be updated).
+pub fn ui_active_layout_overlay_path() -> PathBuf {
+    settings_dir().join("ui").join("active_layout")
+}
+
+/// **`settings/ui/config.toml.pending`**: merged copy of **`/etc/volumio-evo/config.toml`** with **`[ui] active_layout`**
+/// updated — installed via **`sudo install`** (**`volumio-evo-config-install-ui`** sudoers). Separate from Network’s
+/// **`settings/network/config.toml.pending`**.
+pub fn ui_config_toml_pending_path() -> PathBuf {
+    settings_dir().join("ui").join("config.toml.pending")
+}
+
 /// Root of the **`volumio-evo`** tree (contains `layer/plymouth/`, `scripts/`). Used by boot-branding install.
 /// Default when unset: **`/usr/share/volumio-evo/repo`** (packaged layout); development sets **`VOLUMIO_EVO_REPO_DIR`**.
 pub fn evo_repo_dir() -> PathBuf {

@@ -233,6 +233,7 @@ async fn on_connect(s: SocketRef) {
     s.on("getWizardSteps", get_wizard_steps);
     s.on("getWizardUiConfig", get_wizard_ui_config);
     s.on("deleteBackground", delete_background);
+    s.on("regenerateThumbnails", regenerate_thumbnails);
     // NetworkManager (Phase 1): Wi‑Fi scan for settings / wizard (`system_controller/network`).
     s.on("getWirelessNetworks", get_wireless_networks);
     s.on("getWirelessNetworksCache", get_wireless_networks_cache);
@@ -661,9 +662,9 @@ async fn update_check_placeholder(s: SocketRef, TryData(payload): TryData<serde_
 /// Shape matches `volumio3-backend/app/mainmenu.json` + English `strings_en.json` values.
 /// Omits **browse** when `active_layout` is not `manifest` (same as Node `VOLUMIO_ACTIVE_UI_NAME`).
 async fn get_menu_items(s: SocketRef, State(state): State<AppState>) {
-    let layout = state.config.ui.active_layout.trim();
+    let layout = state.active_layout.read().await;
     let mut items: Vec<serde_json::Value> = Vec::new();
-    if layout == "manifest" {
+    if layout.trim() == "manifest" {
         items.push(serde_json::json!({
             "id": "browse",
             "name": "Music",
@@ -738,6 +739,14 @@ async fn get_ui_config(s: SocketRef, State(state): State<AppState>, TryData(payl
             crate::log_tags::EVO_UI
         );
         emit_system_ui_config(&s, &state).await;
+    } else if page == "miscellanea/appearance" {
+        tracing::debug!(
+            "{} getUiConfig page=miscellanea/appearance (Appearance)",
+            crate::log_tags::EVO_UI
+        );
+        let layout = state.active_layout.read().await.clone();
+        let cfg = super::system_ui::miscellanea_appearance_ui_config(&layout);
+        s.emit("pushUiConfig", &cfg).ok();
     } else {
         tracing::debug!(
             "{} getUiConfig page={:?} (empty stub)",
@@ -1155,16 +1164,36 @@ async fn get_device_name(s: SocketRef, State(state): State<AppState>) {
     s.emit("pushDeviceName", &data).ok();
 }
 
+fn extract_language_code_from_ui_payload(p: &serde_json::Value) -> Option<String> {
+    if let Some(c) = p
+        .get("defaultLanguage")
+        .and_then(|d| d.get("code"))
+        .and_then(|c| c.as_str())
+    {
+        let t = c.trim().to_lowercase();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    if let Some(c) = p
+        .get("language")
+        .and_then(|l| l.get("value"))
+        .and_then(|v| v.as_str())
+    {
+        let t = c.trim().to_lowercase();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    None
+}
+
 /// Persists language under **Settings → System** (`settings/system/state.toml`) and refreshes UI settings.
 async fn set_language(s: SocketRef, State(state): State<AppState>, TryData(payload): TryData<serde_json::Value>) {
     let Some(p) = payload.as_ref().ok() else {
         return;
     };
-    let code = p
-        .get("defaultLanguage")
-        .and_then(|d| d.get("code"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("en");
+    let code = extract_language_code_from_ui_payload(p).unwrap_or_else(|| "en".to_string());
     let mut sys = state.system_settings.write().await;
     if sys.language_code != code {
         sys.language_code = code.to_string();
@@ -1307,21 +1336,22 @@ async fn get_device_hw_uuid(s: SocketRef) {
     s.emit("pushDeviceHWUUID", &serde_json::json!("evo-stub")).ok();
 }
 
-/// UI settings for the stock Angular UI (Node: appearance plugin getUiSettings).
-/// `language` is required: `ui-settings.service.js` only calls `$translate.use()` when this is set;
-/// otherwise the UI shows raw keys (`COMMON.TAB_BROWSE`, …).
-/// `active_layout` mirrors stock `volumioUisList.json` `uiName` (manifest / contemporary / classic).
-async fn get_ui_settings(s: SocketRef, State(state): State<AppState>) {
+/// UI settings for the stock Angular UI (Node: appearance plugin `getUiSettings`).
+/// Includes **`language`**, **`theme`**, **`active_layout`**, and either **`background`** or **`color`**
+/// from **`settings/backgrounds/state.toml`**.
+async fn emit_push_ui_settings(s: SocketRef, state: &AppState) {
     let lang = state.system_settings.read().await.language_code.clone();
-    s.emit(
-        "pushUiSettings",
-        &serde_json::json!({
-            "language": lang,
-            "theme": "volumio3",
-            "active_layout": state.config.ui.active_layout
-        }),
-    )
-    .ok();
+    let layout = state.active_layout.read().await.clone();
+    let payload = state
+        .backgrounds
+        .read()
+        .await
+        .merge_into_ui_settings(&lang, &layout);
+    let _ = s.emit("pushUiSettings", &payload);
+}
+
+async fn get_ui_settings(s: SocketRef, State(state): State<AppState>) {
+    emit_push_ui_settings(s, &state).await;
 }
 
 /// Stub: shutdown mode (Node: commandRouter.getShutdownOrStandbyMode -> pushShutdownOrStandbyMode).
@@ -1474,14 +1504,55 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
     s.emit("pushOutputDevices", &payload).ok();
 }
 
-/// Stub: no backgrounds (Node: appearance getBackgrounds -> pushBackgrounds).
-async fn get_backgrounds(s: SocketRef) {
-    s.emit("pushBackgrounds", &serde_json::json!([])).ok();
+/// Wallpaper list (`miscellanea/appearance` **`getBackgrounds`** → **`pushBackgrounds`**).
+async fn get_backgrounds(s: SocketRef, State(state): State<AppState>) {
+    let v = match state.backgrounds.read().await.push_backgrounds_value() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} getBackgrounds: {}", crate::log_tags::EVO_UI, e);
+            serde_json::json!({
+                "current": { "name": "", "path": "" },
+                "available": [],
+            })
+        }
+    };
+    let _ = s.emit("pushBackgrounds", &v);
 }
 
-/// Stub: accept set, emit pushBackgrounds [] (Node: appearance setBackgrounds -> pushBackgrounds).
-async fn set_backgrounds(s: SocketRef, TryData(_data): TryData<serde_json::Value>) {
-    s.emit("pushBackgrounds", &serde_json::json!([])).ok();
+async fn set_backgrounds(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    let Some(p) = data.as_ref().ok() else {
+        return;
+    };
+    let prev_theme = state.backgrounds.read().await.inner.theme.clone();
+    {
+        let mut bg = state.backgrounds.write().await;
+        if let Err(e) = bg.apply_set_payload(p) {
+            tracing::warn!("{} setBackgrounds: {}", crate::log_tags::EVO_UI, e);
+            return;
+        }
+        if let Err(e) = bg.save() {
+            tracing::warn!("{} setBackgrounds save: {}", crate::log_tags::EVO_UI, e);
+            return;
+        }
+    }
+    let theme_changed = prev_theme != state.backgrounds.read().await.inner.theme;
+    if let Ok(v) = state.backgrounds.read().await.push_backgrounds_value() {
+        let _ = s.emit("pushBackgrounds", &v);
+    }
+    // Appearance only: same idea as Sleep/alarms — broadcast to every client, then immediate push to this socket (no regression).
+    super::broadcast_push_ui_settings_all(&state).await;
+    emit_push_ui_settings(s, &state).await;
+    if theme_changed {
+        let st = state.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            super::broadcast_reload_ui(&st).await;
+        });
+    }
 }
 
 /// Stub: empty experience advanced settings (Node: commandRouter.getExperienceAdvancedSettings -> pushExperienceAdvancedSettings).
@@ -1533,8 +1604,51 @@ async fn get_wizard_ui_config(s: SocketRef, TryData(_data): TryData<serde_json::
     s.emit("pushWizardUiConfig", &serde_json::json!({})).ok();
 }
 
-/// No-op: Node calls appearance deleteBackgrounds; Evo has no backgrounds.
-async fn delete_background(_s: SocketRef, TryData(_data): TryData<serde_json::Value>) {}
+async fn delete_background(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    let Some(p) = data.as_ref().ok() else {
+        return;
+    };
+    {
+        let mut bg = state.backgrounds.write().await;
+        if let Err(e) = bg.apply_delete_payload(p) {
+            tracing::warn!("{} deleteBackground: {}", crate::log_tags::EVO_UI, e);
+            return;
+        }
+        if let Err(e) = bg.save() {
+            tracing::warn!("{} deleteBackground save: {}", crate::log_tags::EVO_UI, e);
+        }
+    }
+    if let Ok(v) = state.backgrounds.read().await.push_backgrounds_value() {
+        let _ = s.emit("pushBackgrounds", &v);
+    }
+    let st = state.clone();
+    tokio::spawn(async move {
+        super::broadcast_push_ui_settings_all(&st).await;
+    });
+}
+
+/// Regenerate **`thumbnail-*`** JPEGs for all images (stock **`miscellanea/appearance`** Jimp).
+/// Broadcasts **`pushBackgrounds`** after 1s (matches Node broadcast to all clients).
+async fn regenerate_thumbnails(
+    _s: SocketRef,
+    State(state): State<AppState>,
+    TryData(_data): TryData<serde_json::Value>,
+) {
+    let st = state.clone();
+    tokio::spawn(async move {
+        match tokio::task::spawn_blocking(|| crate::backgrounds::regenerate_all_thumbnails()).await {
+            Ok(Ok(_n)) => {}
+            Ok(Err(e)) => tracing::warn!("{} regenerateThumbnails: {}", crate::log_tags::EVO_UI, e),
+            Err(e) => tracing::warn!("{} regenerateThumbnails join: {}", crate::log_tags::EVO_UI, e),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        super::broadcast_push_backgrounds_all(&st).await;
+    });
+}
 
 /// `getWirelessNetworks` → `pushWirelessNetworks` (`nmcli dev wifi list`).
 async fn get_wireless_networks(s: SocketRef, State(state): State<AppState>) {
@@ -3336,6 +3450,76 @@ async fn call_method(
                 }),
             );
         }
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("miscellanea/appearance")
+        && payload.method.as_deref() == Some("setVolumio3UI")
+    {
+        let name = payload
+            .data
+            .get("volumio3_ui")
+            .and_then(|v| v.get("value"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let Some(name) = name else {
+            return;
+        };
+        let st = state.clone();
+        let sock = s.clone();
+        tokio::spawn(async move {
+            match crate::ui_bootstrap::apply_active_layout_change(&st, &name).await {
+                Ok(()) => {
+                    tracing::info!(
+                        "{} callMethod setVolumio3UI ok layout={:?}",
+                        crate::log_tags::EVO_UI,
+                        name
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "{} callMethod setVolumio3UI: {}",
+                        crate::log_tags::EVO_UI,
+                        e
+                    );
+                    let _ = sock.emit(
+                        "pushToastMessage",
+                        &serde_json::json!({
+                            "type": "error",
+                            "title": "Appearance",
+                            "message": format!("Could not change layout: {e}")
+                        }),
+                    );
+                }
+            }
+        });
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("miscellanea/appearance")
+        && payload.method.as_deref() == Some("setLanguage")
+    {
+        let Some(code) = extract_language_code_from_ui_payload(&payload.data) else {
+            return;
+        };
+        let mut sys = state.system_settings.write().await;
+        if sys.language_code != code {
+            sys.language_code = code;
+            if let Err(e) = sys.save() {
+                tracing::warn!("{} callMethod appearance setLanguage: {}", crate::log_tags::EVO_UI, e);
+            }
+        }
+        drop(sys);
+        get_ui_settings(s.clone(), State(state.clone())).await;
+        emit_system_ui_config(&s, &state).await;
+        let _ = s.emit(
+            "pushToastMessage",
+            &serde_json::json!({
+                "type": "success",
+                "title": "Appearance",
+                "message": "Language saved"
+            }),
+        );
         return;
     }
 

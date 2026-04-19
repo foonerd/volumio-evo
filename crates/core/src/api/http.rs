@@ -15,6 +15,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::albumart;
+use crate::backgrounds::BACKGROUND_UPLOAD_MAX_BYTES;
 use crate::config::Config;
 use crate::mpd::MpdConfig;
 use super::v1;
@@ -400,6 +401,7 @@ pub fn router(
     let (push_queue_wake_tx, push_queue_wake_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let network_mounts = Arc::new(crate::network_mounts::NetworkMounts::new());
     let alarm_clock = crate::alarm_clock::AlarmClockCoordinator::new(crate::paths::default_alarm_clock_state_path());
+    let backgrounds = crate::backgrounds::BackgroundAppearance::load();
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         network_mounts: network_mounts.clone(),
@@ -415,6 +417,10 @@ pub fn router(
         volume_ui_mute: Arc::new(tokio::sync::RwLock::new(crate::api::VolumeUiMuteState::default())),
         socket_io_broadcast: Arc::new(std::sync::Mutex::new(None)),
         alarm_clock,
+        backgrounds: Arc::new(tokio::sync::RwLock::new(backgrounds)),
+        active_layout: Arc::new(tokio::sync::RwLock::new(
+            state.ui.active_layout.clone(),
+        )),
     });
 
     let cfg_nas = state.clone();
@@ -491,7 +497,9 @@ pub fn router(
         .route("/albumartd", get(album_art_direct))
         .route("/tinyart/*path", get(album_art_tiny))
         .route("/albumart-upload", post(album_art_upload))
+        .route("/backgrounds-upload", post(backgrounds_upload))
         .nest("/api/v1", v1_routes)
+        .route("/backgrounds/{name}", get(backgrounds_static))
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
         // `permissive()` uses `Allow-Origin: *`, which browsers reject for credentialed
@@ -651,4 +659,108 @@ async fn album_art_upload(
         Body::from(json.to_string()),
     )
         .into_response()
+}
+
+fn backgrounds_content_type(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+/// GET /backgrounds/:name — serve a file from [`crate::paths::backgrounds_data_dir`] (stock **`/backgrounds/<file>`** URL).
+async fn backgrounds_static(Path(name): Path<String>) -> impl IntoResponse {
+    let name = name.trim();
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains("..")
+        || name == "state.toml"
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let path = crate::paths::backgrounds_data_dir().join(name);
+    let data = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(_) => {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+    };
+    let ct = backgrounds_content_type(name);
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, ct),
+            (header::CACHE_CONTROL, "public, max-age=604800"),
+        ],
+        data,
+    )
+        .into_response()
+}
+
+/// POST /backgrounds-upload — multipart file (stock Volumio: up to 3MB, jpg/jpeg/png).
+async fn backgrounds_upload(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut file_name: Option<String> = None;
+    let mut file_data: Option<Vec<u8>> = None;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let fname = field.file_name().map(|s| s.to_string());
+        let Some(orig_name) = fname.filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        let Ok(data) = field.bytes().await else {
+            continue;
+        };
+        if data.is_empty() {
+            continue;
+        }
+        if data.len() > BACKGROUND_UPLOAD_MAX_BYTES {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Body::from("Background exceeds 3MB"),
+            )
+                .into_response();
+        }
+        file_name = Some(orig_name);
+        file_data = Some(data.to_vec());
+        break;
+    }
+    let (file_name, file_data) = match (file_name, file_data) {
+        (Some(n), Some(d)) => (n, d),
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Body::from("Missing background image"),
+            )
+                .into_response();
+        }
+    };
+    match crate::backgrounds::save_upload_bytes(&file_data, &file_name) {
+        Ok(_basename) => {}
+        Err(e) => {
+            tracing::warn!(
+                "{} backgrounds-upload: {}",
+                crate::log_tags::EVO_UI,
+                e
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Body::from("Invalid or unsupported image"),
+            )
+                .into_response();
+        }
+    }
+    super::broadcast_push_backgrounds_all(&state).await;
+    StatusCode::CREATED.into_response()
 }

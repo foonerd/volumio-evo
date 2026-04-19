@@ -18,6 +18,8 @@ set -euo pipefail
 # UI: vendored trees under layer/web/{classic,contemporary,manifest} (stock-style static
 # assets). Optional: UI_DIST_SOURCE=path to one dist/ with index.html (copied to all three
 # layout roots for development). No git clone of Volumio2-UI and no npm/gulp on device.
+# Wallpapers: layer/stock-backgrounds (same set as Node miscellanea/appearance/backgrounds)
+# seeds /var/lib/volumio-evo/settings/backgrounds/ when files are missing (install_stock_backgrounds).
 #
 # - apt: nginx, mpd, toolchain, python3, …
 # - git: volumio-evo only (when not using a local checkout)
@@ -134,6 +136,7 @@ Environment (common):
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
+  EVO_STOCK_BACKGROUNDS_SOURCE=         # optional: override path to stock jpg/thumbnail-* (default: EVO_REPO_DIR/layer/stock-backgrounds)
 
 Example:
   sudo BASE_DIR=/opt/volumio ./scripts/bootstrap-volumio-evo-player.sh
@@ -458,16 +461,19 @@ EOF
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
   fi
 
-  # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml (preferred Wi-Fi iface UI).
+  # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml
+  # (Network: wifi_iface) and (Appearance: [ui] active_layout) — each has a fixed source path in Rust.
   local config_install_sudoers="/etc/sudoers.d/volumio-evo-config-install"
   local pending_cfg="/var/lib/volumio-evo/settings/network/config.toml.pending"
+  local pending_ui="/var/lib/volumio-evo/settings/ui/config.toml.pending"
   if [[ "${EVO_INSTALL_CONFIG_INSTALL_SUDOERS:-1}" == "1" ]]; then
     local tmp_ci
     tmp_ci="$(mktemp)"
     cat > "${tmp_ci}" <<EOF
-# volumio-evo: non-root service merges \`wifi_iface\` into system config (must match Rust \`config_toml_pending_path\`).
-# Managed by bootstrap; paths are fixed.
+# volumio-evo: non-root service installs merged TOML (must match Rust \`config_toml_pending_path\` + \`ui_config_toml_pending_path\`).
+# Managed by bootstrap; destination is always /etc/volumio-evo/config.toml; source path is fixed per line.
 ${u} ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 644 ${pending_cfg} /etc/volumio-evo/config.toml
+${u} ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 644 ${pending_ui} /etc/volumio-evo/config.toml
 EOF
     if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_ci}" 2>/dev/null; then
       install -m 0440 "${tmp_ci}" "${config_install_sudoers}"
@@ -508,17 +514,16 @@ need_root() {
   fi
 }
 
-# Read [ui] active_layout from /etc/volumio-evo/config.toml (manifest | contemporary | classic).
+# Read [ui] active_layout: prefer /etc/volumio-evo/config.toml (SSOT), then overlay line file.
 read_ui_active_layout_from_config() {
+  local settings_dir="${VOLUMIO_EVO_SETTINGS_DIR:-/var/lib/volumio-evo/settings}"
+  local overlay="${settings_dir}/ui/active_layout"
   local cfg="/etc/volumio-evo/config.toml"
   local fallback="contemporary"
-  if [[ ! -f "${cfg}" ]]; then
-    echo "${fallback}"
-    return
-  fi
-  local parsed=""
-  parsed="$(
-    python3 - "${cfg}" <<'PY' 2>/dev/null || true
+  if [[ -f "${cfg}" ]]; then
+    local parsed=""
+    parsed="$(
+      python3 - "${cfg}" <<'PY' 2>/dev/null || true
 import pathlib, sys
 
 cfg = pathlib.Path(sys.argv[1])
@@ -534,9 +539,26 @@ if not isinstance(al, str):
 else:
     print(al.strip().lower())
 PY
-  )"
-  if [[ -n "${parsed}" ]]; then
-    echo "${parsed}"
+    )"
+    case "${parsed}" in
+      manifest|contemporary|classic)
+        echo "${parsed}"
+        return
+        ;;
+    esac
+  fi
+  if [[ -f "${overlay}" ]]; then
+    local line
+    line="$(head -1 "${overlay}" 2>/dev/null | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+    case "${line}" in
+      manifest|contemporary|classic)
+        echo "${line}"
+        return
+        ;;
+    esac
+  fi
+  if [[ ! -f "${cfg}" ]]; then
+    echo "${fallback}"
     return
   fi
   local line
@@ -991,6 +1013,45 @@ EOSVG
 EOSVG
 }
 
+# Stock wallpapers: same jpgs + thumbnail-* as Node miscellanea/appearance/backgrounds.
+# Seeds /var/lib/volumio-evo/settings/backgrounds/ with any file from the repo that is not
+# yet present (matches Node createThumbnailPath copy-if-missing behaviour).
+install_stock_backgrounds() {
+  local dest="/var/lib/volumio-evo/settings/backgrounds"
+  local src=""
+  if [[ -n "${EVO_STOCK_BACKGROUNDS_SOURCE:-}" && -d "${EVO_STOCK_BACKGROUNDS_SOURCE}" ]]; then
+    src="${EVO_STOCK_BACKGROUNDS_SOURCE}"
+  elif [[ -d "${EVO_REPO_DIR}/layer/stock-backgrounds" ]]; then
+    src="${EVO_REPO_DIR}/layer/stock-backgrounds"
+  elif [[ -d "${SCRIPT_REPO_DIR}/layer/stock-backgrounds" ]]; then
+    src="${SCRIPT_REPO_DIR}/layer/stock-backgrounds"
+  fi
+  if [[ -z "${src}" ]]; then
+    echo "WARN: No layer/stock-backgrounds in repo; appearance wallpaper list may be empty until uploads."
+    return 0
+  fi
+  mkdir -p "${dest}"
+  local f base copied=0
+  shopt -s nullglob
+  for f in "${src}"/*; do
+    [[ -f "${f}" ]] || continue
+    base="$(basename "${f}")"
+    case "${base}" in
+      README.md | *.md) continue ;;
+    esac
+    if [[ ! -f "${dest}/${base}" ]]; then
+      cp -a "${f}" "${dest}/${base}"
+      copied=$((copied + 1))
+    fi
+  done
+  shopt -u nullglob
+  if [[ "${copied}" -gt 0 ]]; then
+    echo "Stock backgrounds: copied ${copied} missing file(s) from ${src} -> ${dest}"
+  else
+    echo "Stock backgrounds: ${dest} already has all files from ${src}"
+  fi
+}
+
 # Map `uname -m` to Rust target triple (Linux GNU) for layer/binaries/<triple>/volumio-evo.
 host_rust_triple() {
   local m
@@ -1045,10 +1106,12 @@ build_and_install_evo() {
     /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd \
     /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites \
     /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network \
-    /var/lib/volumio-evo/settings/alarm /mnt/NAS
+    /var/lib/volumio-evo/settings/alarm /var/lib/volumio-evo/settings/backgrounds \
+    /var/lib/volumio-evo/settings/ui /mnt/NAS
   install_dacs_catalog
   install_alsa_cards_json
   install_bundled_plugins_assets
+  install_stock_backgrounds
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" && -f "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" ]]; then
     if [[ ! -f /etc/volumio-evo/config.toml ]]; then
       cp "${EVO_REPO_DIR}/layer/config/volumio-evo.toml.example" /etc/volumio-evo/config.toml

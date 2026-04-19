@@ -20,7 +20,7 @@ On stock Volumio, **`volumio/volumioUisList.json`** defines **`uiName`** + **`ui
 
 If the UI still spins: check the browser console (**`connect_error`**), that **`GET /api/host`** returns a reachable **`http://<ip>:3000`**, and that nothing blocks port **3000** from the client. The default bootstrap does **not** proxy **`/socket.io`** through nginx; the socket goes to Evo on **3000** directly.
 
-**Not done yet in Evo (parity with stock Node UI):** in-browser **`setActiveUI`** / **`reloadUi()`** wired to Evo’s **`active_layout`** (today the value is API/config-driven; the stock UI may still expect Node behaviour).
+**UI layout from the stock UI:** **`callMethod`** **`miscellanea/appearance`** **`setVolumio3UI`** (System → UI layout design) persists **`[ui] active_layout`** (**`config.toml`**), updates in-memory layout, runs **`bootstrap-volumio-evo-player.sh --apply-ui-only`** (**`sudo -n`**), then broadcasts **`reloadUi`**. Requires bootstrap script + sudoers on device ([`scripts/bootstrap-volumio-evo-player.sh`](../scripts/bootstrap-volumio-evo-player.sh)); override script with **`VOLUMIO_EVO_BOOTSTRAP_SCRIPT`**.
 
 ---
 
@@ -147,7 +147,8 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | `/dev`, `/plugin-serve`, `/stream`, `/partnerlogo` | No | Not implemented |
 | `GET /status` | Yes | Returns VOLUMIO_SYSTEM_STATUS env or "ready" |
 | `POST /albumart-upload` | Yes | Multipart artist, album (optional), file → personal/album or personal/artist; 1MB max; JSON { path } |
-| `POST /plugin-upload`, `/backgrounds-upload` | No | Not implemented |
+| `POST /plugin-upload` | No | Not implemented |
+| `POST /backgrounds-upload` | Yes | Multipart image → **`settings/backgrounds/`**, thumbnail generated; **`pushBackgrounds`** broadcast |
 
 ### REST API `/api/v1/`
 
@@ -218,16 +219,17 @@ Quick reference: what exists in Evo today. Details and gaps are in 2.1–2.3 bel
 | getMultiRoomDevices | Yes (stub) | pushMultiRoomDevices: `{ misc, list: [] }` (Node: volumiodiscovery.getDevices; UI reads `data.list`). |
 | serviceUpdateTracklist, updateAllMetadata, importServicePlaylists | Yes (no-op) | No-op (Node: plugin rebuildTracklist / updateAllMetadata / importServicePlaylists; Evo single MPD, no library DB). |
 | setDeviceName, getDeviceHWUUID | Yes | setDeviceName no-op; getDeviceHWUUID -> pushDeviceHWUUID stub "evo-stub". |
-| getUiSettings, getShutdownOrStandbyMode | Yes (stub) | pushUiSettings: `{}`; pushShutdownOrStandbyMode: `{}` (Node: appearance plugin / commandRouter). |
+| getUiSettings | Yes | **`pushUiSettings`**: language (system **`state.toml`**), **`theme`** + wallpaper (**`settings/backgrounds/state.toml`**), **`active_layout`** (**`config.toml`**). |
+| getShutdownOrStandbyMode | Yes (stub) | pushShutdownOrStandbyMode: `{}` (Node: commandRouter). |
 | getPrivacySettings, getInfinityPlayback, setInfinityPlayback | Yes (stub/no-op) | pushPrivacySettings: `{}`; pushInfinityPlayback: `{ enabled: false }`; setInfinityPlayback no-op. |
 | getSleep, setSleep, getAlarms, saveAlarm | Yes (stub) | pushSleep: `{}`; pushAlarm: `[]` (Node: alarm-clock plugin; Evo has no sleep/alarms). |
 | getMultiroom, setMultiroom, writeMultiroom | Yes (stub/no-op) | getMultiroom/setMultiroom -> pushMultiroom `{}`; writeMultiroom no-op. |
 | getExtendedOutputDevices, getOutputDevices | Yes (stub) | pushExtendedOutputDevices / pushOutputDevices: `[]` (Node: alsa_controller). |
-| getBackgrounds, setBackgrounds | Yes (stub) | getBackgrounds -> pushBackgrounds `[]`; setBackgrounds -> pushBackgrounds `[]` (Node: appearance). |
+| getBackgrounds, setBackgrounds | Yes | **`settings/backgrounds/state.toml`** + image dir; **`pushBackgrounds`** `{ current, available }`; **`GET /backgrounds/<file>`** serves images. |
 | getExperienceAdvancedSettings, setExperienceAdvancedSettings | Yes (stub/no-op) | getExperienceAdvancedSettings -> pushExperienceAdvancedSettings `{}`; setExperienceAdvancedSettings no-op. |
 | setOutputDevices | Yes (no-op) | No-op (Node: alsa_controller saveAlsaOptions; Evo has no ALSA device config). |
 | getDonePage, getWizard, getWizardSteps, getWizardUiConfig | Yes (stub) | pushDonePage: minimal object (congratulations, title, message, donation, donationAmount); pushWizard: `{ openWizard: false }`; pushWizardSteps: `[]`; pushWizardUiConfig: `{}` (Node: wizard plugin). |
-| deleteBackground | Yes (no-op) | No-op (Node: appearance deleteBackgrounds; Evo has no backgrounds). |
+| deleteBackground | Yes | Deletes file + thumbnail; **`regenerateThumbnails`** regenerates all thumbnails (broadcast **`pushBackgrounds`** after 1s). |
 | Other Socket.IO events | Partial / No | Anything not listed above: see **Part 4** (outstanding by phase). |
 
 ### Other
@@ -323,7 +325,7 @@ Events the Volumio UI sends that only need a **valid response** (minimal or no-o
 | Status | Events / area |
 |--------|----------------|
 | **Done** | closeAllModals, getState, getQueue, browseLibrary, playlists, device/system/menu/ui stubs (getDeviceInfo, getSystemVersion, getMenuItems, getUiConfig, getUiSettings, getBackgrounds, getExperienceAdvancedSettings, etc.), getDonePage, getWizard, getWizardSteps, getWizardUiConfig, deleteBackground, getExtendedOutputDevices, getOutputDevices, setOutputDevices, getMultiRoomDevices, getMultiroom, setMultiroom, writeMultiroom, getSleep, getAlarms, getPrivacySettings, getInfinityPlayback, timezone/language stubs, initSocket, serviceUpdateTracklist, updateAllMetadata, importServicePlaylists. **Wi‑Fi / LAN via NM:** **`getWirelessNetworks`**, **`getInfoNetwork`**, etc. — see **Phase 3**. |
-| **Outstanding** | **Network UI (non-scan):** some flows still need minimal responses (see Phase 3). **Other:** getOnboardingWizard, setOnboardingWizardFalse, runFirstConfigWizard, setWizardAction; getAvailablePlugins → pushAvailablePlugins; getPluginDetails; getDeviceActivationStatus → pushDeviceActivationStatus; getMyVolumioStatus → pushMyVolumioToken; getMyMusicPlugins → pushMyMusicPlugins; getAutomaticUpdateEnabled, getUpdaterChannel, updateCheckCache → push*; setTOSAccepted, isLatestTOSAccepted → pushLatestTOSAccepted; checkPassword; regenerateThumbnails. Minimal or no-op where full feature not ported. |
+| **Outstanding** | **Network UI (non-scan):** some flows still need minimal responses (see Phase 3). **Other:** getOnboardingWizard, setOnboardingWizardFalse, runFirstConfigWizard, setWizardAction; getAvailablePlugins → pushAvailablePlugins; getPluginDetails; getDeviceActivationStatus → pushDeviceActivationStatus; getMyVolumioStatus → pushMyVolumioToken; getMyMusicPlugins → pushMyMusicPlugins; getAutomaticUpdateEnabled, getUpdaterChannel, updateCheckCache → push*; setTOSAccepted, isLatestTOSAccepted → pushLatestTOSAccepted; checkPassword. Minimal or no-op where full feature not ported. |
 | **Cannot be ported** | Same event names can be handled; “cannot be ported” applies to the *legacy Node implementation* behind some features (see Part 5–6 for plugins, My Volumio, updater). **Networking:** Evo uses NM, not a line‑by‑line port of the Node WiFi plugin — Phase 3. |
 
 ### Phase 3 – Networking
@@ -374,7 +376,7 @@ Breakdown of what exists in Volumio vs Evo.
 | **Shares / storage** | **Partial** | **NAS/SMB/NFS:** `addShare`, `deleteShare`, `getListShares`, `getInfoShare`, `editShare` implemented (`settings/mounts/`, `/mnt/NAS`). **USB / safe remove:** `listUsbDrives`, `safeRemoveDrive` not ported. |
 | **Audio outputs (extra)** | **Not ported** | getAudioOutputs, enableAudioOutput, disableAudioOutput, setAudioOutputVolume, audioOutputPlay, audioOutputPause → pushAudioOutputs. Node: alsa_controller. Evo has getExtendedOutputDevices/getOutputDevices (minimal `[]`); full ALSA output switching **not ported**. |
 | **Library** | **Not ported** | deleteFolder. MPD could support; not implemented in Evo. |
-| **Misc** | **Not ported** | regenerateThumbnails (no-op or minimal); installToDisk (OS installer, out of scope). |
+| **Misc** | **Partial** | **regenerateThumbnails:** implemented (**`settings/backgrounds`**). installToDisk (OS installer, out of scope). |
 
 ---
 

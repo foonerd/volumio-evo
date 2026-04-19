@@ -13,6 +13,7 @@ mod v1;
 
 use crate::alarm_clock::AlarmClockCoordinator;
 use crate::alsa::AlsaSettings;
+use crate::backgrounds::BackgroundAppearance;
 use crate::config::Config;
 use crate::system_settings::SystemSettings;
 use crate::mpd::{self, MpdConfig, VolumioState};
@@ -69,6 +70,10 @@ pub struct RouterState {
     pub system_settings: Arc<tokio::sync::RwLock<SystemSettings>>,
     /// Alarm clock + sleep timer persistence + Tokio schedules (`settings/alarm/state.toml`).
     pub alarm_clock: Arc<AlarmClockCoordinator>,
+    /// Wallpapers (`settings/backgrounds/` + `state.toml`).
+    pub backgrounds: Arc<tokio::sync::RwLock<BackgroundAppearance>>,
+    /// Effective UI layout (**`manifest`** / **`contemporary`** / **`classic`**); persisted to **`/etc/volumio-evo/config.toml`** **`[ui] active_layout`** when layout changes.
+    pub active_layout: Arc<tokio::sync::RwLock<String>>,
 }
 
 impl RouterState {
@@ -101,6 +106,57 @@ impl RouterState {
     #[inline]
     pub fn notify_push_queue(&self) {
         let _ = self.push_queue_wake_tx.send(());
+    }
+}
+
+/// Stock UI: refresh background list on all clients (after upload, **regenerateThumbnails**).
+pub async fn broadcast_push_backgrounds_all(state: &AppState) {
+    let payload = match state.backgrounds.read().await.push_backgrounds_value() {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                "{} build pushBackgrounds: {}",
+                crate::log_tags::EVO_UI,
+                e
+            );
+            serde_json::json!({})
+        }
+    };
+    let io = match state.socket_io_broadcast.lock() {
+        Ok(g) => g.as_ref().cloned(),
+        Err(_) => None,
+    };
+    if let Some(io) = io {
+        let _ = io.emit("pushBackgrounds", &payload).await;
+    }
+}
+
+/// Stock UI: **`pushUiSettings`** to every client (matches Node **`broadcastMessage('pushUiSettings')`** after appearance saves).
+pub async fn broadcast_push_ui_settings_all(state: &AppState) {
+    let lang = state.system_settings.read().await.language_code.clone();
+    let layout = state.active_layout.read().await.clone();
+    let payload = state
+        .backgrounds
+        .read()
+        .await
+        .merge_into_ui_settings(&lang, &layout);
+    let io = match state.socket_io_broadcast.lock() {
+        Ok(g) => g.as_ref().cloned(),
+        Err(_) => None,
+    };
+    if let Some(io) = io {
+        let _ = io.emit("pushUiSettings", &payload).await;
+    }
+}
+
+/// Stock UI full reload (Node **`broadcastMessage('reloadUi')`**).
+pub async fn broadcast_reload_ui(state: &AppState) {
+    let io = match state.socket_io_broadcast.lock() {
+        Ok(g) => g.as_ref().cloned(),
+        Err(_) => None,
+    };
+    if let Some(io) = io {
+        let _ = io.emit("reloadUi", "").await;
     }
 }
 

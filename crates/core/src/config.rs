@@ -4,9 +4,85 @@
 //! **`RUST_LOG`** wins if set (full `tracing-subscriber` directive). **`VOLUMIO_EVO_LOG_LEVEL`**
 //! overrides the file value (one of: `error`, `warn`, `info`, `verbose`, `debug`, `trace`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+#[cfg(unix)]
+fn effective_uid_is_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(not(unix))]
+fn effective_uid_is_root() -> bool {
+    false
+}
+
+/// Copy merged **`config.toml`** from **`settings/ui/config.toml.pending`** to **`/etc/volumio-evo/config.toml`**
+/// (**Appearance** layout save). Network uses its own **`install`** path in **`nm_network`** — not this function.
+///
+/// Non-root uses **`sudo -n /usr/bin/install …`** — bootstrap **`/etc/sudoers.d/volumio-evo-config-install`**
+/// must list the exact pending file path(s) allowed for this destination.
+pub async fn install_pending_config_to_etc(pending: &Path) -> anyhow::Result<()> {
+    let dest = Path::new("/etc/volumio-evo/config.toml");
+    if effective_uid_is_root() {
+        std::fs::copy(pending, dest).map_err(|e| {
+            anyhow::anyhow!("copy pending config to {}: {}", dest.display(), e)
+        })?;
+        return Ok(());
+    }
+    let st = tokio::process::Command::new("sudo")
+        .arg("-n")
+        .arg("/usr/bin/install")
+        .arg("-o")
+        .arg("root")
+        .arg("-g")
+        .arg("root")
+        .arg("-m")
+        .arg("644")
+        .arg(pending.as_os_str())
+        .arg(dest.as_os_str())
+        .status()
+        .await
+        .map_err(|e| anyhow::anyhow!("sudo install config.toml: {}", e))?;
+    if !st.success() {
+        tracing::warn!(
+            "{} sudo install {:?} → {} failed (bootstrap sudoers must allow this exact command)",
+            crate::log_tags::EVO_CONFIG,
+            pending,
+            dest.display()
+        );
+    }
+    Ok(())
+}
+
+/// Merge **`[ui] active_layout`** into existing TOML text (preserves **`wifi_iface`**, **`[music_sources]`**, etc.).
+fn merge_toml_ui_active_layout(base_toml: &str, layout: &str) -> anyhow::Result<String> {
+    let layout = layout.trim().to_lowercase();
+    if layout.is_empty() {
+        anyhow::bail!("active_layout is empty");
+    }
+    let mut root: toml::Value = if base_toml.trim().is_empty() {
+        toml::Value::Table(toml::value::Table::new())
+    } else {
+        toml::from_str(base_toml)?
+    };
+    if let toml::Value::Table(ref mut t) = root {
+        let ui = t
+            .entry("ui".to_string())
+            .or_insert_with(|| toml::Value::Table(toml::value::Table::new()));
+        if let toml::Value::Table(ref mut u) = *ui {
+            u.insert("active_layout".to_string(), toml::Value::String(layout));
+        } else {
+            *ui = toml::Value::Table({
+                let mut x = toml::value::Table::new();
+                x.insert("active_layout".to_string(), toml::Value::String(layout));
+                x
+            });
+        }
+    }
+    Ok(toml::to_string_pretty(&root)?)
+}
 
 /// Log verbosity for [`Config::log_level`]. Becomes the default `tracing-subscriber` env filter when **`RUST_LOG`** is unset.
 #[derive(Debug, Clone, Copy, Deserialize, Default, PartialEq, Eq)]
@@ -305,11 +381,65 @@ pub fn load() -> anyhow::Result<Config> {
 }
 
 /// Run after [`tracing_subscriber`] is initialized so [`normalize_ui_active_layout`] warnings are recorded.
+///
+/// **`[ui] active_layout`** comes from **`/etc/volumio-evo/config.toml`** loaded into [`Config`] (plus env override).
+/// Overlay file **`settings/ui/active_layout`** is **not** applied here — **`/etc`** is the runtime SSOT on disk.
 pub fn finalize_loaded_config(config: &mut Config) {
     normalize_ui_active_layout(&mut config.ui);
 }
 
 const UI_LAYOUT_NAMES: &[&str] = &["manifest", "contemporary", "classic"];
+
+/// Valid layout names for **[`UiConfig::active_layout`]** / stock **`volumioUisList.json`**.
+pub fn is_valid_ui_layout(s: &str) -> bool {
+    let t = s.trim().to_lowercase();
+    UI_LAYOUT_NAMES.contains(&t.as_str())
+}
+
+/// Persist **`[ui] active_layout`** to **`/etc/volumio-evo/config.toml`** via
+/// [`crate::paths::ui_config_toml_pending_path`] + [`install_pending_config_to_etc`] (bootstrap sudoers
+/// **`volumio-evo-config-install-ui`**). Also mirrors the layout line to [`crate::paths::ui_active_layout_overlay_path`]
+/// when **`/etc`** cannot be updated (non-root without sudo).
+pub async fn persist_ui_active_layout(layout: &str) -> anyhow::Result<()> {
+    let layout = layout.trim().to_lowercase();
+    if !is_valid_ui_layout(&layout) {
+        anyhow::bail!("invalid active_layout {:?}", layout);
+    }
+
+    let etc = Path::new("/etc/volumio-evo/config.toml");
+    let base = std::fs::read_to_string(etc).unwrap_or_default();
+    let merged = merge_toml_ui_active_layout(&base, &layout)?;
+    let pending = crate::paths::ui_config_toml_pending_path();
+    if let Some(parent) = pending.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&pending, merged.as_bytes()).map_err(|e| {
+        anyhow::anyhow!("write pending UI config {}: {}", pending.display(), e)
+    })?;
+
+    install_pending_config_to_etc(&pending).await?;
+
+    let overlay = crate::paths::ui_active_layout_overlay_path();
+    if let Some(parent) = overlay.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&overlay, format!("{layout}\n")).map_err(|e| {
+        anyhow::anyhow!(
+            "write UI layout overlay {}: {}",
+            overlay.display(),
+            e
+        )
+    })?;
+
+    tracing::info!(
+        "{} persisted active_layout={} to {} (and overlay)",
+        crate::log_tags::EVO_CONFIG,
+        layout,
+        etc.display()
+    );
+
+    Ok(())
+}
 
 fn normalize_ui_active_layout(ui: &mut UiConfig) {
     let s = ui.active_layout.trim().to_lowercase();

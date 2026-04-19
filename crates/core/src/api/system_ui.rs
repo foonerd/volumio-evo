@@ -1,7 +1,8 @@
 //! **Settings → System** (`system_controller/system`) UI config for stock Volumio2-UI.
 //!
-//! Omits install-to-disk and the duplicate Appearance “UI layout” section (that stays under Appearance).
-//! Includes locale (language, country → regulatory domain, timezone), WPE kiosk placeholders, updates,
+//! Omits install-to-disk. **UI layout** (manifest / contemporary / classic) is on **Settings → Appearance** only
+//! (see [`miscellanea_appearance_ui_config`]). This page includes locale (language, country, timezone), WPE
+//! kiosk placeholders, updates,
 //! credits, privacy — matching agreed Evo scope.
 
 use serde_json::{json, Value};
@@ -144,6 +145,38 @@ fn timezone_value_label(tz: &str) -> Value {
 fn boot_branding_rotation_value_label(deg: u16) -> Value {
     let d = normalize_plymouth_rotation(deg);
     json!({ "value": d, "label": format!("{d}°") })
+}
+
+fn volumio3_ui_options_array() -> Value {
+    json!([
+        {
+            "value": "manifest",
+            "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_MANIFEST"
+        },
+        {
+            "value": "contemporary",
+            "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_CONTEMPORARY"
+        },
+        {
+            "value": "classic",
+            "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_CLASSIC"
+        }
+    ])
+}
+
+fn volumio3_ui_current_value(active_layout: &str) -> Value {
+    let v = active_layout.trim().to_lowercase();
+    let v = if matches!(v.as_str(), "manifest" | "contemporary" | "classic") {
+        v
+    } else {
+        "contemporary".to_string()
+    };
+    let label = match v.as_str() {
+        "manifest" => "TRANSLATE.APPEARANCE.USER_INTERFACE_MANIFEST",
+        "classic" => "TRANSLATE.APPEARANCE.USER_INTERFACE_CLASSIC",
+        _ => "TRANSLATE.APPEARANCE.USER_INTERFACE_CONTEMPORARY",
+    };
+    json!({ "value": v, "label": label })
 }
 
 /// Full `pushUiConfig` payload for **`system_controller/system`** with **`TRANSLATE.*`** resolved to English.
@@ -411,6 +444,52 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String]) ->
       ]
     });
 
+    resolve_translate_tokens(&mut out);
+    out
+}
+
+/// **Settings → Appearance** — UI layout (manifest / contemporary / classic), then theme + wallpapers +
+/// colours (`coreSection` **ui-settings**). Language only under **Settings → System**.
+pub fn miscellanea_appearance_ui_config(active_layout: &str) -> Value {
+    let v3_val = volumio3_ui_current_value(active_layout);
+    let v3_opts = volumio3_ui_options_array();
+    let mut out = json!({
+      "page": { "label": "TRANSLATE.APPEARANCE.APPEARANCE" },
+      "sections": [
+        {
+          "id": "volumio3_ui_section",
+          "element": "section",
+          "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN",
+          "icon": "fa-th-large",
+          "onSave": {
+            "type": "controller",
+            "endpoint": "miscellanea/appearance",
+            "method": "setVolumio3UI"
+          },
+          "hidden": false,
+          "saveButton": {
+            "label": "TRANSLATE.COMMON.SAVE",
+            "data": [ "volumio3_ui" ]
+          },
+          "content": [
+            {
+              "id": "volumio3_ui",
+              "element": "select",
+              "doc": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN_DOC",
+              "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN",
+              "value": v3_val,
+              "options": v3_opts
+            }
+          ]
+        },
+        {
+          "id": "section_theme_background",
+          "element": "section",
+          "hidden": false,
+          "coreSection": "ui-settings"
+        }
+      ]
+    });
     resolve_translate_tokens(&mut out);
     out
 }
