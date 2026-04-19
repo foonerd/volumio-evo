@@ -20,6 +20,7 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | Alarm / RTC wake | [ALARM_WAKE.md](ALARM_WAKE.md) |
 | Album art provider order / URLs | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) |
 | Playback timer / queue UI contract | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) |
+| Video companion (local video + LAN UI concept) | [VIDEO_COMPANION.md](VIDEO_COMPANION.md) |
 | Runtime user / mount helpers | [RUNTIME_USER.md](RUNTIME_USER.md) |
 
 ## Every markdown file under `docs/`
@@ -45,6 +46,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) | Online album-art provider behaviour. |
 | [ALARM_WAKE.md](ALARM_WAKE.md) | **`rtcwake`** / alarm persistence. |
 | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) | Timer and **`pushState`** expectations for the UI. |
+| [VIDEO_COMPANION.md](VIDEO_COMPANION.md) | Headless LAN + local HDMI video; router vs MPD; **branch `video-companion`**. |
 | [KIOSK.md](KIOSK.md) | Wayland kiosk — **reference only**, not shipped. |
 
 ## Documentation update rule (non-negotiable)
