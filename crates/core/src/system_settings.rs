@@ -49,6 +49,10 @@ pub struct SystemSettings {
     pub kiosk_enabled: bool,
     #[serde(default = "default_primary_display")]
     pub primary_display: String,
+
+    /// Plymouth theme asset rotation (`plymouth=N` kernel parameter): **0**, **90**, **180**, or **270**.
+    #[serde(default)]
+    pub boot_branding_plymouth_rotation: u16,
 }
 
 fn default_device_name() -> String {
@@ -86,6 +90,7 @@ impl Default for SystemSettings {
             automatic_updates_stop_hour: 23,
             kiosk_enabled: false,
             primary_display: default_primary_display(),
+            boot_branding_plymouth_rotation: 0,
         }
     }
 }
@@ -145,6 +150,8 @@ impl SystemSettings {
         }
         self.automatic_updates_start_hour = self.automatic_updates_start_hour.min(23);
         self.automatic_updates_stop_hour = self.automatic_updates_stop_hour.min(23);
+        self.boot_branding_plymouth_rotation =
+            normalize_plymouth_rotation(self.boot_branding_plymouth_rotation);
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -231,6 +238,17 @@ impl SystemSettings {
         changed
     }
 
+    pub fn merge_boot_branding_rotation_payload(&mut self, data: &Value) -> bool {
+        let mut changed = false;
+        if let Some(r) = extract_boot_branding_rotation(data) {
+            if r != self.boot_branding_plymouth_rotation {
+                self.boot_branding_plymouth_rotation = r;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub fn merge_kiosk_payload(&mut self, data: &Value) -> bool {
         let mut changed = false;
         if let Some(v) = data.get("kiosk_enabled").and_then(|x| x.as_bool()) {
@@ -263,6 +281,38 @@ fn extract_select_value(data: &Value, key: &str) -> Option<String> {
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
         .or_else(|| v.get("value").and_then(|x| x.as_i64()).map(|n| n.to_string()))
+}
+
+pub(crate) fn normalize_plymouth_rotation(deg: u16) -> u16 {
+    match deg {
+        0 | 90 | 180 | 270 => deg,
+        _ => 0,
+    }
+}
+
+fn extract_boot_branding_rotation(data: &Value) -> Option<u16> {
+    let v = data.get("boot_branding_rotation")?;
+    let n = if let Some(i) = v.as_u64() {
+        i as u16
+    } else if let Some(i) = v.as_i64() {
+        i.clamp(0, 65535) as u16
+    } else if let Some(o) = v.as_object() {
+        let raw = o.get("value")?;
+        if let Some(u) = raw.as_u64() {
+            u as u16
+        } else if let Some(i) = raw.as_i64() {
+            i.clamp(0, 65535) as u16
+        } else if let Some(s) = raw.as_str() {
+            s.parse().ok()?
+        } else {
+            return None;
+        }
+    } else if let Some(s) = v.as_str() {
+        s.parse().ok()?
+    } else {
+        return None;
+    };
+    Some(normalize_plymouth_rotation(n))
 }
 
 fn extract_hour_select(data: &Value, key: &str) -> Option<u8> {

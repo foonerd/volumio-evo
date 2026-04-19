@@ -34,6 +34,7 @@
 
 - **Logs:** [OBSERVABILITY.md](OBSERVABILITY.md) — journald, `[EVO]` prefix, grep patterns.
 - **Shipped binaries:** [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`** — refresh prebuilts for bootstrap.
+- **Branded boot / Plymouth:** [BRANDED_BOOT.md](BRANDED_BOOT.md) — **`VOL:v1`** branding stages, systemd units, prototype vs RC, theme/packaging follow-up.
 
 ## 7. Optional display shell (later)
 

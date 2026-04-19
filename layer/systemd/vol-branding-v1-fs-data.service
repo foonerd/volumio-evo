@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Emits only when /data exists (typical Volumio-style data partition). Skip on vanilla Debian.
+[Unit]
+Description=VOL:v1 fs:data (Plymouth message)
+DefaultDependencies=yes
+After=vol-branding-v1-sys-base.service
+Before=plymouth-quit-wait.service
+ConditionPathExists=/usr/bin/plymouth
+ConditionPathExists=/data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/plymouth message --text="VOL:v1:fs:data"
+
+[Install]
+WantedBy=multi-user.target

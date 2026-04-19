@@ -3339,6 +3339,17 @@ async fn call_method(
         return;
     }
 
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("installBootBranding")
+    {
+        let st = state.clone();
+        let data = payload.data.clone();
+        tokio::spawn(async move {
+            super::boot_branding::spawn_install(st, data).await;
+        });
+        return;
+    }
+
     if payload.endpoint.as_deref() == Some("audio_interface/alsa_controller")
         && payload.method.as_deref() == Some("saveAlsaOptions")
     {

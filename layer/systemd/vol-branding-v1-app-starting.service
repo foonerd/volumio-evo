@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Runs immediately before volumio-evo.service starts (same deps as volumio-evo minus self).
+[Unit]
+Description=VOL:v1 app:starting (Plymouth message)
+DefaultDependencies=yes
+After=network.target sound.target mpd.service plymouth-start.service
+Before=volumio-evo.service plymouth-quit-wait.service
+ConditionPathExists=/usr/bin/plymouth
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/plymouth message --text="VOL:v1:app:starting"
+
+[Install]
+WantedBy=multi-user.target

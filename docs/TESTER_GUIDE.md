@@ -75,6 +75,8 @@ You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or
 3. Open **`http://<device-IP>/`**, browse music, play — audio and UI updates behave as expected.
 4. Report unexpected behaviour with steps to reproduce.
 
+**Boot branding (optional full-stack check):** First-class Evo feature — **Settings → System → Boot branding** runs `installBootBranding` (needs **[narrow sudoers](../../docs/OS_PRIVILEGE_MODEL.md)** for **`run-boot-branding.sh`**). Full story: **[BRANDED_BOOT.md](BRANDED_BOOT.md)**. Complete bootstrap testing should verify **prebuilt `layer/binaries/`** matches **`crates/core`** (**[layer/binaries/README.md](../layer/binaries/README.md)**), or use **`--build`** so the device binary includes the Socket.IO installer path.
+
 ---
 
 ## If something goes wrong

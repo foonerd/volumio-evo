@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Optional umbrella: enable this target to pull in all VOL:v1 Plymouth branding units.
+#   systemctl enable vol-branding-v1.target
+[Unit]
+Description=VOL:v1 Plymouth boot branding (informative splash stages)
+Wants=vol-branding-v1-fs-root-ready.service
+Wants=vol-branding-v1-sys-base.service
+Wants=vol-branding-v1-fs-data.service
+Wants=vol-branding-v1-app-starting.service
+Wants=vol-branding-v1-app-listening.service
+After=plymouth-start.service
+
+[Install]
+WantedBy=multi-user.target

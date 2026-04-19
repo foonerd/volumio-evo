@@ -1,5 +1,6 @@
 //! HTTP and Socket.IO API.
 
+mod boot_branding;
 mod http;
 mod network_ui;
 pub(crate) mod system_power;

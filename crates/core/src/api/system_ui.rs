@@ -6,7 +6,7 @@
 
 use serde_json::{json, Value};
 
-use crate::system_settings::SystemSettings;
+use crate::system_settings::{normalize_plymouth_rotation, SystemSettings};
 
 use super::sources_ui::resolve_translate_tokens;
 
@@ -141,6 +141,11 @@ fn timezone_value_label(tz: &str) -> Value {
     json!({ "value": v, "label": v })
 }
 
+fn boot_branding_rotation_value_label(deg: u16) -> Value {
+    let d = normalize_plymouth_rotation(deg);
+    json!({ "value": d, "label": format!("{d}°") })
+}
+
 /// Full `pushUiConfig` payload for **`system_controller/system`** with **`TRANSLATE.*`** resolved to English.
 pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String]) -> Value {
     let hour_opts = hour_options();
@@ -249,6 +254,36 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String]) ->
                 { "value": "hdmi", "label": "HDMI" },
                 { "value": "dsi", "label": "DSI / touchscreen" },
                 { "value": "wayland-default", "label": "Wayland default" }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "section_boot_branding",
+          "element": "section",
+          "label": "TRANSLATE.SYSTEM.BOOT_BRANDING",
+          "icon": "fa-picture-o",
+          "onSave": {
+            "type": "controller",
+            "endpoint": "system_controller/system",
+            "method": "installBootBranding"
+          },
+          "saveButton": {
+            "label": "TRANSLATE.SYSTEM.INSTALL_BOOT_BRANDING",
+            "data": [ "boot_branding_rotation" ]
+          },
+          "content": [
+            {
+              "id": "boot_branding_rotation",
+              "element": "select",
+              "doc": "TRANSLATE.SYSTEM.BOOT_BRANDING_ROTATION_DOC",
+              "label": "TRANSLATE.SYSTEM.BOOT_BRANDING_ROTATION",
+              "value": boot_branding_rotation_value_label(settings.boot_branding_plymouth_rotation),
+              "options": [
+                { "value": 0, "label": "0°" },
+                { "value": 90, "label": "90°" },
+                { "value": 180, "label": "180°" },
+                { "value": 270, "label": "270°" }
               ]
             }
           ]

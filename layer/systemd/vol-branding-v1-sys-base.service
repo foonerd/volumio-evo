@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[Unit]
+Description=VOL:v1 sys:base (Plymouth message)
+DefaultDependencies=yes
+After=basic.target vol-branding-v1-fs-root-ready.service
+Before=plymouth-quit-wait.service
+ConditionPathExists=/usr/bin/plymouth
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/plymouth message --text="VOL:v1:sys:base"
+
+[Install]
+WantedBy=multi-user.target

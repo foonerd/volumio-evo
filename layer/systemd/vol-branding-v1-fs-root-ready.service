@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# VOL:v1 — branded boot stage (Plymouth). Install to /etc/systemd/system/
+# Requires: plymouth package, splash in kernel cmdline, theme configured.
+[Unit]
+Description=VOL:v1 fs:root-ready (Plymouth message)
+DefaultDependencies=yes
+After=local-fs.target plymouth-start.service
+Before=plymouth-quit-wait.service
+ConditionPathExists=/usr/bin/plymouth
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Leading '-' ignores failure when plymouthd already quit (fast boot / ordering).
+ExecStart=-/usr/bin/plymouth message --text="VOL:v1:fs:root-ready"
+
+[Install]
+WantedBy=multi-user.target

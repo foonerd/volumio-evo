@@ -1,10 +1,11 @@
 # Volumio Evo layer
 
-Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo. For detailed step-by-step instructions (including MPD setup and validation), see [docs/TESTER_GUIDE.md](../docs/TESTER_GUIDE.md). Persisted Evo state on disk (ALSA, MPD playback options, future subsystems) is namespaced under `/var/lib/volumio-evo/settings/` — see [docs/SETTINGS_LAYOUT.md](../docs/SETTINGS_LAYOUT.md). Journald filtering and log markers: [docs/OBSERVABILITY.md](../docs/OBSERVABILITY.md).
+Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo. For detailed step-by-step instructions (including MPD setup and validation), see [docs/TESTER_GUIDE.md](../docs/TESTER_GUIDE.md). Persisted Evo state on disk (ALSA, MPD playback options, future subsystems) is namespaced under `/var/lib/volumio-evo/settings/` — see [docs/SETTINGS_LAYOUT.md](../docs/SETTINGS_LAYOUT.md). Journald filtering and log markers: [docs/OBSERVABILITY.md](../docs/OBSERVABILITY.md). Branded boot (Plymouth, **`VOL:v1`** branding stages, Pi 5 vs RC testing, theme/packaging roadmap): [docs/BRANDED_BOOT.md](../docs/BRANDED_BOOT.md).
 
 ## Contents
 
-- **systemd/** - `volumio-evo.service` for the backend process.
+- **plymouth/** - Vendored **`volumio-adaptive`** theme and dev tool **`generate-overlays.sh`** (ImageMagick) to (re)build **`overlay-vol-*.png`** — see **`plymouth/README.md`**.
+- **systemd/** - `volumio-evo.service` for the backend process. **Optional** `vol-branding-v1-*.service` units send `VOL:v1:…` strings to Plymouth for branded boot (see `systemd/vol-branding-v1.target` and each unit’s header); copy to `/etc/systemd/system/`, `daemon-reload`, `enable` the target or individual services, and require `plymouth` + `splash` in the kernel cmdline. **`ExecStart=-/usr/bin/plymouth`** uses systemd’s `-` prefix so `plymouth message` failing after the splash has quit (common on fast boots) does not mark the unit as failed.
 - **binaries/** - Prebuilt **`volumio-evo`** per Linux target triple (`binaries/README.md`). Bootstrap installs the matching binary when present (avoids `cargo build` on device).
 - **config/** - Example config (`volumio-evo.toml.example`). Copy to `/etc/volumio-evo/config.toml` and adjust.
 - **web/** - Vendored static UI trees for **classic** / **contemporary** / **manifest** (see `web/README.md`). Used by the bootstrap script when present.

@@ -4,7 +4,9 @@
 
 **Testers and devices must not compile Rust** to get a working player: `scripts/bootstrap-volumio-evo-player.sh` installs the **checked-in** binary from this directory (unless **`--build`** / **`EVO_BUILD_FROM_SOURCE`**).
 
-Whenever **`crates/core`** (or any code linked into `volumio-evo`) changes behaviour—playback, Socket.IO, network discovery, mounts, etc.—**maintainers must** produce fresh **release** binaries for the triples below, copy them here, and update **`SHA256SUMS`** before expecting `git pull` + bootstrap to reflect those changes. Shipping an old binary with new scripts/docs is a broken OOTB experience.
+Whenever **`crates/core`** (or any code linked into `volumio-evo`) changes behaviour—playback, Socket.IO, network discovery, mounts, **Settings → System → Boot branding** (`installBootBranding`, progress modal), etc.—**maintainers must** produce fresh **release** binaries for the triples below, copy them here, and update **`SHA256SUMS`** before expecting `git pull` + bootstrap to reflect those changes. Shipping an old binary with new scripts/docs is a broken OOTB experience.
+
+**Boot branding** is a **first-class product path**: see **[docs/BRANDED_BOOT.md](../../docs/BRANDED_BOOT.md)** (feature callout at top). Missing backend support means the UI button does nothing useful even if **`scripts/`** and **`layer/plymouth/`** are present.
 
 Rust **release** builds checked in for offline / fast bootstrap. Layout matches `rustc` target triples:
 

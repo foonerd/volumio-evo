@@ -68,6 +68,9 @@ Log level and **`journalctl`** filtering are documented in **[OBSERVABILITY.md](
 | `VOLUMIO_EVO_ALSA_STATE` | **Full path** to the ALSA state file. Overrides `settings/alsa/state.toml`. |
 | `VOLUMIO_EVO_PLAYBACK_STATE` | **Full path** to the MPD playback options file. Overrides `settings/mpd/playback.toml`. |
 | `VOLUMIO_EVO_ALARM_STATE` | **Full path** to alarm/sleep persisted state. Overrides `settings/alarm/state.toml`. |
+| `VOLUMIO_EVO_REPO_DIR` | Root of the **volumio-evo** tree (theme + `scripts/`). Default: `/usr/share/volumio-evo/repo`. Used for **Settings → System → Boot branding** and the install scripts. |
+| `VOLUMIO_EVO_BOOT_BRANDING_SCRIPT` | Optional full path to **`run-boot-branding.sh`**. Default: `$VOLUMIO_EVO_REPO_DIR/scripts/run-boot-branding.sh`. |
+| `VOLUMIO_EVO_BRANDING_READY_URL` | Optional HTTP URL polled by **`vol-branding-v1-app-listening.service`** until ready (drop-in **`Environment=`**). Legacy alias still honored in the unit: **`VOLUMIO_EVO_MILESTONE_URL`**. |
 
 Systemd: `layer/systemd/volumio-evo.service` sets `VOLUMIO_EVO_SETTINGS_DIR` so all subsystems share one root.
 

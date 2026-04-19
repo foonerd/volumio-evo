@@ -38,6 +38,7 @@ When a non-root user runs Evo:
 | `/etc/sudoers.d/volumio-evo-nmcli` | NOPASSWD **`nmcli`** (full binary path) | Root; path must match **`VOLUMIO_EVO_NMCLI`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-rtcwake` | NOPASSWD **`rtcwake`** (full binary path) | Root; path must match **`VOLUMIO_EVO_RTCWAKE`** — alarm RTC wake / suspend tests (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
+| `/etc/sudoers.d/volumio-evo-boot-branding` (manual; name is a convention) | NOPASSWD **`/usr/share/volumio-evo/repo/scripts/run-boot-branding.sh`** (or the path from **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**) | Root; allow the service user to run only this wrapper (see **[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
 
 ## Runtime OS actions (Evo process)
 
@@ -52,6 +53,7 @@ When a non-root user runs Evo:
 | **`hostnamectl`** (`set-hostname`) | Persisted device name → OS hostname (**Settings → System**) | **Root**, or **`sudo -n $VOLUMIO_EVO_HOSTNAMECTL set-hostname …`** — bootstrap installs **`volumio-evo-hostname-timedate`** when **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1`** (bare **`hostnamectl`** triggers polkit “Interactive authentication required” when non‑root) |
 | **`timedatectl`** (`set-timezone`) | Persisted timezone | **Root**, or **`sudo -n $VOLUMIO_EVO_TIMEDATECTL set-timezone …`** — same sudoers fragment as **`hostnamectl`** |
 | **`rtcwake`** | Program/clear RTC alarm for wake-from-suspend (**alarm clock** groundwork) | **Root**, or **`sudo -n $VOLUMIO_EVO_RTCWAKE …`** — bootstrap **`volumio-evo-rtcwake`** when **`EVO_INSTALL_RTCWAKE_SUDOERS=1`** (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
+| **Boot branding** installer | **Settings → System → Boot branding** | **Root**, or **`sudo -n /path/to/run-boot-branding.sh <rotation>`** — narrow sudoers line for the wrapper script only (**[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
 
 Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** session.
 

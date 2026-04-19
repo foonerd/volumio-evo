@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Polls Evo HTTP until /api/host succeeds (default 127.0.0.1:3000). Tune via drop-in:
+#   Environment=VOLUMIO_EVO_BRANDING_READY_URL=http://127.0.0.1:3000/api/host
+# Legacy name still honored in the probe: VOLUMIO_EVO_MILESTONE_URL
+# ~150s max poll; use a drop-in with TimeoutStartSec= on very slow boards.
+[Unit]
+Description=VOL:v1 app:listening (Plymouth message — Evo HTTP ready)
+DefaultDependencies=yes
+After=volumio-evo.service
+Before=plymouth-quit-wait.service
+ConditionPathExists=/usr/bin/plymouth
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=VOLUMIO_EVO_BRANDING_READY_URL=http://127.0.0.1:3000/api/host
+# Probe uses curl or wget (one should be installed for /api/host check).
+ExecStart=-/bin/sh -ec 'URL="${VOLUMIO_EVO_BRANDING_READY_URL:-${VOLUMIO_EVO_MILESTONE_URL:-http://127.0.0.1:3000/api/host}}"; \
+  probe() { curl -sf --connect-timeout 1 --max-time 2 "$1" >/dev/null 2>&1 || wget -q -T 2 -O /dev/null "$1" >/dev/null 2>&1; }; \
+  msg() { /usr/bin/plymouth message --text="VOL:v1:app:listening" || true; }; \
+  i=0; while [ "$i" -lt 750 ]; do if probe "$URL"; then msg; exit 0; fi; i=$((i+1)); sleep 0.2; done; msg'
+
+[Install]
+WantedBy=multi-user.target
