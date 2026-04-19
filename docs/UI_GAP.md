@@ -53,7 +53,7 @@ When Evo gains a new handler, update **Evo today** and downgrade or strike the r
 
 | ID | Where | Change | Why | Evo today | Priority |
 |----|--------|--------|-----|-----------|----------|
-| UI-LBAR-01 | `services/socket.service.js` | For each `loadingBarRequestEvents` entry, ensure a corresponding **`loadingBarResponseEvents`** (or timeout/complete on error). | Wizard emits **`getWirelessNetworks`** (in list); if no **`pushWirelessNetworks`**, bar can stick. | Evo does not handle wizard network events yet. | P1 |
+| UI-LBAR-01 | `services/socket.service.js` | For each `loadingBarRequestEvents` entry, ensure a corresponding **`loadingBarResponseEvents`** (or timeout/complete on error). | Wizard emits **`getWirelessNetworks`** (in list); if no **`pushWirelessNetworks`**, bar can stick. | **`getWirelessNetworks`** → **`pushWirelessNetworks`** is implemented ([NETWORK_NM.md](NETWORK_NM.md)); other **`loadingBarRequestEvents`** (e.g. **`getAvailablePlugins`**, **`getDeviceActivationStatus`**) may still lack pairing — see [PORTING.md](PORTING.md) Phase 2. | P2 |
 | UI-LBAR-02 | `services/socket.service.js` | Add **`getAvailablePlugins`** / **`pushAvailablePlugins`** to paired lists if plugin manager should show loading state consistently. | Symmetry with other plugin calls. | Optional; plugin manager may complete without bar pairing. | P3 |
 
 **Reference:** `loadingBarRequestEvents` / `loadingBarResponseEvents` in `socket.service.js` (includes `getWirelessNetworks`, `GetTrackInfo`, etc.).
@@ -64,7 +64,7 @@ When Evo gains a new handler, update **Evo today** and downgrade or strike the r
 
 | ID | Where | Change | Why | Evo today | Priority |
 |----|--------|--------|-----|-----------|----------|
-| UI-WIZ-01 | `wizard/wizard.controller.js` + templates | When backend is minimal (Evo), **skip** or **short-circuit** steps that require **`getWirelessNetworks`**, **`getDeviceActivationStatus`**, **`setWizardAction`**, **`setDeviceActivationCode`**, etc., **or** require Evo to stub all wizard emits (see PORTING Phase 2–3). | Avoids hung wizards and meaningless steps without cloud/network. | Evo stubs some wizard pushes; not full parity. | P1 |
+| UI-WIZ-01 | `wizard/wizard.controller.js` + templates | When backend is minimal (Evo), **skip** or **short-circuit** steps that require **`getDeviceActivationStatus`**, **`setWizardAction`**, **`setDeviceActivationCode`**, etc., **or** require Evo to stub all wizard emits (see PORTING Phase 2). Wi‑Fi scan/join is partially implemented (NM); cloud activation is not. | Avoids hung wizards and meaningless steps without cloud. | Evo stubs some wizard pushes; **My Volumio / activation** not ported ([PORTING.md](PORTING.md) Part 5). | P1 |
 | UI-WIZ-02 | Wizard flow | Detect “offline / Evo” mode via **capability flag** from backend (new REST or `pushSystemInfo`) instead of hard-coding hostnames. | Single code path for multiple backends. | Not implemented. | P2 |
 
 ---
@@ -73,7 +73,7 @@ When Evo gains a new handler, update **Evo today** and downgrade or strike the r
 
 | ID | Where | Change | Why | Evo today | Priority |
 |----|--------|--------|-----|-----------|----------|
-| UI-CALL-01 | `plugin/components/plugin.component.js` | Show clear error or hide save when **`callMethod`** / **`getUiConfig`** return empty stubs (Evo) or plugin not present. | Avoid silent no-op saves. | Evo only implements specific `callMethod` paths (e.g. album art cache clear broadcast). | P2 |
+| UI-CALL-01 | `plugin/components/plugin.component.js` | Show clear error or hide save when **`callMethod`** / **`getUiConfig`** return empty stubs (Evo) or plugin not present. | Avoid silent no-op saves. | Evo implements **documented** `callMethod` paths only ([PORTING.md](PORTING.md) Part 5 exception row — **`clearAlbumartCache`**, **`installBootBranding`**, system/ALSA/MPD saves, **`metavolumio`** endpoint). | P2 |
 
 ---
 

@@ -1,7 +1,5 @@
 # Branded boot: Plymouth, `VOL` branding stages, and release process
 
-> **Product feature (first-class):** **Settings → System → Boot branding** in Evo drives packages, **`volumio-adaptive`** theme, **`vol-branding-v1-*`** systemd units, kernel cmdline / GRUB (**`plymouth=N`** rotation), **`update-initramfs`**, with a stock **progress modal** over Socket.IO. It is **not** optional tinkering — ship the **`volumio-evo`** binary that implements **`installBootBranding`**, refresh **`layer/binaries/`** when Rust changes (**[layer/binaries/README.md](../layer/binaries/README.md)**), and install **narrow sudoers** for **`run-boot-branding.sh`** (**[OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)**).
-
 This document is the **single place** for Volumio Evo’s **Plymouth** story: token contract, shipped systemd units, development workflow (Pi 5 prototype vs RC on other hardware), packaging/theme work still to do, and testing expectations.
 
 Related: **`layer/systemd/`** (`volumio-evo.service`, **`vol-branding-v1-*.service`**), **`layer/plymouth/`** (theme + **`generate-overlays.sh`** — dev-only, see **`layer/plymouth/README.md`**), **`layer/README.md`**.
@@ -32,6 +30,8 @@ volumio ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/scripts/run-boot-brandi
 Development trees can symlink or copy the same layout under **`/usr/share/volumio-evo/repo`** or point **`VOLUMIO_EVO_REPO_DIR`** / **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`** at the checkout.
 
 **Rotation:** the UI sends **`plymouth=0|90|180|270`** via the wrapper argument; the script adds **`plymouth=N`** to the kernel command line (together with **`splash`** and **`plymouth.ignore-serial-consoles`**). Reboot to apply.
+
+Vanilla OS **`.deb`** set for Plymouth is whatever **`scripts/volumio-boot-branding.sh`** installs (**`apt-get install -y plymouth plymouth-themes`** today — single source of truth).
 
 ---
 

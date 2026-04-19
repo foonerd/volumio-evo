@@ -10,6 +10,8 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-
 
 [BUILD_GUIDE.md](BUILD_GUIDE.md) is for cross-compiling or host-side binaries — **not** a substitute for on-device verification with bootstrap.
 
+**Documentation index** (assumptions, canonical topics, implemented vs not): [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md).
+
 ---
 
 ## Run bootstrap (only command that matters)
@@ -74,8 +76,6 @@ You do **not** run separate UI build steps: bootstrap copies **`layer/web`** (or
 2. Health URL above shows `ok`.
 3. Open **`http://<device-IP>/`**, browse music, play — audio and UI updates behave as expected.
 4. Report unexpected behaviour with steps to reproduce.
-
-**Boot branding (optional full-stack check):** First-class Evo feature — **Settings → System → Boot branding** runs `installBootBranding` (needs **[narrow sudoers](../../docs/OS_PRIVILEGE_MODEL.md)** for **`run-boot-branding.sh`**). Full story: **[BRANDED_BOOT.md](BRANDED_BOOT.md)**. Complete bootstrap testing should verify **prebuilt `layer/binaries/`** matches **`crates/core`** (**[layer/binaries/README.md](../layer/binaries/README.md)**), or use **`--build`** so the device binary includes the Socket.IO installer path.
 
 ---
 

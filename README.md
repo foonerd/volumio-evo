@@ -9,7 +9,7 @@ Rust backend + WASM plugins on a stock minimal OS. No Node, no debootstrap.
 - **Backend:** Single Rust binary; loads sandboxed WASM plugins.
 - **UI:** Unchanged (e.g. React) over HTTP and Socket.IO.
 
-See [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), and [docs/PORTING.md](docs/PORTING.md) for API port status.
+**Documentation index** (assumptions, authority, what is done vs not): [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md). Further: [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), [docs/PORTING.md](docs/PORTING.md).
 
 - **Persisted settings on disk:** [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) — namespace under `/var/lib/volumio-evo/settings/` (`alsa/`, `mpd/`, future `network/`, `mounts/`, …), env overrides, secrets guidance.
 
@@ -77,27 +77,21 @@ Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [laye
 
 ## More documentation
 
-**OS integration (service user, sudo, MPD reload, `/etc` — no interactive prompts):** [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) is the **contract** for host privileges; [docs/RUNTIME_USER.md](docs/RUNTIME_USER.md) covers bootstrap **`EVO_SERVICE_USER`** and drop-ins.
-
-**Backend port and UI contract:** [docs/PORTING.md](docs/PORTING.md) is the main map from volumio3-backend to Evo. **Playback cadence and queue rules** for stock Volumio2-UI: [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md).
-
-**Future (not required for backend port):** [docs/KIOSK.md](docs/KIOSK.md) describes an optional full-screen Wayland kiosk layer (WPE/Cog); defer until the Rust API is the primary production backend.
-
-| Document | Topic |
-|----------|--------|
-| [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) | Sudoers, `systemctl`, MPD fragment ownership — **non-interactive** OS contract |
-| [docs/RUNTIME_USER.md](docs/RUNTIME_USER.md) | Bootstrap service user, `EVO_SERVICE_USER`, systemd drop-in |
+| Document | Role |
+|----------|------|
+| [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) | **Index:** authority, assumptions, done vs not ported |
+| [docs/PORTING.md](docs/PORTING.md) | volumio3-backend → Evo parity |
 | [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) | On-device bootstrap (canonical test) |
+| [docs/BRANDED_BOOT.md](docs/BRANDED_BOOT.md) | Plymouth / boot branding |
+| [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) | Sudoers, non-interactive contract |
+| [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md) | `pushState` / `pushQueue` |
+| [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md) | WASM plugin ABI |
 | [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) | Cross-compilation, `layer/binaries/` |
-| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | `journalctl`, `[EVO]` prefix, `RUST_LOG` |
-| [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) | Paths under `/var/lib/volumio-evo/settings/` |
-| [docs/PORTING.md](docs/PORTING.md) | volumio3-backend inventory vs Evo |
-| [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md) | `pushState` / `pushQueue` timing, queue payload shape, album art URLs |
-| [docs/UI_GAP.md](docs/UI_GAP.md) | Optional Volumio2-UI adjustments |
-| [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md) | WASM plugin contract |
-| [docs/PRIORITY_ALSA_AAMPP.md](docs/PRIORITY_ALSA_AAMPP.md) | ALSA/AAMPP plugin pipeline (not done) |
-| [docs/ALBUMART_PROVIDERS.md](docs/ALBUMART_PROVIDERS.md) | Online album-art providers |
-| [docs/KIOSK.md](docs/KIOSK.md) | Wayland kiosk concept (**deferred** — after backend port) |
+| [docs/NETWORK_NM.md](docs/NETWORK_NM.md) | NetworkManager / `nmcli` |
+| [docs/KIOSK.md](docs/KIOSK.md) | Kiosk reference (deferred) |
+| [docs/UI_GAP.md](docs/UI_GAP.md) | Optional Volumio2-UI notes |
+
+All other `docs/*.md` files: see [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) or the **Authority** table there.
 
 ## License
 
