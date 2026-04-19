@@ -307,7 +307,7 @@ fn pid_kill(_pid: u32, _sig: i32) -> std::io::Result<()> {
     ))
 }
 
-/// **`EVO_VIDEO_ENCODER`**: `auto` (default), **`libx264`**, **`h264_v4l2m2m`** (Pi V4L2 encode when `/dev/video11`-style nodes exist).
+/// **`EVO_VIDEO_ENCODER`**: **`auto`** (default) → **`libx264`**; **`h264_v4l2m2m`** / **`hw`** opt-in after you verify FFmpeg can open the V4L2 encoder on **this** host (presence of **`/dev/video*`** is not enough — headless Pi often fails **Could not find a valid device**).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VideoEncoderChoice {
     Libx264,
@@ -317,20 +317,18 @@ enum VideoEncoderChoice {
 fn resolve_video_encoder() -> VideoEncoderChoice {
     match std::env::var("EVO_VIDEO_ENCODER") {
         Ok(s) => match s.trim().to_ascii_lowercase().as_str() {
-            "" | "auto" => {}
-            "libx264" | "sw" | "software" => return VideoEncoderChoice::Libx264,
-            "h264_v4l2m2m" | "hw" | "v4l2" | "pi" => return VideoEncoderChoice::V4l2m2m,
-            _ => {}
+            "" | "auto" | "libx264" | "sw" | "software" => VideoEncoderChoice::Libx264,
+            "h264_v4l2m2m" | "hw" | "v4l2" | "pi" => VideoEncoderChoice::V4l2m2m,
+            _ => {
+                tracing::warn!(
+                    "{} unknown EVO_VIDEO_ENCODER — using libx264",
+                    crate::log_tags::EVO_PLAY
+                );
+                VideoEncoderChoice::Libx264
+            }
         },
-        Err(_) => {}
+        Err(_) => VideoEncoderChoice::Libx264,
     }
-    // Typical Raspberry Pi **`/dev/video11`** (encode) — reduces CPU vs libx264 so ALSA keeps up.
-    for dev in ["/dev/video11", "/dev/video12", "/dev/video22"] {
-        if Path::new(dev).exists() {
-            return VideoEncoderChoice::V4l2m2m;
-        }
-    }
-    VideoEncoderChoice::Libx264
 }
 
 fn append_video_encoder_args(cmd: &mut tokio::process::Command, enc: VideoEncoderChoice) {
@@ -357,7 +355,7 @@ fn append_video_encoder_args(cmd: &mut tokio::process::Command, enc: VideoEncode
         }
         VideoEncoderChoice::V4l2m2m => {
             tracing::info!(
-                "{} using h264_v4l2m2m hardware encoder (set EVO_VIDEO_ENCODER=libx264 to force CPU encode)",
+                "{} using h264_v4l2m2m (unset EVO_VIDEO_ENCODER or set libx264 for CPU encode)",
                 crate::log_tags::EVO_PLAY
             );
             cmd.args([
