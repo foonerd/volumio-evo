@@ -103,8 +103,12 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 
 ## 10. Implementation stub (in-tree)
 
-- **`playback_router::replace_and_play_uri`** — used by Socket.IO **`replaceAndPlay`** (non-playlist) and **`POST /api/v1/replaceAndPlay`**. Calls **`video_companion::try_take_over_replace_and_play`** when built with **`--features video-companion`**, then **`mpd::replace_and_play_resolved`**.
-- **`video_companion::is_video_volumio_uri`** — extension-based classification (always built; unit-tested).
-- Stub takeover currently logs and returns **fall through** to MPD until a real **`VideoCompanionSession`** exists.
+- **`playback_router::replace_and_play_uri`** — Socket.IO **`replaceAndPlay`** (non-playlist), **`POST /api/v1/replaceAndPlay`**. Video hook then **`mpd::replace_and_play_resolved`**; clears **`RouterState.video_playback_active`** before MPD when not taking over.
+- **`playback_router::add_play_append_uri`** — Socket **`addPlay`**, **`GET /api/v1/commands?cmd=addPlay`**.
+- **`playback_router::play_items_list_uri`** — Socket **`playItemsList`** (multi-row).
+- **`playback_router::run_command_connected_with_video`** — Socket **`play`**, **`pause`**, **`toggle`**, **`stop`**, **`next`**, **`prev`**, **`seek`**, **`volume`** (after ALSA path), **`clearQueue`**, **`volatilePlay`**; **`GET /api/v1/commands`** for the same commands; sleep timer stop; graceful power-off/reboot stop. When **`video_playback_active`** and **`--features video-companion`**, playback-like commands hit **`video_companion::transport_dispatch`** (stub).
+- **`playback_router::skip_within_track_seconds`** — **`skipForward`** / **`skipBackwards`**.
+- **`RouterState.video_playback_active`** — `Arc<AtomicBool>`; cleared via **`RouterState::clear_video_playback_active`** (direct use optional). Set **`true`** only after a takeover returns **`Some(())`** (future).
+- **`video_companion::is_video_volumio_uri`** — extension classification (always built).
 
-Build with hooks: **`cargo build -p volumio-evo-core --features video-companion`** (default remains unchanged).
+Build with video hooks: **`cargo build -p volumio-evo-core --features video-companion`** (default unchanged).

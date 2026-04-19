@@ -1,21 +1,7 @@
 //! Graceful shutdown / reboot (shared by Socket.IO and sleep timer).
 
 use super::AppState;
-use crate::mpd::{self, MpdConfig};
 use std::time::Duration;
-
-fn mpd_config(state: &AppState) -> MpdConfig {
-    tracing::debug!(
-        "{} system_power::mpd_config {}:{}",
-        crate::log_tags::EVO_UI,
-        state.config.mpd_host,
-        state.config.mpd_port
-    );
-    MpdConfig {
-        host: state.config.mpd_host.clone(),
-        port: state.config.mpd_port,
-    }
-}
 
 /// Stop playback, release Samba daemons if present, unmount NAS shares, sync, then `systemctl` (with
 /// `/sbin/shutdown` or `/sbin/reboot` fallback after 3s, matching volumio3-backend `platformSpecific.js`).
@@ -26,9 +12,17 @@ pub(crate) async fn graceful_power_transition(state: AppState, reboot: bool) {
         reboot
     );
     let tag = crate::log_tags::EVO_UI;
-    let config = mpd_config(&state);
-    if let Err(e) = mpd::run_command_connected(&config, "stop", None, None, None, None).await {
-        tracing::warn!("{} pre-power: MPD stop: {}", tag, e);
+    if let Err(e) = crate::playback_router::run_command_connected_with_video(
+        &state,
+        "stop",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    {
+        tracing::warn!("{} pre-power: playback stop: {}", tag, e);
     }
 
     let _ = tokio::process::Command::new("sudo")

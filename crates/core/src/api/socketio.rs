@@ -485,18 +485,16 @@ impl AddQueueUidsPayload {
 const SKIP_SECONDS: u64 = 10;
 
 async fn skip_backwards(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    match mpd::skip_backwards_connected(&config, SKIP_SECONDS).await {
+    match crate::playback_router::skip_within_track_seconds(&state, -(SKIP_SECONDS as i64)).await {
         Ok(()) => state.notify_push_state(),
-        Err(e) => tracing::warn!("{} skipBackwards MPD error: {}", crate::log_tags::EVO_PLAY, e),
+        Err(e) => tracing::warn!("{} skipBackwards error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
 async fn skip_forward(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    match mpd::skip_forward_connected(&config, SKIP_SECONDS).await {
+    match crate::playback_router::skip_within_track_seconds(&state, SKIP_SECONDS as i64).await {
         Ok(()) => state.notify_push_state(),
-        Err(e) => tracing::warn!("{} skipForward MPD error: {}", crate::log_tags::EVO_PLAY, e),
+        Err(e) => tracing::warn!("{} skipForward error: {}", crate::log_tags::EVO_PLAY, e),
     }
 }
 
@@ -1254,8 +1252,15 @@ async fn volatile_play(
     payload: TryData<PlayPayload>,
 ) {
     let position = payload.as_ref().ok().and_then(|p| p.value);
-    let config = mpd_config(&state);
-    let _ = mpd::run_command_connected(&config, "play", None, position, None, None).await;
+    let _ = crate::playback_router::run_command_connected_with_video(
+        &state,
+        "play",
+        None,
+        position,
+        None,
+        None,
+    )
+    .await;
 }
 
 #[derive(Debug, Deserialize)]
@@ -2313,8 +2318,7 @@ async fn play_items_list(
     if uris.is_empty() || index >= uris.len() {
         return;
     }
-    let config = mpd_config(&state);
-    match mpd::play_items_list_connected(&config, &uris, index).await {
+    match crate::playback_router::play_items_list_uri(&state, &uris, index).await {
         Ok(()) => {
             state.notify_push_state();
             state.notify_push_queue();
@@ -2336,14 +2340,7 @@ async fn add_play(
     if payload.uri.is_empty() {
         return;
     }
-    let config = mpd_config(&state);
-    match mpd::add_play_append_resolved(
-        &config,
-        &state.config.music_sources.music_root,
-        &payload.uri,
-    )
-    .await
-    {
+    match crate::playback_router::add_play_append_uri(&state, &payload.uri).await {
         Ok(()) => {
             state.notify_push_state();
             state.notify_push_queue();
@@ -2413,7 +2410,6 @@ async fn apply_volume_to_system(state: &AppState, v: u8) {
     }
 
     let skip_mpd = pb.mixer_type == "Hardware" && pb.mpd_shares_alsa_hardware_mixer(&alsa);
-    let config = mpd_config(state);
     if skip_mpd {
         tracing::info!(
             "{} volume applied (ALSA only; MPD shares hardware mixer — skip setvol) vol={}",
@@ -2423,7 +2419,16 @@ async fn apply_volume_to_system(state: &AppState, v: u8) {
         return;
     }
 
-    match mpd::run_command_connected(&config, "volume", Some(v), None, None, None).await {
+    match crate::playback_router::run_command_connected_with_video(
+        state,
+        "volume",
+        Some(v),
+        None,
+        None,
+        None,
+    )
+    .await
+    {
         Ok(()) => {
             tracing::info!(
                 "{} volume applied (ALSA if enabled + MPD setvol) vol={}",
@@ -2505,60 +2510,96 @@ async fn play(
     payload: TryData<PlayPayload>,
 ) {
     let position = payload.as_ref().ok().and_then(|p| p.value);
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "play", None, position, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "play",
+        None,
+        position,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
 }
 
 async fn pause(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "pause", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "pause",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
 }
 
 async fn toggle(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "toggle", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "toggle",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
 }
 
 async fn stop(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "stop", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "stop",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
 }
 
 async fn next(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "next", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "next",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
 }
 
 async fn prev(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "prev", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "prev",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
     }
@@ -2571,10 +2612,16 @@ async fn seek(
 ) {
     let position = payload.as_i64().or_else(|| payload.as_u64().map(|u| u as i64));
     if let Some(pos) = position {
-        let config = mpd_config(&state);
-        if mpd::run_command_connected(&config, "seek", None, Some(pos), None, None)
-            .await
-            .is_ok()
+        if crate::playback_router::run_command_connected_with_video(
+            &state,
+            "seek",
+            None,
+            Some(pos),
+            None,
+            None,
+        )
+        .await
+        .is_ok()
         {
             state.notify_push_state();
         }
@@ -2626,10 +2673,16 @@ async fn set_repeat(
 }
 
 async fn clear_queue(_s: SocketRef, State(state): State<AppState>) {
-    let config = mpd_config(&state);
-    if mpd::run_command_connected(&config, "clearQueue", None, None, None, None)
-        .await
-        .is_ok()
+    if crate::playback_router::run_command_connected_with_video(
+        &state,
+        "clearQueue",
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .is_ok()
     {
         state.notify_push_state();
         state.notify_push_queue();

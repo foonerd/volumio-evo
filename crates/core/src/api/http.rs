@@ -10,6 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use socketioxide::SocketIo;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -421,6 +422,7 @@ pub fn router(
         active_layout: Arc::new(tokio::sync::RwLock::new(
             state.ui.active_layout.clone(),
         )),
+        video_playback_active: Arc::new(AtomicBool::new(false)),
     });
 
     let cfg_nas = state.clone();

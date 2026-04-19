@@ -403,8 +403,16 @@ impl AlarmClockCoordinator {
                 graceful_power_transition(st, false).await;
             });
         } else {
-            let cfg = Self::mpd_config(&app);
-            if let Err(e) = mpd::run_command_connected(&cfg, "stop", None, None, None, None).await {
+            if let Err(e) = crate::playback_router::run_command_connected_with_video(
+                &app,
+                "stop",
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            {
                 tracing::warn!("{} sleep stop: {}", EVO_ALARM, e);
             }
             app.notify_push_state();

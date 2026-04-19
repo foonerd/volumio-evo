@@ -134,12 +134,7 @@ pub async fn commands(
                     .into_response()
             }
         };
-        return match mpd::add_play_append_resolved(
-            &config,
-            &state.config.music_sources.music_root,
-            uri,
-        )
-        .await
+        return match crate::playback_router::add_play_append_uri(&state, uri).await
         {
             Ok(()) => {
                 state.notify_push_state();
@@ -163,7 +158,16 @@ pub async fn commands(
         None
     };
 
-    match mpd::run_command_connected(&config, cmd, volume, position, repeat, random).await {
+    match crate::playback_router::run_command_connected_with_video(
+        &state,
+        cmd,
+        volume,
+        position,
+        repeat,
+        random,
+    )
+    .await
+    {
         Ok(()) => {
             state.notify_push_state();
             if cmd == "clearQueue" {

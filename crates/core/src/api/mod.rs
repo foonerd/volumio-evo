@@ -20,6 +20,7 @@ use crate::mpd::{self, MpdConfig, VolumioState};
 use crate::network_mounts::NetworkMounts;
 use crate::playback_options::PlaybackOptions;
 use socketioxide::SocketIo;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -74,9 +75,32 @@ pub struct RouterState {
     pub backgrounds: Arc<tokio::sync::RwLock<BackgroundAppearance>>,
     /// Effective UI layout (**`manifest`** / **`contemporary`** / **`classic`**); persisted to **`/etc/volumio-evo/config.toml`** **`[ui] active_layout`** when layout changes.
     pub active_layout: Arc<tokio::sync::RwLock<String>>,
+    /// Set when a non-MPD video session is active (see **video-companion** / `playback_router`). MPD transport
+    /// is idle in that mode; cleared on MPD-backed playback or explicit stop.
+    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
+    pub video_playback_active: Arc<AtomicBool>,
 }
 
 impl RouterState {
+    #[inline]
+    pub fn clear_video_playback_active(&self) {
+        self.video_playback_active
+            .store(false, Ordering::Release);
+    }
+
+    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
+    #[inline]
+    pub fn set_video_playback_active(&self, active: bool) {
+        self.video_playback_active
+            .store(active, Ordering::Release);
+    }
+
+    #[cfg_attr(not(feature = "video-companion"), allow(dead_code))]
+    #[inline]
+    pub fn video_playback_is_active(&self) -> bool {
+        self.video_playback_active.load(Ordering::Acquire)
+    }
+
     /// Trigger broadcast of clearAlbumartCache to all Socket.IO clients (no-op if tx closed).
     pub fn send_clear_albumart_cache(&self) {
         let _ = self.albumart_clear_tx.send(());
