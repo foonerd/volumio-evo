@@ -307,6 +307,76 @@ fn pid_kill(_pid: u32, _sig: i32) -> std::io::Result<()> {
     ))
 }
 
+/// **`EVO_VIDEO_ENCODER`**: `auto` (default), **`libx264`**, **`h264_v4l2m2m`** (Pi V4L2 encode when `/dev/video11`-style nodes exist).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VideoEncoderChoice {
+    Libx264,
+    V4l2m2m,
+}
+
+fn resolve_video_encoder() -> VideoEncoderChoice {
+    match std::env::var("EVO_VIDEO_ENCODER") {
+        Ok(s) => match s.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" => {}
+            "libx264" | "sw" | "software" => return VideoEncoderChoice::Libx264,
+            "h264_v4l2m2m" | "hw" | "v4l2" | "pi" => return VideoEncoderChoice::V4l2m2m,
+            _ => {}
+        },
+        Err(_) => {}
+    }
+    // Typical Raspberry Pi **`/dev/video11`** (encode) — reduces CPU vs libx264 so ALSA keeps up.
+    for dev in ["/dev/video11", "/dev/video12", "/dev/video22"] {
+        if Path::new(dev).exists() {
+            return VideoEncoderChoice::V4l2m2m;
+        }
+    }
+    VideoEncoderChoice::Libx264
+}
+
+fn append_video_encoder_args(cmd: &mut tokio::process::Command, enc: VideoEncoderChoice) {
+    match enc {
+        VideoEncoderChoice::Libx264 => {
+            cmd.args([
+                "-c:v",
+                "libx264",
+                "-preset",
+                "superfast",
+                "-pix_fmt",
+                "yuv420p",
+                "-x264-params",
+                "threads=2:lookahead_threads=1:sync-lookahead=0",
+            ]);
+            cmd.args([
+                "-g",
+                "100",
+                "-keyint_min",
+                "25",
+                "-sc_threshold",
+                "0",
+            ]);
+        }
+        VideoEncoderChoice::V4l2m2m => {
+            tracing::info!(
+                "{} using h264_v4l2m2m hardware encoder (set EVO_VIDEO_ENCODER=libx264 to force CPU encode)",
+                crate::log_tags::EVO_PLAY
+            );
+            cmd.args([
+                "-c:v",
+                "h264_v4l2m2m",
+                "-pix_fmt",
+                "yuv420p",
+                "-b:v",
+                "6M",
+                "-maxrate",
+                "8M",
+                "-bufsize",
+                "16M",
+            ]);
+            cmd.args(["-g", "100", "-keyint_min", "25"]);
+        }
+    }
+}
+
 async fn spawn_ffmpeg_session(
     source: &Path,
     seek_secs: f64,
@@ -331,42 +401,17 @@ async fn spawn_ffmpeg_session(
     cmd.arg("-i").arg(source);
     cmd.arg("-sn");
     cmd.arg("-max_muxing_queue_size").arg("4096");
+    let video_enc = resolve_video_encoder();
     if has_audio {
-        cmd.args([
-            "-map",
-            "0:a:0",
-            "-ac",
-            "2",
-            "-sample_fmt",
-            "s16",
-            "-f",
-            "alsa",
-        ]);
+        cmd.args(["-map", "0:a:0"]);
+        // Stretch/compress samples to PTS so brief video-encode stalls do not sound like a “tap” toggling speed.
+        cmd.arg("-af").arg("aresample=async=1");
+        cmd.args(["-ac", "2", "-sample_fmt", "s16", "-f", "alsa"]);
         cmd.arg(alsa_dev);
     }
-    cmd.args([
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "superfast",
-        "-pix_fmt",
-        "yuv420p",
-        // ~1 keyframe per 4 s segment at ~25 fps; stable HLS boundaries.
-        "-g",
-        "100",
-        "-keyint_min",
-        "25",
-        "-sc_threshold",
-        "0",
-        "-f",
-        "hls",
-        "-hls_time",
-        "4",
-        "-hls_list_size",
-        "10",
-    ]);
+    cmd.arg("-map").arg("0:v:0");
+    append_video_encoder_args(&mut cmd, video_enc);
+    cmd.args(["-f", "hls", "-hls_time", "4", "-hls_list_size", "10"]);
     cmd.arg("-hls_flags").arg(
         "delete_segments+append_list+omit_endlist+program_date_time",
     );

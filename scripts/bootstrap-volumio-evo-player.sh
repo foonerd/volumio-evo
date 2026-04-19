@@ -292,7 +292,7 @@ configure_evo_runtime_user() {
 [Service]
 User=${u}
 Group=${g}
-SupplementaryGroups=audio
+SupplementaryGroups=audio video render
 Environment=HOME=${home}
 Environment=VOLUMIO_EVO_RUNTIME_USER=${u}
 Environment=VOLUMIO_EVO_SYSTEMCTL=${systemctl_bin}
@@ -309,7 +309,7 @@ EOF
     } >> "${drop_in}"
   fi
 
-  usermod -aG audio "${u}" 2>/dev/null || true
+  usermod -aG audio,video,render "${u}" 2>/dev/null || true
 
   chown -R "${u}:${g}" /var/lib/volumio-evo
   chown -R "${u}:${g}" "${MUSIC_ROOT}" 2>/dev/null || true

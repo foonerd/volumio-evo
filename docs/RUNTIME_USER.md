@@ -35,7 +35,7 @@ sudo EVO_SERVICE_USER=andrew ./scripts/bootstrap-volumio-evo-player.sh
 
 Bootstrap will:
 
-- Write **`/etc/systemd/system/volumio-evo.service.d/10-runtime-user.conf`** with `User=`, `Group=`, `SupplementaryGroups=audio`, `HOME=`, **`VOLUMIO_EVO_RUNTIME_USER=<name>`**, **`VOLUMIO_EVO_SYSTEMCTL=<path>`**, **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`**, **`VOLUMIO_EVO_RTCWAKE`** (paths must match **`volumio-evo-hostname-timedate`** / **`volumio-evo-rtcwake`** sudoers when installed).
+- Write **`/etc/systemd/system/volumio-evo.service.d/10-runtime-user.conf`** with `User=`, `Group=`, **`SupplementaryGroups=audio video render`** ( **`video`/`render`** needed for LAN **HLS** hardware encode **`h264_v4l2m2m`** on some boards), `HOME=`, **`VOLUMIO_EVO_RUNTIME_USER=<name>`**, **`VOLUMIO_EVO_SYSTEMCTL=<path>`**, **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`**, **`VOLUMIO_EVO_RTCWAKE`** (paths must match **`volumio-evo-hostname-timedate`** / **`volumio-evo-rtcwake`** sudoers when installed).
 - Install **`/etc/sudoers.d/volumio-evo-mpd`** (unless **`EVO_INSTALL_MPD_SUDOERS=0`**) so the service user may run **`sudo -n <systemctl> restart mpd`** without a TTY after Evo rewrites the MPD fragment.
 - **`chown -R`** **`/var/lib/volumio-evo`**, **`MUSIC_ROOT`**, **`/usr/share/volumio-evo/plugins`** to that user.
 - Add the user to the **`audio`** group (`usermod -aG audio`).
