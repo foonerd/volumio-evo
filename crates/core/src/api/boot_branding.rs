@@ -76,7 +76,7 @@ pub(crate) async fn spawn_install(state: AppState, payload_data: serde_json::Val
             &json!({
                 "title": title,
                 "message": format!(
-                    "Expected {} (or set VOLUMIO_EVO_BOOT_BRANDING_SCRIPT).",
+                    "Expected {} (or set VOLUMIO_EVO_BOOT_BRANDING_SCRIPT).\n\nInstall: run bootstrap so it creates /usr/share/volumio-evo/repo → your checkout and branding scripts — sudo ./scripts/bootstrap-volumio-evo-player.sh or --upgrade-evo (see docs/BRANDED_BOOT.md).",
                     runner.display()
                 ),
                 "buttons": [{ "name": "Got it", "class": "btn btn-info ng-scope", "emit": "closeModals", "payload": "" }]

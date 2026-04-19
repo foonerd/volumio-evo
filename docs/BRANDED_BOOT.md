@@ -19,15 +19,17 @@ Related: **`layer/systemd/`** (`volumio-evo.service`, **`vol-branding-v1-*.servi
 1. **`scripts/run-boot-branding.sh`** with a rotation argument (**0**, **90**, **180**, or **270**) via **`sudo -n`** — thin wrapper around **`scripts/volumio-boot-branding.sh`** so **`/etc/sudoers.d/`** can list one stable command (see below).
 2. **`volumio-boot-branding.sh`** installs Debian **`plymouth`** packages, copies **`layer/plymouth/volumio-adaptive`** into **`/usr/share/plymouth/themes/`**, enables **`vol-branding-v1.target`**, patches **Pi** **`/boot/firmware/cmdline.txt`** or drops **`/etc/default/grub.d/50-volumio-evo-plymouth.cfg`** on **GRUB** systems, runs **`update-initramfs -u`**, and prints progress lines **`::BRANDING % message`** for the UI.
 
-**Paths:** Evo resolves the repo root with **`VOLUMIO_EVO_REPO_DIR`** (systemd may set this); default **`/usr/share/volumio-evo/repo`** when packaged. Override the wrapper path with **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`** if needed.
+**Paths:** Evo resolves the repo root with **`VOLUMIO_EVO_REPO_DIR`** (systemd sets this when bootstrap runs); default **`/usr/share/volumio-evo/repo`**. **`scripts/bootstrap-volumio-evo-player.sh`** creates **`/usr/share/volumio-evo/repo`** as a **symlink** to the real checkout (`EVO_REPO_DIR`, e.g. **`/opt/volumio/volumio-evo`**), sets **`Environment=VOLUMIO_EVO_REPO_DIR=…`** on **`volumio-evo.service`**, and installs **`/etc/sudoers.d/volumio-evo-boot-branding`**. That matches the wrapper default inside **`run-boot-branding.sh`** after **`sudo`** clears the environment. Override only if you insist on a custom layout: **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**.
 
-**Sudo (non‑negotiable for the UI path):** grant the **`volumio`** (or whatever user runs **`volumio-evo`**) passwordless **`sudo`** for the wrapper only, for example:
+**Sudo (non‑negotiable for the UI path):** bootstrap installs (for the runtime service user):
 
 ```text
-volumio ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/scripts/run-boot-branding.sh
+youruser ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/scripts/run-boot-branding.sh
 ```
 
-Development trees can symlink or copy the same layout under **`/usr/share/volumio-evo/repo`** or point **`VOLUMIO_EVO_REPO_DIR`** / **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`** at the checkout.
+Disable with **`EVO_INSTALL_BOOT_BRANDING_SUDOERS=0`** only if you replace this manually.
+
+Manual installs (no bootstrap): symlink **`/usr/share/volumio-evo/repo`** → your **`volumio-evo`** checkout **or** set **`VOLUMIO_EVO_REPO_DIR`** / **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`** and matching sudoers.
 
 **Rotation:** the UI sends **`plymouth=0|90|180|270`** via the wrapper argument; the script adds **`plymouth=N`** to the kernel command line (together with **`splash`** and **`plymouth.ignore-serial-consoles`**). Reboot to apply.
 

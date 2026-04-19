@@ -38,7 +38,7 @@ When a non-root user runs Evo:
 | `/etc/sudoers.d/volumio-evo-nmcli` | NOPASSWD **`nmcli`** (full binary path) | Root; path must match **`VOLUMIO_EVO_NMCLI`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-rtcwake` | NOPASSWD **`rtcwake`** (full binary path) | Root; path must match **`VOLUMIO_EVO_RTCWAKE`** — alarm RTC wake / suspend tests (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
-| `/etc/sudoers.d/volumio-evo-boot-branding` (manual; name is a convention) | NOPASSWD **`/usr/share/volumio-evo/repo/scripts/run-boot-branding.sh`** (or the path from **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**) | Root; allow the service user to run only this wrapper (see **[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
+| `/etc/sudoers.d/volumio-evo-boot-branding` (bootstrap; disable with **`EVO_INSTALL_BOOT_BRANDING_SUDOERS=0`**) | NOPASSWD **`/usr/share/volumio-evo/repo/scripts/run-boot-branding.sh`** (or the path from **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**) | Service user; allow only this wrapper (see **[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
 
 ## Runtime OS actions (Evo process)
 

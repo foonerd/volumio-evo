@@ -68,6 +68,8 @@ EVO_INSTALL_MOUNT_SUDOERS="${EVO_INSTALL_MOUNT_SUDOERS:-1}"
 # 1: install /etc/sudoers.d/volumio-evo-mpd so non-root Evo can `sudo -n systemctl restart mpd` after fragment writes.
 EVO_INSTALL_MPD_SUDOERS="${EVO_INSTALL_MPD_SUDOERS:-1}"
 EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
+# 1: /etc/sudoers.d/volumio-evo-boot-branding — sudo -n run-boot-branding.sh (see docs/BRANDED_BOOT.md).
+EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
 # 1: apt install network-manager (nmcli) for Evo NetworkManager integration (see docs/NETWORK_NM.md).
@@ -128,6 +130,7 @@ Environment (common):
   EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
   EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1  # 0 to skip sudoers for sudo -n hostnamectl/timedatectl (Settings → System)
   EVO_INSTALL_RTCWAKE_SUDOERS=1            # 0 to skip sudoers for sudo -n rtcwake (RTC wake from suspend; see docs/ALARM_WAKE.md)
+  EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
@@ -170,6 +173,24 @@ resolve_evo_service_user() {
   fi
 }
 
+# Default code + UI assume a stable path; the real git checkout is EVO_REPO_DIR.
+# Symlink /usr/share/volumio-evo/repo -> checkout so:
+#   - Rust default VOLUMIO_EVO_REPO_DIR (and run-boot-branding.sh's EVO_REPO_DIR after sudo clears env)
+#   - NOPASSWD sudoers can use one fixed path (see volumio-evo-boot-branding sudoers).
+publish_evo_repo_symlink() {
+  if [[ "${EVO_SOURCE_AVAILABLE:-0}" != "1" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${EVO_REPO_DIR}/scripts/run-boot-branding.sh" ]]; then
+    echo "WARN: ${EVO_REPO_DIR}/scripts/run-boot-branding.sh missing — boot branding UI will fail until repo is complete."
+    return 0
+  fi
+  chmod 755 "${EVO_REPO_DIR}/scripts/run-boot-branding.sh" "${EVO_REPO_DIR}/scripts/volumio-boot-branding.sh" 2>/dev/null || true
+  mkdir -p /usr/share/volumio-evo
+  ln -sfn "${EVO_REPO_DIR}" /usr/share/volumio-evo/repo
+  echo "Boot branding repo path: /usr/share/volumio-evo/repo -> ${EVO_REPO_DIR}"
+}
+
 # Systemd User=/Group=/HOME=, ownership of /var/lib/volumio-evo, audio group, optional sudoers for mount helpers.
 configure_evo_runtime_user() {
   local u g home
@@ -183,6 +204,7 @@ configure_evo_runtime_user() {
   local iw_sudoers="/etc/sudoers.d/volumio-evo-iw"
   local hostname_timedate_sudoers="/etc/sudoers.d/volumio-evo-hostname-timedate"
   local rtcwake_sudoers="/etc/sudoers.d/volumio-evo-rtcwake"
+  local boot_branding_sudoers="/etc/sudoers.d/volumio-evo-boot-branding"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -195,6 +217,7 @@ configure_evo_runtime_user() {
     rm -f "${iw_sudoers}" 2>/dev/null || true
     rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
+    rm -f "${boot_branding_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     return 0
   fi
@@ -277,6 +300,11 @@ Environment=VOLUMIO_EVO_HOSTNAMECTL=${hostnamectl_bin}
 Environment=VOLUMIO_EVO_TIMEDATECTL=${timedatectl_bin}
 Environment=VOLUMIO_EVO_RTCWAKE=${rtcwake_bin}
 EOF
+  if [[ "${EVO_SOURCE_AVAILABLE:-0}" == "1" ]]; then
+    {
+      printf 'Environment=VOLUMIO_EVO_REPO_DIR=%s\n' "${EVO_REPO_DIR}"
+    } >> "${drop_in}"
+  fi
 
   usermod -aG audio "${u}" 2>/dev/null || true
 
@@ -450,6 +478,26 @@ EOF
     rm -f "${tmp_ci}"
   else
     rm -f "${config_install_sudoers}" 2>/dev/null || true
+  fi
+
+  # Plymouth installer (Settings → System → Boot branding): sudo -n run-boot-branding.sh <rotation>
+  # Stable path requires publish_evo_repo_symlink(); must match crates/core paths + BRANDED_BOOT.md.
+  if [[ "${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}" == "1" ]]; then
+    local tmp_bb
+    tmp_bb="$(mktemp)"
+    cat > "${tmp_bb}" <<EOF
+# volumio-evo: Plymouth boot-branding installer (narrow path; managed by bootstrap).
+${u} ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/scripts/run-boot-branding.sh
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_bb}" 2>/dev/null; then
+      install -m 0440 "${tmp_bb}" "${boot_branding_sudoers}"
+      echo "Installed ${boot_branding_sudoers} (boot branding NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${boot_branding_sudoers}."
+    fi
+    rm -f "${tmp_bb}"
+  else
+    rm -f "${boot_branding_sudoers}" 2>/dev/null || true
   fi
 }
 
@@ -961,6 +1009,8 @@ build_and_install_evo() {
   export PATH="${CARGO_HOME}/bin:${PATH}"
 
   stop_volumio_evo_if_running
+
+  publish_evo_repo_symlink
 
   if [[ "${EVO_SOURCE_AVAILABLE}" == "1" ]]; then
     local triple lb
