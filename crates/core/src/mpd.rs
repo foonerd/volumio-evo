@@ -5,7 +5,7 @@ use crate::artist_normalize;
 use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use urlencoding::decode;
 use mpd_client::{
     commands::{
@@ -94,6 +94,16 @@ pub async fn run_command_connected(
 /// Volumio URI to MPD path: strip "music-library/" prefix.
 fn volumio_uri_to_mpd_path(uri: &str) -> &str {
     uri.strip_prefix("music-library/").unwrap_or(uri)
+}
+
+/// Maps a string from [`resolve_uri_for_queue`] (normally `music-library/...`) to an absolute path
+/// under **`music_root`**. Also accepts MPD-style paths relative to the library root (`INTERNAL/...`).
+pub fn resolved_queue_uri_to_path(music_root: &Path, resolved: &str) -> PathBuf {
+    let s = resolved.trim();
+    if let Some(rest) = s.strip_prefix("music-library/") {
+        return music_root.join(rest);
+    }
+    music_root.join(s.trim_start_matches('/'))
 }
 
 /// Add URI to queue (value is Volumio-style URI e.g. music-library/INTERNAL/path/file.mp3).

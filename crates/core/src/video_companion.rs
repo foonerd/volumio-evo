@@ -372,7 +372,7 @@ async fn try_take_over_inner(
         return Ok(None);
     }
 
-    let path = PathBuf::from(only);
+    let path = crate::mpd::resolved_queue_uri_to_path(music_root, only);
     start_video_session(state, path, volumio_uri.to_string(), intent).await?;
     Ok(Some(()))
 }
@@ -787,6 +787,18 @@ pub async fn transport_skip_relative(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn music_library_uri_maps_under_music_root() {
+        assert_eq!(
+            crate::mpd::resolved_queue_uri_to_path(
+                Path::new("/srv/media"),
+                "music-library/INTERNAL/Videos/a.mp4",
+            ),
+            PathBuf::from("/srv/media/INTERNAL/Videos/a.mp4")
+        );
+    }
 
     #[test]
     fn video_extensions_recognized() {
