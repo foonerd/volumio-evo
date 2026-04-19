@@ -1,6 +1,6 @@
 # Video companion (design concept)
 
-**Status:** **Scenario 1 (headless + LAN HLS)** is implemented in **volumio-evo** (single `ffmpeg` process: ALSA + HLS under `GET /hls/...`, `pushState.videoStreamUrl`, stock layer `index.html` + `evo-video-overlay.js` + vendored `hls.js`). **Local HDMI** and “audio+video in browser” remain future work. **Scope:** Rust **volumio-evo** only; no Node.
+**Status:** **Scenario 1 (headless + LAN HLS)** is implemented in **volumio-evo** (**default:** room audio through **MPD** — same stack as normal playback — plus one **`ffmpeg`** process for **HLS** under `GET /hls/...`; **`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`** restores the older second **`ffmpeg`** straight to ALSA). **`pushState.videoStreamUrl`**, stock layer `index.html` + `evo-video-overlay.js` + vendored `hls.js`. **Local HDMI** and “audio+video in browser” remain future work. **Scope:** Rust **volumio-evo** only; no Node.
 
 **Related:** [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) (`pushState` / timer contract), [CONCEPT.md](CONCEPT.md) (Evo architecture).
 
@@ -32,9 +32,9 @@ Introduce a **playback router** at the **same command entry points** (after URI 
 
 1. **`is_video_track(path | uri)`** — primarily extension allowlist (e.g. `.mp4`, `.mkv`, `.webm`, `.mov`) + optional **`ffprobe`** (or equivalent) for ambiguous cases.
 2. If **audio-only** → existing **MPD** path (unchanged).
-3. If **video** → **stop MPD** (no competing audio), start a **`VideoCompanionSession`** (Rust-owned):
+3. If **video** → start a **`VideoCompanionSession`** (Rust-owned). **Default (recommended):** **MPD** plays the file for **device audio**; **`ffmpeg`** encodes **HLS** for the LAN browser (muted `<video>`). **Legacy:** stop/clear **MPD** and drive ALSA from a **second** **`ffmpeg`** if **`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`** (see §10).
 
-   - Single decode pipeline (see §5): demux, sync, audio to ALSA (or configured sink), video to **either** a LAN-visible stream **or** a local display sink — never two independent decoders for the same file.
+   - Encode path (see §5): video to a LAN-visible stream (**HLS**); audio on the **default** path stays out of the heavy **`ffmpeg`** graph so sound stays clean under load.
 
 **Naming:** The router is the single policy gate; avoid scattering “is video?” checks in the UI only. UI reacts to **state** (§6), not to guessing formats locally.
 
@@ -69,7 +69,7 @@ Introduce a **playback router** at the **same command entry points** (after URI 
 
 - While **MPD** is authoritative, `getState` / `pushState` follow existing MPD mapping (see `mpd::VolumioState`).
 
-- While **`VideoCompanionSession`** is active, timing and track metadata must reflect the **video session**, not MPD.
+- While **`VideoCompanionSession`** is active, track metadata reflects the **video session**. With **MPD** device audio (default), **elapsed time** and **play/pause** **status** track **MPD** (same clock as room audio); the **HLS** `ffmpeg` process is **SIGSTOP/SIGCONT** alongside so the muted browser stays in step.
 
 - Extend the published state in a **backward-compatible** way, for example:
 
@@ -105,7 +105,7 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 ## 10. Implementation (Scenario 1 — in-tree)
 
 - **`playback_router`** — same entry points as above; when the resolved library path for the command is video, **`video_companion`** runs **`ffmpeg`** (ALSA + **HLS** into **`/run/volumio-evo/hls/live/`**, overridable via **`VOLUMIO_EVO_HLS_DIR`**) and exposes **`GET /hls/...`** via Axum **`ServeDir`**. The shipped unit sets **`RuntimeDirectory=volumio-evo`** so a **non-root** service user can create **`/run/volumio-evo/...`** (otherwise **`mkdir`** returns **EACCES**). For **`playItemsList`**, only the URI at the **played index** is considered (browse often sends many rows).
-- **`video_companion`** — **`stop_clear_queue_connected`** MPD first; transport uses **SIGSTOP/SIGCONT** on **both** **`ffmpeg`** legs (pause) and **seek** respawns **both** with **`-ss`**. **Two `ffmpeg` processes**: (1) **ALSA leg** — **`-vn`**, decode audio only → **`hw:`**; (2) **HLS leg** — **`libx264`** (default), video only → **`/run/.../hls/live`**. Same **`-re`** / **`-ss`** on both. This matches common **ARM** advice: one process doing heavy video encode **and** **`alsa`** output together often **stutters**; separating legs avoids the encoder starving realtime audio (**thread_queue_size** on inputs is also standard for live-style pipelines). Public internet **HLS** differs: CDN edge caching, multiple bitrate ladders (**ABR**), often **no local ALSA** — not comparable to headless device + browser companion. **`EVO_VIDEO_ENCODER`**: default **`libx264`**; opt in **`h264_v4l2m2m`** only after a successful manual encode test (**§11** groups **`video`**/**`render`**).
+- **`video_companion`** — **Device audio (default):** **`EVO_VIDEO_DEVICE_AUDIO`** unset or **`mpd`** → **`stop_clear_queue_connected`** first (silence during bootstrap), **`ffmpeg`** **HLS** only with **`-re`**, **`wait_for_hls_manifest_ready`** until **`index.m3u8`** lists a **`.ts`** segment, **then** **`add_play_connected`** so **MPD** does not race ahead of the encoded stream (fixes LAN picture lagging behind room audio). **Pause / play / seek:** mirror transport to **MPD** and **SIGSTOP/SIGCONT** the **HLS** **`ffmpeg`** pid; **`pushState`** **`seek`** / **`status`** read **MPD** when audio is via MPD. **`-hls_time`** defaults to **2** s segments (lower browser latency than 4 s). Stop / cleanup calls **`stop_clear_queue_connected`** when session ends. **Legacy ALSA leg:** **`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`** (also **`ffmpeg_alsa`**, **`legacy`**) → **`stop_clear_queue_connected`** then **two** **`ffmpeg`** processes — (1) **ALSA leg** **`-vn`** → **`hw:`**; (2) **HLS leg** **`libx264`** → **`/run/.../hls/live`**. Seek respawns **both** legs with **`-ss`**. **`EVO_VIDEO_ENCODER`**: default **`libx264`**; opt in **`h264_v4l2m2m`** only after a successful manual encode test (**§11** groups **`video`**/**`render`**).
 - **`VolumioState.videoStreamUrl`** — **`/hls/live/index.m3u8`** while a session is active; **`pushState`** / **`getState`** / **`getQueue`** use the video snapshot when **`video_playback_active`**.
 - **UI** — **`layer/web/*/index.html`** loads **`/evo-hls.min.js`** (vendored **hls.js**) and **`/evo-video-overlay.js`** (Angular **`socket:pushState`** hook, `<video muted>`). The overlay **retries** the manifest URL briefly so a transient **404** (playlist not written yet right after **`ffmpeg`** start) does not strand the spinner.
 

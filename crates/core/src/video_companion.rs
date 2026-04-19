@@ -1,8 +1,8 @@
-//! LAN browser video (**HLS**) + **ALSA** audio via **ffmpeg** — Scenario 1 (see [VIDEO_COMPANION.md](../../../docs/VIDEO_COMPANION.md)).
+//! LAN browser video (**HLS** via **ffmpeg**). **Default:** device audio through **MPD** (same path as normal playback); optional legacy second **ffmpeg** → ALSA (`EVO_VIDEO_DEVICE_AUDIO=ffmpeg`). Scenario 1 — see [VIDEO_COMPANION.md](../../../docs/VIDEO_COMPANION.md).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use serde_json::Value;
@@ -10,6 +10,20 @@ use tokio::sync::Mutex;
 
 /// Lowercase extensions treated as video containers for routing (doc §4).
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "webm", "mov", "avi", "m4v"];
+
+/// **HLS** segment duration (**seconds**) — shorter segments reduce browser latency vs room audio (`-hls_time`).
+const HLS_SEGMENT_SECS: &str = "2";
+
+/// **`EVO_VIDEO_DEVICE_AUDIO`**: unset / **`mpd`** (default) → device sound through **MPD** (same path as playback); **`ffmpeg`** → legacy second **ffmpeg** straight to ALSA (often sounds bad under load).
+fn companion_device_audio_via_mpd() -> bool {
+    match std::env::var("EVO_VIDEO_DEVICE_AUDIO") {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "ffmpeg" | "ffmpeg_alsa" | "legacy"
+        ),
+        Err(_) => true,
+    }
+}
 
 /// Prefer explicit env, then common absolute paths so **`systemd`**’s minimal **`PATH`** still finds tools.
 fn resolved_external_tool(env_key: &'static str, fallback_name: &'static str, typical_paths: &[&str]) -> String {
@@ -95,6 +109,8 @@ pub struct VideoSessionInner {
     pub hls_ffmpeg_pid: u32,
     /// Audio → **ALSA** only (lightweight `ffmpeg`). `None` when source has no audio.
     pub alsa_ffmpeg_pid: Option<u32>,
+    /// **`true`**: jack audio from **MPD** (recommended). **`false`**: **`alsa_ffmpeg_pid`** decodes to ALSA.
+    pub audio_via_mpd: bool,
     pub volumio_uri: String,
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -391,6 +407,29 @@ fn pump_ffmpeg_stderr(mut stderr: tokio::process::ChildStderr) {
     });
 }
 
+/// Wait until **`ffmpeg`** has written a playlist listing at least one **`.ts`** segment (same clock family as **`-re`** input).
+async fn wait_for_hls_manifest_ready(playlist_path: &Path, max_wait: Duration) -> anyhow::Result<()> {
+    let poll = Duration::from_millis(120);
+    let started = tokio::time::Instant::now();
+    loop {
+        if started.elapsed() > max_wait {
+            anyhow::bail!(
+                "timed out ({max_wait:?}) waiting for HLS playlist {:?}",
+                playlist_path
+            );
+        }
+        match tokio::fs::read_to_string(playlist_path).await {
+            Ok(text) => {
+                if text.contains("#EXTINF") && text.contains(".ts") {
+                    return Ok(());
+                }
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
 /// Decode **audio only** → ALSA (second process). Same `-re`/`-ss` as HLS leg so clocks stay roughly aligned.
 /// Industry pattern when one `ffmpeg` doing heavy video encode + ALSA starves realtime audio (common on ARM).
 async fn spawn_ffmpeg_alsa_only(
@@ -450,7 +489,7 @@ async fn spawn_ffmpeg_hls_only(
     cmd.arg("-max_muxing_queue_size").arg("4096");
     cmd.arg("-map").arg("0:v:0");
     append_video_encoder_args(&mut cmd, resolve_video_encoder());
-    cmd.args(["-f", "hls", "-hls_time", "4", "-hls_list_size", "10"]);
+    cmd.args(["-f", "hls", "-hls_time", HLS_SEGMENT_SECS, "-hls_list_size", "12"]);
     cmd.arg("-hls_flags").arg(
         "delete_segments+append_list+omit_endlist+program_date_time",
     );
@@ -481,6 +520,7 @@ async fn cleanup_when_ffmpeg_leg_exits(state: crate::api::AppState, generation: 
     if !ours {
         return;
     }
+    let audio_mpd = inner.audio_via_mpd;
     if inner.hls_ffmpeg_pid != exited_pid {
         let _ = pid_kill(inner.hls_ffmpeg_pid, libc::SIGKILL);
     }
@@ -491,6 +531,13 @@ async fn cleanup_when_ffmpeg_leg_exits(state: crate::api::AppState, generation: 
     }
     *lock = None;
     drop(lock);
+    if audio_mpd {
+        let cfg = crate::mpd::MpdConfig {
+            host: state.config.mpd_host.clone(),
+            port: state.config.mpd_port,
+        };
+        let _ = crate::mpd::stop_clear_queue_connected(&cfg).await;
+    }
     state.clear_video_playback_active();
     state.notify_push_state();
     state.notify_push_queue();
@@ -582,12 +629,11 @@ pub(crate) async fn start_video_session(
         .ok_or_else(|| anyhow!("invalid utf-8 in HLS path"))?
         .to_string();
 
-    crate::mpd::stop_clear_queue_connected(&crate::mpd::MpdConfig {
+    let mpd_cfg = crate::mpd::MpdConfig {
         host: state.config.mpd_host.clone(),
         port: state.config.mpd_port,
-    })
-    .await
-    .with_context(|| "MPD stop/clear for video takeover")?;
+    };
+    let audio_mpd = companion_device_audio_via_mpd() && probe.has_audio;
 
     {
         let mut g = state.video_session.inner.lock().await;
@@ -600,10 +646,18 @@ pub(crate) async fn start_video_session(
         *g = None;
     }
 
+    // Idle **MPD** before **`ffmpeg`** so device audio cannot run ahead of the sliding-window **HLS** encode.
+    // When **`audio_via_mpd`**, we **`stop_clear`** here, spawn **HLS**, wait until the manifest lists a segment,
+    // **then** **`add_play`** so clocks stay aligned (see **wait_for_hls_manifest_ready**).
+    crate::mpd::stop_clear_queue_connected(&mpd_cfg)
+        .await
+        .with_context(|| "MPD stop/clear before video companion encode session")?;
+
     let generation = state.video_session.next_generation();
     let seek0 = 0_f64;
 
-    let mut alsa_child = if probe.has_audio {
+    let use_ffmpeg_alsa = probe.has_audio && !audio_mpd;
+    let mut alsa_child = if use_ffmpeg_alsa {
         Some(
             spawn_ffmpeg_alsa_only(&source, seek0, &alsa_device)
                 .await
@@ -634,10 +688,32 @@ pub(crate) async fn start_video_session(
     };
     let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
+    if audio_mpd {
+        if let Err(e) =
+            wait_for_hls_manifest_ready(&playlist_path, Duration::from_secs(30)).await
+        {
+            let _ = pid_kill(hls_pid, libc::SIGKILL);
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            return Err(e).context("HLS playlist not ready before MPD play (audio_via_mpd)");
+        }
+        if let Err(e) =
+            crate::mpd::add_play_connected(&mpd_cfg, volumio_uri.trim()).await
+        {
+            let _ = pid_kill(hls_pid, libc::SIGKILL);
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            return Err(e).context("MPD add+play for video companion (device audio)");
+        }
+    }
+
     let inner = VideoSessionInner {
         generation,
         hls_ffmpeg_pid: hls_pid,
         alsa_ffmpeg_pid: alsa_pid,
+        audio_via_mpd: audio_mpd,
         volumio_uri: volumio_uri.clone(),
         title,
         artist,
@@ -664,12 +740,13 @@ pub(crate) async fn start_video_session(
     state.notify_push_queue();
 
     tracing::info!(
-        "{} video session started ({:?}) gen={} hls_pid={} alsa_pid={:?} intent={:?} uri={}",
+        "{} video session started ({:?}) gen={} hls_pid={} alsa_pid={:?} audio_via_mpd={} intent={:?} uri={}",
         crate::log_tags::EVO_PLAY,
         source,
         generation,
         hls_pid,
         alsa_pid,
+        audio_mpd,
         intent,
         volumio_uri
     );
@@ -721,14 +798,15 @@ async fn restart_ffmpeg_at(
         let source = inner.local_path.clone();
         let has_audio = inner.has_audio;
         let alsa_dev = inner.alsa_device.clone();
+        let audio_via_mpd = inner.audio_via_mpd;
         let _ = pid_kill(inner.hls_ffmpeg_pid, libc::SIGKILL);
         if let Some(a) = inner.alsa_ffmpeg_pid {
             let _ = pid_kill(a, libc::SIGKILL);
         }
-        (generation, source, has_audio, alsa_dev, capped_ms)
+        (generation, source, has_audio, alsa_dev, capped_ms, audio_via_mpd)
     };
 
-    let (generation, source, has_audio, alsa_dev, capped_ms) = snapshot;
+    let (generation, source, has_audio, alsa_dev, capped_ms, audio_via_mpd) = snapshot;
     let seek_secs = (capped_ms as f64) / 1000.0;
 
     let live_dir = prepare_hls_directory().await?;
@@ -741,7 +819,8 @@ async fn restart_ffmpeg_at(
         .ok_or_else(|| anyhow!("invalid utf-8 in HLS path"))?
         .to_string();
 
-    let mut alsa_child = if has_audio {
+    let use_ffmpeg_alsa = has_audio && !audio_via_mpd;
+    let mut alsa_child = if use_ffmpeg_alsa {
         Some(spawn_ffmpeg_alsa_only(&source, seek_secs, &alsa_dev).await?)
     } else {
         None
@@ -767,6 +846,34 @@ async fn restart_ffmpeg_at(
     };
     let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
+    if audio_via_mpd && has_audio {
+        if let Err(e) =
+            wait_for_hls_manifest_ready(&playlist_path, Duration::from_secs(30)).await
+        {
+            let _ = pid_kill(hls_pid, libc::SIGKILL);
+            if let Some(a) = alsa_pid {
+                let _ = pid_kill(a, libc::SIGKILL);
+            }
+            {
+                let mut g = state.video_session.inner.lock().await;
+                if let Some(inner) = g.as_ref() {
+                    if inner.generation == generation {
+                        *g = None;
+                    }
+                }
+            }
+            let cfg = crate::mpd::MpdConfig {
+                host: state.config.mpd_host.clone(),
+                port: state.config.mpd_port,
+            };
+            let _ = crate::mpd::stop_clear_queue_connected(&cfg).await;
+            state.clear_video_playback_active();
+            state.notify_push_state();
+            state.notify_push_queue();
+            return Err(e).context("HLS playlist not ready after seek (audio_via_mpd)");
+        }
+    }
+
     {
         let mut g = state.video_session.inner.lock().await;
         let Some(inner) = g.as_mut() else {
@@ -788,6 +895,15 @@ async fn restart_ffmpeg_at(
         inner.sync_anchor_from_now(capped_ms);
         inner.paused = false;
         inner.playing = true;
+    }
+
+    if has_audio && audio_via_mpd {
+        let cfg = crate::mpd::MpdConfig {
+            host: state.config.mpd_host.clone(),
+            port: state.config.mpd_port,
+        };
+        let sec = (capped_ms / 1000).min(i64::MAX as u64) as i64;
+        let _ = crate::mpd::run_command_connected(&cfg, "seek", None, Some(sec), None, None).await;
     }
 
     let st_h = std::sync::Arc::clone(state);
@@ -820,20 +936,29 @@ async fn restart_ffmpeg_at(
 }
 
 pub async fn stop_session(state: &crate::api::AppState) {
-    let pids = {
+    let (pids, stop_mpd) = {
         let mut g = state.video_session.inner.lock().await;
-        let pids = g.as_ref().map(|v| (v.hls_ffmpeg_pid, v.alsa_ffmpeg_pid));
-        if pids.is_none() && !state.video_playback_is_active() {
+        let prev = g.as_ref();
+        if prev.is_none() && !state.video_playback_is_active() {
             return;
         }
+        let stop_mpd = prev.is_some_and(|v| v.audio_via_mpd);
+        let pids = prev.map(|v| (v.hls_ffmpeg_pid, v.alsa_ffmpeg_pid));
         *g = None;
-        pids
+        (pids, stop_mpd)
     };
     if let Some((hls, alsa)) = pids {
         let _ = pid_kill(hls, libc::SIGKILL);
         if let Some(a) = alsa {
             let _ = pid_kill(a, libc::SIGKILL);
         }
+    }
+    if stop_mpd {
+        let cfg = crate::mpd::MpdConfig {
+            host: state.config.mpd_host.clone(),
+            port: state.config.mpd_port,
+        };
+        let _ = crate::mpd::stop_clear_queue_connected(&cfg).await;
     }
     state.clear_video_playback_active();
     state.notify_push_state();
@@ -845,23 +970,76 @@ pub async fn volumio_state_for_video_session(
     state: &crate::api::AppState,
     master_volume_from_alsa: Option<u8>,
 ) -> Option<crate::mpd::VolumioState> {
-    let inner = state.video_session.inner.lock().await;
-    let s = inner.as_ref()?;
-
-    let status_str = if s.paused {
-        "pause".to_string()
-    } else {
-        "play".to_string()
+    let (
+        audio_via_mpd,
+        paused_fallback,
+        snapshot_elapsed,
+        duration_secs,
+        title,
+        artist,
+        album,
+        volumio_uri,
+        track_type,
+        albumart,
+    ) = {
+        let inner = state.video_session.inner.lock().await;
+        let s = inner.as_ref()?;
+        (
+            s.audio_via_mpd,
+            s.paused,
+            s.snapshot_elapsed_ms(),
+            s.duration_secs,
+            s.title.clone(),
+            s.artist.clone(),
+            s.album.clone(),
+            s.volumio_uri.clone(),
+            s.track_type.clone(),
+            s.albumart.clone(),
+        )
     };
 
-    let seek_ms = s.snapshot_elapsed_ms();
+    let cfg = crate::mpd::MpdConfig {
+        host: state.config.mpd_host.clone(),
+        port: state.config.mpd_port,
+    };
+
+    let (status_str, seek_ms) = if audio_via_mpd {
+        let elapsed = crate::mpd::status_elapsed_ms_connected(&cfg).await.ok().flatten();
+        let st = crate::mpd::status_volumio_style_string_connected(&cfg)
+            .await
+            .ok()
+            .flatten();
+        let seek_ms = elapsed.unwrap_or(snapshot_elapsed);
+        let seek_ms = duration_secs
+            .map(|d| seek_ms.min(d.saturating_mul(1000)))
+            .unwrap_or(seek_ms);
+        let mut status_str = st.unwrap_or_else(|| {
+            if paused_fallback {
+                "pause".to_string()
+            } else {
+                "play".to_string()
+            }
+        });
+        if status_str == "stop" {
+            status_str = "pause".to_string();
+        }
+        (status_str, seek_ms)
+    } else {
+        let status_str = if paused_fallback {
+            "pause".to_string()
+        } else {
+            "play".to_string()
+        };
+        (status_str, snapshot_elapsed)
+    };
+
     let volume = master_volume_from_alsa;
 
     Some(crate::mpd::VolumioState {
         status: Some(status_str),
         position: Some(0),
         seek: Some(seek_ms),
-        duration: s.duration_secs,
+        duration: duration_secs,
         volume,
         mute: false,
         disable_volume_control: false,
@@ -869,13 +1047,13 @@ pub async fn volumio_state_for_video_session(
         random: Some(false),
         repeat_single: Some(false),
         consume: Some(false),
-        title: s.title.clone(),
-        artist: s.artist.clone(),
-        album: s.album.clone(),
-        uri: Some(s.volumio_uri.clone()),
-        track_type: s.track_type.clone(),
+        title,
+        artist,
+        album,
+        uri: Some(volumio_uri),
+        track_type,
         service: Some("mpd".to_string()),
-        albumart: s.albumart.clone(),
+        albumart,
         samplerate: None,
         bitdepth: None,
         bitrate: None,
@@ -919,14 +1097,26 @@ pub async fn transport_dispatch(
             stop_session(state).await;
         }
         "pause" => {
-            let (hls, alsa) = {
+            let cfg = crate::mpd::MpdConfig {
+                host: state.config.mpd_host.clone(),
+                port: state.config.mpd_port,
+            };
+            let (hls, alsa, audio_via_mpd) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
                 };
                 inner.pause_timeline();
-                (inner.hls_ffmpeg_pid, inner.alsa_ffmpeg_pid)
+                (
+                    inner.hls_ffmpeg_pid,
+                    inner.alsa_ffmpeg_pid,
+                    inner.audio_via_mpd,
+                )
             };
+            if audio_via_mpd {
+                let _ =
+                    crate::mpd::run_command_connected(&cfg, "pause", None, None, None, None).await;
+            }
             let _ = pid_kill(hls, libc::SIGSTOP);
             if let Some(a) = alsa {
                 let _ = pid_kill(a, libc::SIGSTOP);
@@ -934,14 +1124,26 @@ pub async fn transport_dispatch(
             state.notify_push_state();
         }
         "play" => {
-            let (hls, alsa) = {
+            let cfg = crate::mpd::MpdConfig {
+                host: state.config.mpd_host.clone(),
+                port: state.config.mpd_port,
+            };
+            let (hls, alsa, audio_via_mpd) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
                 };
                 inner.resume_timeline();
-                (inner.hls_ffmpeg_pid, inner.alsa_ffmpeg_pid)
+                (
+                    inner.hls_ffmpeg_pid,
+                    inner.alsa_ffmpeg_pid,
+                    inner.audio_via_mpd,
+                )
             };
+            if audio_via_mpd {
+                let _ =
+                    crate::mpd::run_command_connected(&cfg, "play", None, None, None, None).await;
+            }
             let _ = pid_kill(hls, libc::SIGCONT);
             if let Some(a) = alsa {
                 let _ = pid_kill(a, libc::SIGCONT);
@@ -949,7 +1151,11 @@ pub async fn transport_dispatch(
             state.notify_push_state();
         }
         "toggle" => {
-            let (hls, alsa, cont) = {
+            let cfg = crate::mpd::MpdConfig {
+                host: state.config.mpd_host.clone(),
+                port: state.config.mpd_port,
+            };
+            let (hls, alsa, audio_via_mpd, cont) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
@@ -959,9 +1165,14 @@ pub async fn transport_dispatch(
                 (
                     inner.hls_ffmpeg_pid,
                     inner.alsa_ffmpeg_pid,
+                    inner.audio_via_mpd,
                     cont,
                 )
             };
+            if audio_via_mpd {
+                let _ =
+                    crate::mpd::run_command_connected(&cfg, "toggle", None, None, None, None).await;
+            }
             let sig = if cont {
                 libc::SIGSTOP
             } else {

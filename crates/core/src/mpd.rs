@@ -38,6 +38,27 @@ impl MpdConfig {
     }
 }
 
+/// Elapsed playback position (**ms**) — used when **MPD** owns audio during video companion (same clock as speakers).
+pub async fn status_elapsed_ms_connected(config: &MpdConfig) -> Result<Option<u64>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let status = client.command(Status).await?;
+    Ok(status.elapsed.map(|d| d.as_millis() as u64))
+}
+
+/// `play` / `pause` / `stop` label aligned with [`get_state`] / Node **pushState**.
+pub async fn status_volumio_style_string_connected(config: &MpdConfig) -> Result<Option<String>> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let status = client.command(Status).await?;
+    let s = match status.state {
+        PlayState::Playing => "play",
+        PlayState::Paused => "pause",
+        PlayState::Stopped => "stop",
+    };
+    Ok(Some(s.to_string()))
+}
+
 /// Connect to MPD, run get_state, then close. Avoids closure lifetime issues.
 ///
 /// **`master_volume_from_alsa`:** when `Some`, used as the **master fader** level for `pushState`

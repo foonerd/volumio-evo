@@ -1,4 +1,6 @@
 (function () {
+  var STORAGE_KEY = 'evoVideoOverlaySize';
+
   function destroyHls(wrap) {
     if (wrap && wrap._hls) {
       try {
@@ -38,40 +40,136 @@
       });
   }
 
+  function overlayBaseCss() {
+    return (
+      'position:fixed;bottom:16px;right:16px;z-index:99998;background:#000;border-radius:10px;' +
+      'box-shadow:0 8px 32px rgba(0,0,0,.55);overflow:hidden;display:none;flex-direction:column;'
+    );
+  }
+
+  var SIZE_CSS = {
+    sm: 'width:min(280px,38vw);max-height:28vh;',
+    md: 'width:min(420px,46vw);max-height:38vh;',
+    lg: 'width:min(560px,56vw);max-height:48vh;',
+    max: 'width:min(92vw,1200px);max-height:85vh;',
+  };
+
+  function applyOverlaySize(wrap, preset) {
+    var sz = SIZE_CSS[preset] || SIZE_CSS.md;
+    wrap.style.cssText = overlayBaseCss() + sz + 'display:flex;';
+    try {
+      sessionStorage.setItem(STORAGE_KEY, preset);
+    } catch (_e) {}
+  }
+
+  function readStoredPreset() {
+    try {
+      return sessionStorage.getItem(STORAGE_KEY) || 'md';
+    } catch (_e) {
+      return 'md';
+    }
+  }
+
+  function ensureToolbar(wrap) {
+    if (wrap.querySelector('.evo-vid-toolbar')) return;
+    var tb = document.createElement('div');
+    tb.className = 'evo-vid-toolbar';
+    tb.style.cssText =
+      'flex-shrink:0;display:flex;gap:6px;align-items:center;justify-content:flex-end;' +
+      'flex-wrap:wrap;padding:6px 8px;background:linear-gradient(180deg,#2d2d2d,#141414);' +
+      'border-bottom:1px solid #333;';
+
+    function mk(label, preset) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-label', label);
+      b.textContent = label;
+      b.style.cssText =
+        'font:12px system-ui,-apple-system,sans-serif;padding:4px 10px;border-radius:6px;' +
+        'border:1px solid #555;background:#383838;color:#eee;cursor:pointer;';
+      b.onclick = function () {
+        applyOverlaySize(wrap, preset);
+      };
+      tb.appendChild(b);
+    }
+
+    mk('S', 'sm');
+    mk('M', 'md');
+    mk('L', 'lg');
+    mk('XL', 'max');
+
+    var fs = document.createElement('button');
+    fs.type = 'button';
+    fs.setAttribute('aria-label', 'Fullscreen');
+    fs.textContent = 'Full';
+    fs.style.cssText =
+      'font:14px system-ui,sans-serif;padding:4px 10px;border-radius:6px;border:1px solid #555;' +
+      'background:#383838;color:#eee;cursor:pointer;margin-left:4px;';
+    fs.onclick = function () {
+      if (!document.fullscreenElement) {
+        wrap.requestFullscreen &&
+          wrap.requestFullscreen().catch(function () {});
+      } else {
+        document.exitFullscreen && document.exitFullscreen();
+      }
+    };
+    tb.appendChild(fs);
+
+    wrap.insertBefore(tb, wrap.firstChild);
+  }
+
+  function buildHlsInstance() {
+    return new window.Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      // Shorter segments + LAN: stay closer to the live edge without huge buffers (reduces drift vs pushState seek).
+      liveSyncDurationCount: 2,
+      liveMaxLatencyDurationCount: 10,
+      maxBufferLength: 42,
+      maxMaxBufferLength: 90,
+      maxBufferHole: 0.35,
+      maxFragLookUpTolerance: 0.25,
+      nudgeOffset: 0.05,
+      initialLiveManifestSize: 2,
+      manifestLoadingMaxRetry: 12,
+      levelLoadingMaxRetry: 12,
+      fragLoadingMaxRetry: 16,
+    });
+  }
+
   function ensureVideo(url) {
     var id = 'evo-video-companion-overlay';
     var wrap = document.getElementById(id);
     if (!wrap) {
       wrap = document.createElement('div');
       wrap.id = id;
-      wrap.style.cssText =
-        'position:fixed;bottom:16px;right:16px;z-index:99998;width:min(520px,46vw);max-height:42vh;background:#000;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);overflow:hidden;display:none;';
       document.body.appendChild(wrap);
+      applyOverlaySize(wrap, readStoredPreset());
+      ensureToolbar(wrap);
+    } else {
+      ensureToolbar(wrap);
+      if (wrap.style.display === 'none') {
+        applyOverlaySize(wrap, readStoredPreset());
+      }
     }
+
     var v = wrap.querySelector('video');
     if (!v) {
       v = document.createElement('video');
       v.setAttribute('playsinline', '');
       v.setAttribute('muted', '');
       v.setAttribute('controls', '');
-      v.style.cssText = 'width:100%;height:auto;display:block;background:#000;';
+      v.style.cssText = 'width:100%;height:auto;display:block;background:#000;flex:1;min-height:0;';
       wrap.appendChild(v);
     }
+
     if (wrap._evoUrl !== url) {
       destroyHls(wrap);
       wrap._evoUrl = url;
       waitForManifest(url, function attach() {
         if (wrap._evoUrl !== url) return;
         if (typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
-          // Sliding-window HLS from ffmpeg is not LL-HLS; lowLatencyMode causes aggressive stalls/rebuffers.
-          var hls = new window.Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            maxBufferLength: 90,
-            maxMaxBufferLength: 180,
-            liveSyncDurationCount: 4,
-            liveMaxLatencyDurationCount: Infinity,
-          });
+          var hls = buildHlsInstance();
           wrap._hls = hls;
           hls.loadSource(url);
           hls.attachMedia(v);
@@ -85,7 +183,7 @@
         } catch (_e) {}
       });
     }
-    wrap.style.display = 'block';
+    wrap.style.display = 'flex';
     try {
       v.play().catch(function () {});
     } catch (_e) {}
@@ -103,6 +201,11 @@
         v.pause();
         v.removeAttribute('src');
         v.load();
+      } catch (_e) {}
+    }
+    if (document.fullscreenElement === wrap) {
+      try {
+        document.exitFullscreen();
       } catch (_e) {}
     }
   }
