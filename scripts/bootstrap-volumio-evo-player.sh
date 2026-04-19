@@ -683,6 +683,7 @@ install_packages() {
     build-essential pkg-config libssl-dev \
     rsync \
     libimage-exiftool-perl \
+    ffmpeg \
     "${net_pkgs[@]}" \
     "${nm_pkgs[@]}"
   if [[ "${EVO_INSTALL_RUST:-0}" == "1" ]]; then

@@ -109,7 +109,7 @@ Work for this concept lives on **`video-companion`** until reviewed for merge to
 - **`VolumioState.videoStreamUrl`** — **`/hls/live/index.m3u8`** while a session is active; **`pushState`** / **`getState`** / **`getQueue`** use the video snapshot when **`video_playback_active`**.
 - **UI** — **`layer/web/*/index.html`** loads **`/evo-hls.min.js`** (vendored **hls.js**) and **`/evo-video-overlay.js`** (Angular **`socket:pushState`** hook, `<video muted>`).
 
-Build: plain **`cargo build -p volumio-evo-core`** (video path is always compiled). Runtime needs **`ffmpeg`** / **`ffprobe`** on **`PATH`** (or **`EVO_FFMPEG_PATH`** / **`EVO_FFPROBE_PATH`**).
+Build: plain **`cargo build -p volumio-evo-core`** (video path is always compiled). Runtime needs **`ffmpeg`** and **`ffprobe`** (Debian: package **`ffmpeg`**, which provides both; bootstrap installs it). If `systemd`’s **`PATH`** is too small, Evo also tries **`/usr/bin/ffmpeg`** and **`/usr/bin/ffprobe`**, or set **`EVO_FFMPEG_PATH`** / **`EVO_FFPROBE_PATH`**.
 
 ---
 

@@ -11,12 +11,36 @@ use tokio::sync::Mutex;
 /// Lowercase extensions treated as video containers for routing (doc §4).
 const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mkv", "webm", "mov", "avi", "m4v"];
 
+/// Prefer explicit env, then common absolute paths so **`systemd`**’s minimal **`PATH`** still finds tools.
+fn resolved_external_tool(env_key: &'static str, fallback_name: &'static str, typical_paths: &[&str]) -> String {
+    if let Ok(v) = std::env::var(env_key) {
+        let v = v.trim();
+        if !v.is_empty() {
+            return v.to_string();
+        }
+    }
+    for p in typical_paths {
+        if Path::new(p).is_file() {
+            return (*p).to_string();
+        }
+    }
+    fallback_name.to_string()
+}
+
 pub fn ffmpeg_binary() -> String {
-    std::env::var("EVO_FFMPEG_PATH").unwrap_or_else(|_| "ffmpeg".into())
+    resolved_external_tool(
+        "EVO_FFMPEG_PATH",
+        "ffmpeg",
+        &["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"],
+    )
 }
 
 pub fn ffprobe_binary() -> String {
-    std::env::var("EVO_FFPROBE_PATH").unwrap_or_else(|_| "ffprobe".into())
+    resolved_external_tool(
+        "EVO_FFPROBE_PATH",
+        "ffprobe",
+        &["/usr/bin/ffprobe", "/usr/local/bin/ffprobe"],
+    )
 }
 
 /// True if the URI’s path leaf looks like a video file (Volumio `music-library/...` or plain path).
@@ -160,7 +184,12 @@ async fn ffprobe_json(path: &Path) -> anyhow::Result<Value> {
         .arg(path)
         .output()
         .await
-        .with_context(|| format!("failed to spawn {bin}"))?;
+        .with_context(|| {
+            format!(
+                "failed to spawn `{bin}` (install `ffmpeg` for `ffprobe`, or set EVO_FFPROBE_PATH; PATH={})",
+                std::env::var("PATH").unwrap_or_default()
+            )
+        })?;
     if !out.status.success() {
         anyhow::bail!(
             "ffprobe failed: {}",
@@ -333,7 +362,14 @@ async fn spawn_ffmpeg_session(
     cmd.args(["-hls_segment_filename", segment_pattern]);
     cmd.arg(playlist_path);
 
-    let mut child = cmd.spawn().with_context(|| format!("spawn {ffmpeg}"))?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| {
+            format!(
+                "spawn `{ffmpeg}` (install `ffmpeg` or set EVO_FFMPEG_PATH; PATH={})",
+                std::env::var("PATH").unwrap_or_default()
+            )
+        })?;
     if let Some(mut err) = child.stderr.take() {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
