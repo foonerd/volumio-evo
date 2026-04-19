@@ -325,8 +325,12 @@ async fn spawn_ffmpeg_session(
     if seek_secs > 0.05 {
         cmd.arg("-ss").arg(format!("{seek_secs:.3}"));
     }
+    // Pace file playback at 1× — avoids decoding/encoding ahead of real time (major source of ALSA xruns + choppy HLS).
+    cmd.arg("-re");
+    cmd.arg("-thread_queue_size").arg("1024");
     cmd.arg("-i").arg(source);
     cmd.arg("-sn");
+    cmd.arg("-max_muxing_queue_size").arg("4096");
     if has_audio {
         cmd.args([
             "-map",
@@ -346,21 +350,22 @@ async fn spawn_ffmpeg_session(
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "superfast",
         "-pix_fmt",
         "yuv420p",
+        // ~1 keyframe per 4 s segment at ~25 fps; stable HLS boundaries.
         "-g",
-        "50",
+        "100",
         "-keyint_min",
-        "50",
+        "25",
         "-sc_threshold",
         "0",
         "-f",
         "hls",
         "-hls_time",
-        "2",
+        "4",
         "-hls_list_size",
-        "12",
+        "10",
     ]);
     cmd.arg("-hls_flags").arg(
         "delete_segments+append_list+omit_endlist+program_date_time",

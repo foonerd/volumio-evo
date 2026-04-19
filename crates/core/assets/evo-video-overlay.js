@@ -63,7 +63,15 @@
       waitForManifest(url, function attach() {
         if (wrap._evoUrl !== url) return;
         if (typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
-          var hls = new window.Hls({ enableWorker: true, lowLatencyMode: true });
+          // Sliding-window HLS from ffmpeg is not LL-HLS; lowLatencyMode causes aggressive stalls/rebuffers.
+          var hls = new window.Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            maxBufferLength: 90,
+            maxMaxBufferLength: 180,
+            liveSyncDurationCount: 4,
+            liveMaxLatencyDurationCount: Infinity,
+          });
           wrap._hls = hls;
           hls.loadSource(url);
           hls.attachMedia(v);
