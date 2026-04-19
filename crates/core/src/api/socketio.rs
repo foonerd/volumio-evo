@@ -609,7 +609,8 @@ async fn get_system_info(s: SocketRef, State(state): State<AppState>) {
 async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
     let zones: Vec<String> = crate::system_settings::list_timezones_cached().to_vec();
     let sys = state.system_settings.read().await.clone();
-    let cfg = super::system_ui::system_settings_ui_config(&sys, &zones);
+    let active_layout = state.active_layout.read().await.clone();
+    let cfg = super::system_ui::system_settings_ui_config(&sys, &zones, &active_layout);
     let _ = s.emit("pushUiConfig", &cfg);
 }
 

@@ -1,7 +1,8 @@
 //! **Settings → System** (`system_controller/system`) UI config for stock Volumio2-UI.
 //!
-//! Omits install-to-disk. **UI layout** (manifest / contemporary / classic) is on **Settings → Appearance** only
-//! (see [`miscellanea_appearance_ui_config`]). This page includes locale (language, country, timezone), WPE
+//! Omits install-to-disk. **UI layout** (manifest / contemporary / classic) is configured under **Settings → Appearance**
+//! (see [`miscellanea_appearance_ui_config`]); the same control is **repeated at the bottom of this page** so users on
+//! the manifest layout (no main-menu link to Appearance) can still switch layout. This page includes locale, WPE
 //! kiosk placeholders, updates,
 //! credits, privacy — matching agreed Evo scope.
 
@@ -180,8 +181,10 @@ fn volumio3_ui_current_value(active_layout: &str) -> Value {
 }
 
 /// Full `pushUiConfig` payload for **`system_controller/system`** with **`TRANSLATE.*`** resolved to English.
-pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String]) -> Value {
+pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], active_layout: &str) -> Value {
     let hour_opts = hour_options();
+    let v3_val = volumio3_ui_current_value(active_layout);
+    let v3_opts = volumio3_ui_options_array();
     let mut out = json!({
       "page": { "label": "TRANSLATE.SYSTEM.SYSTEM_SETTINGS" },
       "sections": [
@@ -438,6 +441,32 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String]) ->
               "doc": "TRANSLATE.SYSTEM.ALLOW_UI_STATISTICS_DOC",
               "label": "TRANSLATE.SYSTEM.ALLOW_UI_STATISTICS",
               "value": settings.allow_ui_statistics
+            }
+          ]
+        },
+        {
+          "id": "section_ui_layout_footer",
+          "element": "section",
+          "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN",
+          "icon": "fa-th-large",
+          "onSave": {
+            "type": "controller",
+            "endpoint": "miscellanea/appearance",
+            "method": "setVolumio3UI"
+          },
+          "hidden": false,
+          "saveButton": {
+            "label": "TRANSLATE.COMMON.SAVE",
+            "data": [ "volumio3_ui" ]
+          },
+          "content": [
+            {
+              "id": "volumio3_ui",
+              "element": "select",
+              "doc": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN_DOC",
+              "label": "TRANSLATE.APPEARANCE.USER_INTERFACE_LAYOUT_DESIGN",
+              "value": v3_val,
+              "options": v3_opts
             }
           ]
         }
