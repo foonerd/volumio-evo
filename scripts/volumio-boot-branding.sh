@@ -84,10 +84,24 @@ patch_oneline_cmdline() {
   sed -i 's/[[:space:]]\{1,\}/ /g;s/^[[:space:]]*//;s/[[:space:]]*$//' "${f}"
   sed -i 's/[[:space:]]\+plymouth=[^[:space:]]*//g' "${f}"
   local line
-  line="$(cat "${f}" | tr '\n' ' ' | sed 's/[[:space:]]\{1,\}/ /g')"
-  [[ "${line}" == *"splash"* ]] || line="${line} splash"
-  [[ "${line}" == *"plymouth.ignore-serial-consoles"* ]] || line="${line} plymouth.ignore-serial-consoles"
-  line="${line} plymouth=${PLYMOUTH_ROTATION}"
+  # One logical line; tr turns trailing newline into a space — trim so appends never double-space.
+  line="$(cat "${f}" | tr '\n' ' ' | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  # Plymouth: quiet + splash + ignore serial VT noise; rotation last (single spaces throughout).
+  # Token match: space-padded so we do not match e.g. *unquiet* as *quiet*.
+  case " ${line} " in
+    *" quiet "*) ;;
+    *) line="${line}${line:+ }quiet" ;;
+  esac
+  case " ${line} " in
+    *" splash "*) ;;
+    *) line="${line}${line:+ }splash" ;;
+  esac
+  case " ${line} " in
+    *" plymouth.ignore-serial-consoles "*) ;;
+    *) line="${line}${line:+ }plymouth.ignore-serial-consoles" ;;
+  esac
+  line="${line}${line:+ }plymouth=${PLYMOUTH_ROTATION}"
+  line="$(echo "${line}" | tr -s '[:space:]' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   echo "${line}" > "${f}"
 }
 
@@ -99,7 +113,7 @@ elif [[ -d /etc/default/grub.d ]]; then
   install -d /etc/default/grub.d
   cat > /etc/default/grub.d/50-volumio-evo-plymouth.cfg <<EOF
 # Volumio Evo — Plymouth splash (sourced by grub)
-EXTRA_PLY="splash plymouth.ignore-serial-consoles plymouth=${PLYMOUTH_ROTATION}"
+EXTRA_PLY="quiet splash plymouth.ignore-serial-consoles plymouth=${PLYMOUTH_ROTATION}"
 GRUB_CMDLINE_LINUX_DEFAULT="\$(echo "\${GRUB_CMDLINE_LINUX_DEFAULT}" | sed 's/[[:space:]]*plymouth=[^[:space:]]*//g')"
 for tok in \$EXTRA_PLY; do
   [[ " \$GRUB_CMDLINE_LINUX_DEFAULT " != *" \$tok "* ]] && GRUB_CMDLINE_LINUX_DEFAULT="\$GRUB_CMDLINE_LINUX_DEFAULT \$tok"
@@ -110,7 +124,7 @@ EOF
     update-grub
   fi
 else
-  pct 42 "WARN: No Pi cmdline.txt or /etc/default/grub.d — add splash plymouth.ignore-serial-consoles plymouth=${PLYMOUTH_ROTATION} manually."
+  pct 42 "WARN: No Pi cmdline.txt or /etc/default/grub.d — add quiet splash plymouth.ignore-serial-consoles plymouth=${PLYMOUTH_ROTATION} manually."
 fi
 
 pct 55 "Rebuilding initramfs…"

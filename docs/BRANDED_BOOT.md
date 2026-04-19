@@ -31,7 +31,7 @@ Disable with **`EVO_INSTALL_BOOT_BRANDING_SUDOERS=0`** only if you replace this 
 
 Manual installs (no bootstrap): symlink **`/usr/share/volumio-evo/repo`** → your **`volumio-evo`** checkout **or** set **`VOLUMIO_EVO_REPO_DIR`** / **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`** and matching sudoers.
 
-**Rotation:** the UI sends **`plymouth=0|90|180|270`** via the wrapper argument; the script adds **`plymouth=N`** to the kernel command line (together with **`splash`** and **`plymouth.ignore-serial-consoles`**). Reboot to apply.
+**Rotation:** the UI sends **`plymouth=0|90|180|270`** via the wrapper argument; the script adds **`plymouth=N`** to the kernel command line (together with **`quiet`**, **`splash`**, and **`plymouth.ignore-serial-consoles`**). Reboot to apply.
 
 Vanilla OS **`.deb`** set for Plymouth is whatever **`scripts/volumio-boot-branding.sh`** installs (**`apt-get install -y plymouth plymouth-themes`** today — single source of truth).
 
