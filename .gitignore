@@ -1,4 +1,6 @@
 /target/
+.tmp-*/
+/NAS
 **/*.rs.bk
 Cargo.lock
 *.img

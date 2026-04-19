@@ -3,7 +3,7 @@
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -499,7 +499,10 @@ pub fn router(
         .route("/albumart-upload", post(album_art_upload))
         .route("/backgrounds-upload", post(backgrounds_upload))
         .nest("/api/v1", v1_routes)
-        .route("/backgrounds/{name}", get(backgrounds_static))
+        .route(
+            "/backgrounds/:name",
+            get(backgrounds_static).head(backgrounds_static_head),
+        )
         .layer(socket_layer)
         .layer(TraceLayer::new_for_http())
         // `permissive()` uses `Allow-Origin: *`, which browsers reject for credentialed
@@ -672,22 +675,30 @@ fn backgrounds_content_type(name: &str) -> &'static str {
     }
 }
 
-/// GET /backgrounds/:name — serve a file from [`crate::paths::backgrounds_data_dir`] (stock **`/backgrounds/<file>`** URL).
-async fn backgrounds_static(Path(name): Path<String>) -> impl IntoResponse {
+/// Returns the basename if it is safe to read from [`crate::paths::backgrounds_data_dir`].
+fn backgrounds_servable_basename(name: &str) -> Option<&str> {
     let name = name.trim();
     if name.is_empty()
         || name.contains('/')
         || name.contains("..")
         || name == "state.toml"
     {
-        return StatusCode::NOT_FOUND.into_response();
+        return None;
     }
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
     {
-        return StatusCode::NOT_FOUND.into_response();
+        return None;
     }
+    Some(name)
+}
+
+/// GET `/backgrounds/:name` — serve a file from [`crate::paths::backgrounds_data_dir`] (stock **`/backgrounds/<file>`** URL).
+async fn backgrounds_static(Path(name): Path<String>) -> impl IntoResponse {
+    let Some(name) = backgrounds_servable_basename(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
     let path = crate::paths::backgrounds_data_dir().join(name);
     let data = match std::fs::read(&path) {
         Ok(b) => b,
@@ -705,6 +716,32 @@ async fn backgrounds_static(Path(name): Path<String>) -> impl IntoResponse {
         data,
     )
         .into_response()
+}
+
+/// HEAD `/backgrounds/:name` — same headers as GET without a body (`curl -I`, link previewers).
+async fn backgrounds_static_head(Path(name): Path<String>) -> impl IntoResponse {
+    let Some(name) = backgrounds_servable_basename(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let path = crate::paths::backgrounds_data_dir().join(name);
+    let meta = match std::fs::metadata(&path) {
+        Ok(m) if m.is_file() => m,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let ct = backgrounds_content_type(name);
+    let Ok(len) = HeaderValue::from_str(&meta.len().to_string()) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    match Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, ct)
+        .header(header::CACHE_CONTROL, "public, max-age=604800")
+        .header(header::CONTENT_LENGTH, len)
+        .body(Body::empty())
+    {
+        Ok(r) => r.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 /// POST /backgrounds-upload — multipart file (stock Volumio: up to 3MB, jpg/jpeg/png).
