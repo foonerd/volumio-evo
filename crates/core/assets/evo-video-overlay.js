@@ -8,6 +8,36 @@
     }
   }
 
+  /** ffmpeg may start slightly after pushState; GET /hls/.../index.m3u8 can 404 until the playlist exists. */
+  function waitForManifest(url, onReady, attempt) {
+    attempt = attempt || 0;
+    var maxAttempts = 100;
+    var delayMs = 250;
+    fetch(url, { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.ok) {
+          onReady();
+          return;
+        }
+        if (attempt < maxAttempts) {
+          setTimeout(function () {
+            waitForManifest(url, onReady, attempt + 1);
+          }, delayMs);
+        } else {
+          onReady();
+        }
+      })
+      .catch(function () {
+        if (attempt < maxAttempts) {
+          setTimeout(function () {
+            waitForManifest(url, onReady, attempt + 1);
+          }, delayMs);
+        } else {
+          onReady();
+        }
+      });
+  }
+
   function ensureVideo(url) {
     var id = 'evo-video-companion-overlay';
     var wrap = document.getElementById(id);
@@ -30,16 +60,22 @@
     if (wrap._evoUrl !== url) {
       destroyHls(wrap);
       wrap._evoUrl = url;
-      if (typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
-        var hls = new window.Hls({ enableWorker: true, lowLatencyMode: true });
-        wrap._hls = hls;
-        hls.loadSource(url);
-        hls.attachMedia(v);
-      } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-        v.src = url;
-      } else {
-        v.src = url;
-      }
+      waitForManifest(url, function attach() {
+        if (wrap._evoUrl !== url) return;
+        if (typeof window.Hls !== 'undefined' && window.Hls.isSupported()) {
+          var hls = new window.Hls({ enableWorker: true, lowLatencyMode: true });
+          wrap._hls = hls;
+          hls.loadSource(url);
+          hls.attachMedia(v);
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+          v.src = url;
+        } else {
+          v.src = url;
+        }
+        try {
+          v.play().catch(function () {});
+        } catch (_e) {}
+      });
     }
     wrap.style.display = 'block';
     try {
