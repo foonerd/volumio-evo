@@ -137,3 +137,58 @@ sudo usermod -aG audio,video,render "$EVO_USER"
 ```
 
 After changing groups, **restart** **`volumio-evo`** (or re-login for SSH-only checks). Future bootstrap changes should extend **`SupplementaryGroups=`** beyond **`audio`** when video companion packages are enabled.
+
+---
+
+## 12. Bootstrap **apt** capture (sample dry-run)
+
+**Purpose:** lock the **exact** Debian/Raspberry Pi closure for **companion** tooling before adding to **`bootstrap-volumio-evo-player.sh`** (or a companion phase). **Re-run** `apt-get install -sy …` before each release — versions move.
+
+### 12.1 Command (no install)
+
+```bash
+sudo apt-get update -qq
+sudo apt-get install -sy mpv ffmpeg gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools vainfo 2>&1 | tee /tmp/volumio-video-companion-apt-dryrun.txt
+```
+
+Optional **smaller** footprint for spikes (mpv + ffmpeg only):
+
+```bash
+sudo apt-get install -sy mpv ffmpeg 2>&1 | tee /tmp/volumio-video-companion-minimal-dryrun.txt
+```
+
+### 12.2 Sample outcome (device snapshot — **do not treat as frozen**)
+
+| Field | Value |
+|-------|--------|
+| **Recorded** | 2026-04, **Debian 13 (trixie)** **`DEBIAN_VERSION_FULL=13.4`**, **arm64**, Pi kernel **`6.12.*+rpt`** |
+| **Requested top-level** | **`mpv`**, **`ffmpeg`**, **`gstreamer1.0-plugins-{base,good,bad}`**, **`gstreamer1.0-libav`**, **`gstreamer1.0-tools`**, **`vainfo`** |
+| **Result** | **120** new packages, **0** upgraded, **0** removed |
+| **Repos** | Mix of **`Debian:13.4/stable`**, **`Debian-Security:13/stable-security`**, and **`Raspberry Pi Foundation:stable`** (**`+rpt`**, **`+rpt3`**) for **`ffmpeg`**, **`libavdevice61`**, several **`gstreamer1.0-*`** and **`libgstreamer-*`** |
+
+**Direct `Inst` lines for the requested names (versions from capture):**
+
+- **`ffmpeg`** `8:7.1.3-0+deb13u1+rpt1` [arm64] — Raspberry Pi Foundation  
+- **`mpv`** `0.40.0-3+deb13u1` [arm64] — Debian stable  
+- **`gstreamer1.0-tools`** `1.26.2-2` [arm64]  
+- **`gstreamer1.0-plugins-base`** `1.26.2-1+rpt3+deb13u1` [arm64] — Pi Foundation  
+- **`gstreamer1.0-plugins-good`** `1.26.2-1` [arm64]  
+- **`gstreamer1.0-plugins-bad`** `1.26.2-3+rpt3+deb13u1` [arm64] — Pi Foundation  
+- **`gstreamer1.0-libav`** `1.26.2-1` [arm64]  
+- **`vainfo`** `2.22.0+ds1-2` [arm64]  
+
+**Also pulled** (among others): **`libavdevice61`**, **`gstreamer1.0-gl`**, **`gstreamer1.0-x`**, **`ghostscript`** / font stacks (**`mpv`** dependency chain), **`yt-dlp`**, Python bits — see full **`tee`** log.
+
+### 12.3 Groups vs packages (same sample host)
+
+On that host, **`volumio-evo`** **MainPID** already had **`video`** and **`render`** in effective supplementary groups (§11 probes). **Package install** does not replace group setup; it only supplies **`mpv`/`ffmpeg`/GStreamer** binaries.
+
+### 12.4 Install for real (operator)
+
+After reviewing **`/tmp/volumio-video-companion-apt-dryrun.txt`**, run the same package list **without** **`y`**:
+
+```bash
+sudo apt-get install -y mpv ffmpeg gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools vainfo
+```
