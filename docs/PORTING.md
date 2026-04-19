@@ -290,7 +290,7 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 ### 3.2 Deferred or stubbed
 
 - **Settings → Sources (stock menu → `miscellanea/my_music`):** `getUiConfig` with `page: miscellanea/my_music` emits the same plugin section layout as Node (`volumio3-backend` `app/plugins/miscellanea/my_music/UIConfig.json`: core sections `my-music`, `network-drives`, `my-music-plugin-enabler`, plus album-art / music-library / browse-visibility blocks). Collection stats and rescan/update already use existing Socket.IO (`getMyCollectionStats`, `rescanDb`, `updateDb`). **Network drives:** `getListShares` → `pushListShares`, `addShare`, `editShare`, `deleteShare`, `getInfoShare` → `pushInfoShare` are implemented with persistence under `settings/mounts/shares.toml`, mounts at `/mnt/NAS/<alias>`, `sudo mount`/`umount` (see [RUNTIME_USER.md](RUNTIME_USER.md)), and Node-compatible toasts / `nasCredentialsCheck`. **`getNetworkSharesDiscovery`** uses **`avahi-browse -p -r _smb._tcp`** (requires **`avahi-utils`** + **`avahi-daemon`**) then **`smbclient -L`** per host (guest, `-m SMB3_11`), matching Node’s `{ nas: [ { name, ip, shares, version? } ] }` shape. **`getListUsbDrives` / `listUsbDrives`** remain empty until USB integration. Saving album-art / “music library” / browse-visibility sections via `callMethod` still needs parity with Node where not yet mapped to Evo config.
-- **Plugin REST:** `POST /api/v1/pluginEndpoint` is implemented for **`endpoint: "metavolumio"`** only (browse story/credits). Other plugin endpoints remain unimplemented. **callMethod** (Socket.IO): **`clearAlbumartCache`**, **`installBootBranding`**, ALSA/MPD and **system_controller/system** saves — see **`socketio.rs`**; full arbitrary plugin ABI is still future work.
+- **Plugin REST:** `POST /api/v1/pluginEndpoint` is implemented for **`endpoint: "metavolumio"`** only (browse story/credits). Other plugin endpoints remain unimplemented. **callMethod** (Socket.IO): **`clearAlbumartCache`**, **`installBootBranding`**, ALSA/MPD and **system_controller/system** saves — see **`socketio.rs`**. Generic **`callMethod`** for arbitrary Node plugins is **deferred** ([DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md), Part 5 below).
 - **Multi-room:** getzones -> stub `{ zones: [] }`; getMultiRoomDevices and related -> not implemented.
 - **HDMI standby, OAuth, pushNotificationUrls:** stubs or skip for minimal port.
 - **Playlist manager:** implemented (Socket.IO: getPlaylistContent, listPlaylist, playPlaylist, saveQueueToPlaylist, createPlaylist, deletePlaylist, addToPlaylist, removeFromPlaylist, enqueue; MPD load/save/rm/listplaylist/playlistadd/playlistdelete; browseLibrary supports uri `playlists` and `playlists/<name>`).
@@ -298,9 +298,9 @@ Using the inventory above, we decide what to implement, stub, or defer so the ex
 - **System:** many areas stubbed or minimal (getSystemVersion, wizard, appearance, timezone, …). **Wireless / LAN status:** real **`nmcli`** path — [NETWORK_NM.md](NETWORK_NM.md), Phase 3 below. **Updater, factory reset, My Volumio:** not ported ([PORTING.md](PORTING.md) Part 5–6).
 - **Album art:** full handling implemented: exiftool (embedded art when metadata=true; path configurable via config `exiftool_path` or env `VOLUMIO_EVO_EXIFTOOL_PATH`, default `/usr/bin/exiftool`), MPD readpicture (embedded art from file URI), online providers, icon/sectionimage/sourceicon from plugin dirs, resize for albumartd (500px) and tinyart (250px).
 
-### 3.3 Optional / future
+### 3.3 No separate “backlog” section
 
-- Reserved for future items.
+Deferred or not-yet-built work is listed only in **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** (*Deferred / reference*, *Not ported*) and in **Part 4** phase tables (**Outstanding** / **Cannot be ported**). Do not add a duplicate inventory here.
 
 ---
 

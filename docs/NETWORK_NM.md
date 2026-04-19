@@ -4,7 +4,28 @@ Volumio Evo is moving from **ifupdown / dhcpcd / hostapd scripts** to **NetworkM
 
 **Privilege:** when the service runs as a **non-root** user, Evo invokes **`sudo -n $VOLUMIO_EVO_NMCLI`** (see **`nmcli_bin()`**). Bootstrap installs **`/etc/sudoers.d/volumio-evo-nmcli`** — see **[OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)**.
 
-This document is the **contract** for implementation in `crates/core/src/nm_network.rs`, bootstrap, and (eventually) the stock UI plugin `system_controller/network` (implemented in Evo only; see workspace rules for `Volumio2-UI`).
+This document is the **contract** for implementation in `crates/core/src/nm_network.rs`, bootstrap, and the stock UI plugin `system_controller/network` (behaviour is implemented in Evo, not in Volumio2-UI; see workspace rules for `Volumio2-UI`).
+
+## Implementation status in this repository
+
+**What is implemented in code today** (see `crates/core/src/nm_network.rs`, `crates/core/src/api/v1.rs` network routes, `crates/core/src/api/socketio.rs`):
+
+| Area | Status |
+|------|--------|
+| **Socket.IO (stock names)** | **`getWirelessNetworks`**, **`getWirelessNetworksCache`** → **`pushWirelessNetworks`** / Cache; **`getInfoNetwork`** → **`pushInfoNetwork`**; **`saveWirelessNetworkSettings`**; **`connectWirelessNetworkWizard`** (join + wizard result events) — all run through **`apply_network_intent` / `nmcli`** as in this document. |
+| **REST** | **`GET/PUT /api/v1/network/nm/intent`**, **`GET /api/v1/network/nm/status`**, **`GET /api/v1/network/nm/wifi-devices`**. |
+| **Apply** | Ethernet (when enabled in intent), Wi‑Fi STA/AP, hotspot **`connection up`** with retries, **`ap0`** virtual iface when PHY reports **`managed + AP`**, “no LAN” / **critical recovery** open hotspot path, PSK sidecars, persisted **`intent.toml`** — see [Persistence](#persistence). |
+| **Preference** | **`wifi_iface_preferred`** merge into runtime config where privileges allow ([OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)). |
+
+**What is not implemented yet** (contract or design reference only until shipped):
+
+| Gap | Where tracked |
+|-----|----------------|
+| **Runtime STA-loss watchdog** (periodic re-check, not only apply-time) | [Phased implementation](#phased-implementation) phase **3** — this repository ships **no** `volumio-evo-network-watchdog.service` (or equivalent periodic loop) yet. |
+| **Per-radio full intent/state truth table** | Product + implementation follow-up; paragraphs below remain **requirements**, not a guarantee of current code paths on every SKU. |
+| **`polkit`-only NM policy** for locked-down images | Phase **4** below — Evo relies on **`sudo -n`** sudoers ([OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)). |
+
+Long sections below mix **current behaviour** with **product requirements** for recovery and multi-radio policies. If behaviour changes, update this section and [Phased implementation](#phased-implementation) together.
 
 ## Intent vs state (toggles vs NM reality)
 
@@ -37,7 +58,7 @@ When **AP is enabled in intent** but **AP state remains failed** after **bounded
 
 ### More than one Wi‑Fi interface (SoC vs USB)
 
-Intent/state apply **per interface** once Evo tracks **which `wlan*` is STA vs AP**. See **[Role assignment when several `wlan*` exist](#role-assignment-when-several-wlan-exist-faster-sta-ap-where-supported)** below. **[Contract: USB STA vs hotspot iface](#contract-usb-sta-vs-hotspot-iface-one-mode-per-radio-blind-entry)** and **[Multiple Wi‑Fi interfaces](#multiple-wi-fi-interfaces-on-soc-pcie-usb)** add hardware context; a **full intent/state truth table per radio** remains **follow-up** with product.
+Intent/state apply **per interface** once Evo tracks **which `wlan*` is STA vs AP**. See **[Role assignment when several `wlan*` exist](#role-assignment-when-several-wlan-exist-faster-sta-ap-where-supported)** below. **[Contract: USB STA vs hotspot iface](#contract-usb-sta-vs-hotspot-iface-one-mode-per-radio-blind-entry)** and **[Multiple Wi‑Fi interfaces](#multiple-wi-fi-interfaces-on-soc-pcie-usb)** add hardware context. A **full intent/state truth table per radio** is **not fully implemented** for all hardware — see the gap row in [Implementation status in this repository](#implementation-status-in-this-repository).
 
 ## Goals
 
@@ -47,7 +68,7 @@ Intent/state apply **per interface** once Evo tracks **which `wlan*` is STA vs A
 | Wi‑Fi STA | `nmcli` **wifi** connection, `802-11-wireless.mode infrastructure` |
 | Wi‑Fi AP / hotspot | `nmcli` **wifi** profile with `mode ap` (and `ipv4.method shared` for NAT DHCP to clients) |
 | STA + AP on one radio | **Canonical:** create a **virtual AP vif** on the STA's PHY — `iw dev <sta> interface add <ap> type __ap` — then bind STA NM profile to `<sta>` and AP NM profile to `<ap>` with `802-11-wireless.mode ap` + `ipv4.method shared`. Evo auto-creates `ap0` when `iw phy … valid interface combinations` admits **`managed + AP`** (e.g. **Pi 5 brcmfmac / CYW43455**; see `valid interface combinations`). AP channel **follows STA** because that combination is `#channels <= 1`. When the PHY does **not** list such a combination (true single-mode chips), Evo falls back to the old shared-ifname behaviour and warns accordingly. See **[Verifying concurrent STA + AP on one PHY (`iw`)](#verifying-concurrent-sta--ap-on-one-phy-iw)**. |
-| Fallback hotspot | If STA fails (no link / bad credentials / no DHCP), activate a **known** NM connection profile (e.g. `volumio-hotspot`) on the Wi‑Fi device. A small **watchdog** (future: `volumio-evo-network-watchdog.service` or a loop inside Evo) re-evaluates periodically. |
+| Fallback hotspot | **Apply-time and recovery:** bring up a **known** NM hotspot profile (e.g. `volumio-hotspot`) per [Persistence](#persistence) and [Critical recovery](#critical-recovery-single-wi-fi-interface-contract-intent). **Runtime** periodic re-evaluation when STA drops after successful boot: **not implemented** — [Phased implementation](#phased-implementation) phase **3**; no `volumio-evo-network-watchdog.service` in this repository. |
 
 ## UI toggles vs hardware capability (product policy)
 
@@ -249,9 +270,9 @@ If every **`connection up`** attempt fails **and** Ethernet intent targets an if
 | Phase | Scope |
 |-------|--------|
 | **1** | Parse-only + scan → JSON matching `pushWirelessNetworks.available[]`; REST diagnostic; bootstrap installs `network-manager` when enabled. |
-| **2 (current)** | `settings/network/intent.toml` + `wifi-*.psk` sidecars; **`wifi_iface`** / **`fallback.hotspot_ifname`** (STA-only USB vs SoC AP); **`GET/PUT /api/v1/network/nm/intent`** (optional `apply: true`); idempotent `nmcli` apply; hotspot **`connection up`** per table above (same-iface + both toggles → try concurrent STA+AP). |
-| **3** | Watchdog / timer for **runtime** STA loss (not only apply-time); NAT tuning if needed. |
-| **4** | Socket.IO parity with Node (`saveWirelessNetworkSettings`, wizard) + polkit fine-tuning for non-root service user. |
+| **2 (current)** | **`intent.toml`** + **`wifi-*.psk`** sidecars; **`wifi_iface`** / **`fallback.hotspot_ifname`**; **`GET/PUT /api/v1/network/nm/intent`** (`apply: true` runs **`apply_network_intent`**); idempotent **`nmcli`** apply; hotspot **`connection up`** per tables above (same-iface + both toggles → try concurrent STA+AP); **Socket.IO Wi‑Fi handlers** (`saveWirelessNetworkSettings`, wizard join, scan, info) — see [Implementation status in this repository](#implementation-status-in-this-repository). |
+| **3** | Watchdog / timer for **runtime** STA loss (not only apply-time); NAT tuning if needed — **not shipped**. |
+| **4** | **`polkit`/policykit** integration or other NM ACL refinements for non-root installs that cannot use **`sudo -n`**; wizard-only Socket.IO parity gaps ([PORTING.md](PORTING.md) Phase 2–3 **Outstanding**). Does **not** re-implement **`saveWirelessNetworkSettings`** — that is in phase **2**. |
 
 ## Related
 

@@ -78,15 +78,14 @@ Systemd: `layer/systemd/volumio-evo.service` sets `VOLUMIO_EVO_SETTINGS_DIR` so 
 
 Older builds stored ALSA state at **`settings/alsa-state.toml`** (file at the root of `settings/`). On startup, if `settings/alsa/state.toml` is missing and `settings/alsa-state.toml` exists, Evo **moves** the file into `settings/alsa/state.toml`. No action required for most installs.
 
-## Future subdirectories (planned)
+## Reserved / not yet used
 
-Add sibling directories as features land, for example:
+Bootstrap already creates **`settings/network/`**, **`settings/mounts/`**, **`settings/alarm/`**, and others — see [Required directories on install](#required-directories-on-install). Additional top-level siblings are added **only** when a feature needs a new namespace:
 
-- RTC wake-from-suspend pairing with alarms uses **`rtcwake`** — see **[ALARM_WAKE.md](ALARM_WAKE.md)**
-
-- `settings/network/` — nmcli-backed intent, UI preferences (not necessarily full NetworkManager dump)
-- `settings/mounts/` — **implemented:** `shares.toml` lists shares; CIFS passwords use `cifs-<uuid>.cred` (0600) when needed
-- `settings/devices/` — other device handling if not better scoped elsewhere
+| Path | Status |
+|------|--------|
+| **`settings/devices/`** | **Not created in bootstrap today.** Reserved if non-network device settings need a dedicated tree. |
+| **Alarms + RTC** | Persisted deadlines and **`rtcwake`** behaviour — **[ALARM_WAKE.md](ALARM_WAKE.md)**; data under **`settings/alarm/`**. |
 
 Keep **secrets** out of generic `*.toml` that might be world-readable; use root-only paths or `systemd-creds` and reference them from config.
 
@@ -98,9 +97,9 @@ Persisted **language** today drives only the **web UI** (Angular `translate` / `
 
 A **later phase** may apply the same choice OS-wide via **`locale-gen`**, **`/etc/default/locale`**, and related Debian/systemd mechanics so shells, journals, and services see a consistent locale. That needs explicit product and installer policy (UTF-8 defaults, impact on scripts that assume **`C.UTF-8`**, reboot/session rules).
 
-### Regulatory domain via NetworkManager (optional)
+### Regulatory domain via NetworkManager (deferred)
 
-**Country** currently maps to **`iw reg set`** plus an ISO 3166-1 alpha-2 code (cfg80211). An optional future enhancement could add **NetworkManager-aligned** hints on platforms where NM exposes them, without removing the **`iw`** baseline.
+**Implemented today:** **`iw reg set`** with an ISO 3166-1 alpha-2 code (cfg80211). **Not implemented:** extra NetworkManager-specific regulatory hints where NM exposes them — if added, document in **[NETWORK_NM.md](NETWORK_NM.md)** and remove this “deferred” line.
 
 ## Required directories on install
 

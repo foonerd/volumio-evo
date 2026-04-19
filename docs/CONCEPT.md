@@ -34,6 +34,6 @@
 
 Index (assumptions, done vs not, doc authority): **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)**. Logs: [OBSERVABILITY.md](OBSERVABILITY.md). Binaries: [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`**. Plymouth: [BRANDED_BOOT.md](BRANDED_BOOT.md).
 
-## 7. Optional display shell (later)
+## 7. Deferred: kiosk display shell
 
-A dedicated **kiosk** (full-screen browser on Wayland, touch/OSK) is **out of scope for the initial backend port** and documented separately in [KIOSK.md](KIOSK.md). It layers on top of a stock OS once Evo replaces Node for production playback and API use.
+A dedicated **kiosk** (full-screen browser on Wayland, touch/OSK) is **not part of the shipped Evo backend requirement** — **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** (*Deferred / reference*). Specification: [KIOSK.md](KIOSK.md).

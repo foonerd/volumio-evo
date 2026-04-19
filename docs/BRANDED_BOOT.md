@@ -128,7 +128,7 @@ Work in roughly this order; details can track a project board.
 
 - **Fast boot:** Splash may end before later **`VOL`** messages; messages can still appear in **journal**.  
 - **After Plymouth quits:** Brief **console / text gap** before login is common (Plymouth vs getty); **`quiet`** reduces kernel noise but does not remove all gaps.  
-- **`app:listening`** uses HTTP until Evo gains **`Type=notify`** (`sd_notify`) — optional future improvement.
+- **`app:listening`** polls HTTP until Evo supports **`Type=notify`** (`sd_notify`) on the **`volumio-evo`** unit — **not implemented**; listed in **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** *Deferred / reference*.
 
 ---
 

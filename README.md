@@ -9,7 +9,7 @@ Rust backend + WASM plugins on a stock minimal OS. No Node, no debootstrap.
 - **Backend:** Single Rust binary; loads sandboxed WASM plugins.
 - **UI:** Unchanged (e.g. React) over HTTP and Socket.IO.
 
-**Documentation index** (assumptions, authority, what is done vs not): [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md). Further: [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), [docs/PORTING.md](docs/PORTING.md).
+**Documentation index** (assumptions, authority, what is done vs not, every `docs/*.md` file, and the **non-negotiable update rule**): [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md). Further: [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), [docs/PORTING.md](docs/PORTING.md).
 
 - **Persisted settings on disk:** [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) — namespace under `/var/lib/volumio-evo/settings/` (`alsa/`, `mpd/`, future `network/`, `mounts/`, …), env overrides, secrets guidance.
 
