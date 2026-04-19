@@ -91,7 +91,10 @@ impl VideoSessionCtl {
 
 pub struct VideoSessionInner {
     pub generation: u64,
-    pub ffmpeg_pid: u32,
+    /// Video → **HLS** (heavy encode). Separate from ALSA so encoding load does not stall local playback.
+    pub hls_ffmpeg_pid: u32,
+    /// Audio → **ALSA** only (lightweight `ffmpeg`). `None` when source has no audio.
+    pub alsa_ffmpeg_pid: Option<u32>,
     pub volumio_uri: String,
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -375,11 +378,58 @@ fn append_video_encoder_args(cmd: &mut tokio::process::Command, enc: VideoEncode
     }
 }
 
-async fn spawn_ffmpeg_session(
+fn pump_ffmpeg_stderr(mut stderr: tokio::process::ChildStderr) {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let reader = tokio::io::BufReader::new(&mut stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !line.is_empty() {
+                tracing::debug!(target: "volumio_evo::ffmpeg", "{}", line);
+            }
+        }
+    });
+}
+
+/// Decode **audio only** → ALSA (second process). Same `-re`/`-ss` as HLS leg so clocks stay roughly aligned.
+/// Industry pattern when one `ffmpeg` doing heavy video encode + ALSA starves realtime audio (common on ARM).
+async fn spawn_ffmpeg_alsa_only(
     source: &Path,
     seek_secs: f64,
-    has_audio: bool,
     alsa_dev: &str,
+) -> anyhow::Result<tokio::process::Child> {
+    let ffmpeg = ffmpeg_binary();
+    let mut cmd = tokio::process::Command::new(&ffmpeg);
+    cmd.kill_on_drop(false);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.arg("-y").arg("-nostdin");
+    cmd.args(["-hide_banner", "-loglevel", "warning"]);
+    if seek_secs > 0.05 {
+        cmd.arg("-ss").arg(format!("{seek_secs:.3}"));
+    }
+    cmd.arg("-re");
+    cmd.arg("-thread_queue_size").arg("2048");
+    cmd.arg("-i").arg(source);
+    cmd.arg("-vn");
+    cmd.args(["-map", "0:a:0", "-ac", "2", "-sample_fmt", "s16", "-f", "alsa"]);
+    cmd.arg(alsa_dev);
+    let mut child = cmd.spawn().with_context(|| {
+        format!(
+            "spawn `{ffmpeg}` (ALSA leg; set EVO_FFMPEG_PATH if needed; PATH={})",
+            std::env::var("PATH").unwrap_or_default()
+        )
+    })?;
+    if let Some(err) = child.stderr.take() {
+        pump_ffmpeg_stderr(err);
+    }
+    Ok(child)
+}
+
+/// **Video only** → HLS (browser). No ALSA in this process — avoids encoder/RTP competing with sound card.
+async fn spawn_ffmpeg_hls_only(
+    source: &Path,
+    seek_secs: f64,
     playlist_path: &Path,
     segment_pattern: &str,
 ) -> anyhow::Result<tokio::process::Child> {
@@ -393,54 +443,57 @@ async fn spawn_ffmpeg_session(
     if seek_secs > 0.05 {
         cmd.arg("-ss").arg(format!("{seek_secs:.3}"));
     }
-    // Pace file playback at 1× — avoids decoding/encoding ahead of real time (major source of ALSA xruns + choppy HLS).
     cmd.arg("-re");
     cmd.arg("-thread_queue_size").arg("1024");
     cmd.arg("-i").arg(source);
     cmd.arg("-sn");
     cmd.arg("-max_muxing_queue_size").arg("4096");
-    let video_enc = resolve_video_encoder();
-    if has_audio {
-        cmd.args(["-map", "0:a:0"]);
-        // Stretch/compress samples to PTS so brief video-encode stalls do not sound like a “tap” toggling speed.
-        cmd.arg("-af").arg("aresample=async=1");
-        cmd.args(["-ac", "2", "-sample_fmt", "s16", "-f", "alsa"]);
-        cmd.arg(alsa_dev);
-    }
     cmd.arg("-map").arg("0:v:0");
-    append_video_encoder_args(&mut cmd, video_enc);
+    append_video_encoder_args(&mut cmd, resolve_video_encoder());
     cmd.args(["-f", "hls", "-hls_time", "4", "-hls_list_size", "10"]);
     cmd.arg("-hls_flags").arg(
         "delete_segments+append_list+omit_endlist+program_date_time",
     );
     cmd.args(["-hls_segment_filename", segment_pattern]);
     cmd.arg(playlist_path);
-
-    let mut child = cmd
-        .spawn()
-        .with_context(|| {
-            format!(
-                "spawn `{ffmpeg}` (install `ffmpeg` or set EVO_FFMPEG_PATH; PATH={})",
-                std::env::var("PATH").unwrap_or_default()
-            )
-        })?;
-    if let Some(mut err) = child.stderr.take() {
-        tokio::spawn(async move {
-            use tokio::io::AsyncBufReadExt;
-            let reader = tokio::io::BufReader::new(&mut err);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if !line.is_empty() {
-                    tracing::debug!(
-                        target: "volumio_evo::ffmpeg",
-                        "{}",
-                        line
-                    );
-                }
-            }
-        });
+    let mut child = cmd.spawn().with_context(|| {
+        format!(
+            "spawn `{ffmpeg}` (HLS leg; set EVO_FFMPEG_PATH if needed; PATH={})",
+            std::env::var("PATH").unwrap_or_default()
+        )
+    })?;
+    if let Some(err) = child.stderr.take() {
+        pump_ffmpeg_stderr(err);
     }
     Ok(child)
+}
+
+/// Kill the sibling **ffmpeg** when one leg exits so we do not leave audio or encoding running alone.
+async fn cleanup_when_ffmpeg_leg_exits(state: crate::api::AppState, generation: u64, exited_pid: u32) {
+    let mut lock = state.video_session.inner.lock().await;
+    let Some(inner) = lock.as_ref() else {
+        return;
+    };
+    if inner.generation != generation {
+        return;
+    }
+    let ours = inner.hls_ffmpeg_pid == exited_pid || inner.alsa_ffmpeg_pid == Some(exited_pid);
+    if !ours {
+        return;
+    }
+    if inner.hls_ffmpeg_pid != exited_pid {
+        let _ = pid_kill(inner.hls_ffmpeg_pid, libc::SIGKILL);
+    }
+    if let Some(a) = inner.alsa_ffmpeg_pid {
+        if a != exited_pid {
+            let _ = pid_kill(a, libc::SIGKILL);
+        }
+    }
+    *lock = None;
+    drop(lock);
+    state.clear_video_playback_active();
+    state.notify_push_state();
+    state.notify_push_queue();
 }
 
 async fn try_take_over_inner(
@@ -539,28 +592,52 @@ pub(crate) async fn start_video_session(
     {
         let mut g = state.video_session.inner.lock().await;
         if let Some(prev) = g.as_ref() {
-            let _ = pid_kill(prev.ffmpeg_pid, libc::SIGKILL);
+            let _ = pid_kill(prev.hls_ffmpeg_pid, libc::SIGKILL);
+            if let Some(a) = prev.alsa_ffmpeg_pid {
+                let _ = pid_kill(a, libc::SIGKILL);
+            }
         }
         *g = None;
     }
 
     let generation = state.video_session.next_generation();
     let seek0 = 0_f64;
-    let mut child = spawn_ffmpeg_session(
-        &source,
-        seek0,
-        probe.has_audio,
-        &alsa_device,
-        &playlist_path,
-        &segment_pattern,
-    )
-    .await?;
 
-    let pid = child.id().ok_or_else(|| anyhow!("ffmpeg had no pid"))?;
+    let mut alsa_child = if probe.has_audio {
+        Some(
+            spawn_ffmpeg_alsa_only(&source, seek0, &alsa_device)
+                .await
+                .with_context(|| "spawn ffmpeg ALSA leg")?,
+        )
+    } else {
+        None
+    };
+    let mut hls_child = match spawn_ffmpeg_hls_only(&source, seek0, &playlist_path, &segment_pattern).await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            return Err(e.context("spawn ffmpeg HLS leg"));
+        }
+    };
+
+    let hls_pid = match hls_child.id() {
+        Some(p) => p,
+        None => {
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            anyhow::bail!("ffmpeg HLS leg had no pid");
+        }
+    };
+    let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
     let inner = VideoSessionInner {
         generation,
-        ffmpeg_pid: pid,
+        hls_ffmpeg_pid: hls_pid,
+        alsa_ffmpeg_pid: alsa_pid,
         volumio_uri: volumio_uri.clone(),
         title,
         artist,
@@ -587,35 +664,41 @@ pub(crate) async fn start_video_session(
     state.notify_push_queue();
 
     tracing::info!(
-        "{} video session started ({:?}) gen={} pid={} intent={:?} uri={}",
+        "{} video session started ({:?}) gen={} hls_pid={} alsa_pid={:?} intent={:?} uri={}",
         crate::log_tags::EVO_PLAY,
         source,
         generation,
-        pid,
+        hls_pid,
+        alsa_pid,
         intent,
         volumio_uri
     );
 
-    let st = std::sync::Arc::clone(state);
+    let st_h = std::sync::Arc::clone(state);
+    let gen_w = generation;
     tokio::spawn(async move {
-        let status = child.wait().await;
+        let status = hls_child.wait().await;
         tracing::info!(
-            "{} ffmpeg exited: {:?}",
+            "{} ffmpeg HLS leg exited: {:?}",
             crate::log_tags::EVO_PLAY,
             status
         );
-        let mut lock = st.video_session.inner.lock().await;
-        let clear = match lock.as_ref() {
-            Some(v) if v.ffmpeg_pid == pid => true,
-            _ => false,
-        };
-        if clear {
-            *lock = None;
-            st.clear_video_playback_active();
-            st.notify_push_state();
-            st.notify_push_queue();
-        }
+        cleanup_when_ffmpeg_leg_exits(st_h, gen_w, hls_pid).await;
     });
+
+    if let (Some(mut ac), Some(ap)) = (alsa_child, alsa_pid) {
+        let st_a = std::sync::Arc::clone(state);
+        let gen_a = generation;
+        tokio::spawn(async move {
+            let status = ac.wait().await;
+            tracing::info!(
+                "{} ffmpeg ALSA leg exited: {:?}",
+                crate::log_tags::EVO_PLAY,
+                status
+            );
+            cleanup_when_ffmpeg_leg_exits(st_a, gen_a, ap).await;
+        });
+    }
 
     Ok(())
 }
@@ -638,7 +721,10 @@ async fn restart_ffmpeg_at(
         let source = inner.local_path.clone();
         let has_audio = inner.has_audio;
         let alsa_dev = inner.alsa_device.clone();
-        let _ = pid_kill(inner.ffmpeg_pid, libc::SIGKILL);
+        let _ = pid_kill(inner.hls_ffmpeg_pid, libc::SIGKILL);
+        if let Some(a) = inner.alsa_ffmpeg_pid {
+            let _ = pid_kill(a, libc::SIGKILL);
+        }
         (generation, source, has_audio, alsa_dev, capped_ms)
     };
 
@@ -655,70 +741,99 @@ async fn restart_ffmpeg_at(
         .ok_or_else(|| anyhow!("invalid utf-8 in HLS path"))?
         .to_string();
 
-    let mut child = spawn_ffmpeg_session(
-        &source,
-        seek_secs,
-        has_audio,
-        &alsa_dev,
-        &playlist_path,
-        &segment_pattern,
-    )
-    .await?;
+    let mut alsa_child = if has_audio {
+        Some(spawn_ffmpeg_alsa_only(&source, seek_secs, &alsa_dev).await?)
+    } else {
+        None
+    };
+    let mut hls_child = match spawn_ffmpeg_hls_only(&source, seek_secs, &playlist_path, &segment_pattern).await {
+        Ok(c) => c,
+        Err(e) => {
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            return Err(e.context("spawn ffmpeg HLS leg after seek"));
+        }
+    };
 
-    let pid = child.id().ok_or_else(|| anyhow!("ffmpeg had no pid"))?;
+    let hls_pid = match hls_child.id() {
+        Some(p) => p,
+        None => {
+            if let Some(mut ac) = alsa_child.take() {
+                let _ = ac.kill().await;
+            }
+            anyhow::bail!("ffmpeg HLS leg had no pid");
+        }
+    };
+    let alsa_pid = alsa_child.as_mut().and_then(|c| c.id());
 
     {
         let mut g = state.video_session.inner.lock().await;
         let Some(inner) = g.as_mut() else {
-            let _ = pid_kill(pid, libc::SIGKILL);
+            let _ = pid_kill(hls_pid, libc::SIGKILL);
+            if let Some(a) = alsa_pid {
+                let _ = pid_kill(a, libc::SIGKILL);
+            }
             return Ok(());
         };
         if inner.generation != generation {
-            let _ = pid_kill(pid, libc::SIGKILL);
+            let _ = pid_kill(hls_pid, libc::SIGKILL);
+            if let Some(a) = alsa_pid {
+                let _ = pid_kill(a, libc::SIGKILL);
+            }
             return Ok(());
         }
-        inner.ffmpeg_pid = pid;
+        inner.hls_ffmpeg_pid = hls_pid;
+        inner.alsa_ffmpeg_pid = alsa_pid;
         inner.sync_anchor_from_now(capped_ms);
         inner.paused = false;
         inner.playing = true;
     }
 
-    let st = std::sync::Arc::clone(state);
+    let st_h = std::sync::Arc::clone(state);
+    let gen_w = generation;
     tokio::spawn(async move {
-        let status = child.wait().await;
+        let status = hls_child.wait().await;
         tracing::debug!(
-            "{} ffmpeg (after seek) exited: {:?}",
+            "{} ffmpeg HLS leg (after seek) exited: {:?}",
             crate::log_tags::EVO_PLAY,
             status
         );
-        let mut lock = st.video_session.inner.lock().await;
-        let clear = match lock.as_ref() {
-            Some(v) if v.ffmpeg_pid == pid => true,
-            _ => false,
-        };
-        if clear {
-            *lock = None;
-            st.clear_video_playback_active();
-            st.notify_push_state();
-            st.notify_push_queue();
-        }
+        cleanup_when_ffmpeg_leg_exits(st_h, gen_w, hls_pid).await;
     });
+
+    if let (Some(mut ac), Some(ap)) = (alsa_child, alsa_pid) {
+        let st_a = std::sync::Arc::clone(state);
+        let gen_a = generation;
+        tokio::spawn(async move {
+            let status = ac.wait().await;
+            tracing::debug!(
+                "{} ffmpeg ALSA leg (after seek) exited: {:?}",
+                crate::log_tags::EVO_PLAY,
+                status
+            );
+            cleanup_when_ffmpeg_leg_exits(st_a, gen_a, ap).await;
+        });
+    }
 
     Ok(())
 }
 
 pub async fn stop_session(state: &crate::api::AppState) {
-    let pid = {
+    let pids = {
         let mut g = state.video_session.inner.lock().await;
-        let pid = g.as_ref().map(|v| v.ffmpeg_pid);
-        if pid.is_none() && !state.video_playback_is_active() {
+        let pids = g.as_ref().map(|v| (v.hls_ffmpeg_pid, v.alsa_ffmpeg_pid));
+        if pids.is_none() && !state.video_playback_is_active() {
             return;
         }
         *g = None;
-        pid
+        pids
     };
-    if let Some(p) = pid {
-        let _ = pid_kill(p, libc::SIGKILL);
+    if let Some((hls, alsa)) = pids {
+        let _ = pid_kill(hls, libc::SIGKILL);
+        if let Some(a) = alsa {
+            let _ = pid_kill(a, libc::SIGKILL);
+        }
     }
     state.clear_video_playback_active();
     state.notify_push_state();
@@ -804,45 +919,58 @@ pub async fn transport_dispatch(
             stop_session(state).await;
         }
         "pause" => {
-            let pid = {
+            let (hls, alsa) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
                 };
                 inner.pause_timeline();
-                inner.ffmpeg_pid
+                (inner.hls_ffmpeg_pid, inner.alsa_ffmpeg_pid)
             };
-            let _ = pid_kill(pid, libc::SIGSTOP);
+            let _ = pid_kill(hls, libc::SIGSTOP);
+            if let Some(a) = alsa {
+                let _ = pid_kill(a, libc::SIGSTOP);
+            }
             state.notify_push_state();
         }
         "play" => {
-            let pid = {
+            let (hls, alsa) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
                 };
                 inner.resume_timeline();
-                inner.ffmpeg_pid
+                (inner.hls_ffmpeg_pid, inner.alsa_ffmpeg_pid)
             };
-            let _ = pid_kill(pid, libc::SIGCONT);
+            let _ = pid_kill(hls, libc::SIGCONT);
+            if let Some(a) = alsa {
+                let _ = pid_kill(a, libc::SIGCONT);
+            }
             state.notify_push_state();
         }
         "toggle" => {
-            let (pid, cont) = {
+            let (hls, alsa, cont) = {
                 let mut g = state.video_session.inner.lock().await;
                 let Some(inner) = g.as_mut() else {
                     return Ok(());
                 };
                 inner.toggle_timeline();
                 let cont = inner.paused;
-                (inner.ffmpeg_pid, cont)
+                (
+                    inner.hls_ffmpeg_pid,
+                    inner.alsa_ffmpeg_pid,
+                    cont,
+                )
             };
             let sig = if cont {
                 libc::SIGSTOP
             } else {
                 libc::SIGCONT
             };
-            let _ = pid_kill(pid, sig);
+            let _ = pid_kill(hls, sig);
+            if let Some(a) = alsa {
+                let _ = pid_kill(a, sig);
+            }
             state.notify_push_state();
         }
         "seek" => {
