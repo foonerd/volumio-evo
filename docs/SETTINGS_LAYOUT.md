@@ -20,7 +20,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 
 | Directory | Contents | Primary file |
 |-----------|----------|--------------|
-| `settings/alsa/` | ALSA output device selection, I2S enablement, DAC id | `state.toml` |
+| `settings/alsa/` | ALSA output device selection, I2S enablement, DAC id (`state.toml`). Saving via **`setOutputDevices`** / **`saveAlsaOptions`** may **broadcast Socket.IO `openModal`** (Restart) when **`dacs.json`** **`needsreboot`** and I2S DAC selection changed — [PORTING.md](PORTING.md) §3.1. |
 | `settings/mpd/` | MPD / Playback Options (buffer, DSD, mixer type, resampling, …) | `playback.toml` |
 | `settings/mounts/` | NAS/SMB/NFS share definitions + CIFS credential sidecars | `shares.toml` (mode `0600`), optional `cifs-<uuid>.cred` |
 | `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |

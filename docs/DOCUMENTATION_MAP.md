@@ -69,7 +69,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | **`GET /api/host`** | Implemented ([PORTING.md](PORTING.md)); nginx proxies from UI host |
 | Settings Sources: NAS mounts, share discovery | [PORTING.md](PORTING.md) §3.2 |
 | Wi‑Fi list + NM apply (`nmcli`) | [NETWORK_NM.md](NETWORK_NM.md), [PORTING.md](PORTING.md) Phase 3 |
-| **`callMethod`**: ALSA/MPD saves, **system_controller/system** saves, **`installBootBranding`** | `socketio.rs`; boot stack [BRANDED_BOOT.md](BRANDED_BOOT.md), [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
+| **`callMethod`**: ALSA/MPD saves (**`saveAlsaOptions`** may **`openModal`** reboot after I2S **`dtoverlay`**), **system_controller/system** saves, **`installBootBranding`** | `socketio.rs`; parity [PORTING.md](PORTING.md) §3.1 Playback/ALSA; boot stack [BRANDED_BOOT.md](BRANDED_BOOT.md), [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
 | Plymouth theme **`layer/plymouth/`**, **`vol-branding-v1-*`** units | [BRANDED_BOOT.md](BRANDED_BOOT.md) |
 | WASM plugin host | arm64/x86_64 ([PLUGIN_ABI.md](PLUGIN_ABI.md)); armhf core only |
 

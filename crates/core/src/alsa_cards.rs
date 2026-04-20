@@ -165,7 +165,11 @@ pub fn prepare_playback_cards(
         let name = catalog
             .pretty_label(&c.name)
             .unwrap_or_else(|| c.name.clone());
-        out.push(AplayCard { id: c.id, name });
+        out.push(AplayCard {
+            id: c.id,
+            alsacard: c.alsacard,
+            name,
+        });
     }
     out
 }
@@ -181,14 +185,17 @@ mod tests {
         let raw = vec![
             AplayCard {
                 id: "0".into(),
+                alsacard: "vc4hdmi0".into(),
                 name: "vc4-hdmi-0".into(),
             },
             AplayCard {
                 id: "1".into(),
+                alsacard: "vc4hdmi1".into(),
                 name: "vc4-hdmi-1".into(),
             },
             AplayCard {
                 id: "2".into(),
+                alsacard: "sndrpihifiberry".into(),
                 name: "snd_rpi_hifiberry_dacplushd".into(),
             },
         ];
@@ -213,15 +220,18 @@ mod tests {
         let raw = vec![
             AplayCard {
                 id: "0".into(),
-                name: "bcm2835_headpho".into(),
+                alsacard: "bcm2835_headpho".into(),
+                name: "bcm2835 Headphones".into(),
             },
             AplayCard {
                 id: "1".into(),
-                name: "sndrpihifiberry".into(),
+                alsacard: "sndrpihifiberry".into(),
+                name: "snd_rpi_hifiberry_dacplushd".into(),
             },
             AplayCard {
                 id: "2".into(),
-                name: "vc4hdmi0".into(),
+                alsacard: "vc4hdmi0".into(),
+                name: "vc4-hdmi-0".into(),
             },
         ];
         let settings = AlsaSettings {

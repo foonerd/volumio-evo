@@ -160,6 +160,31 @@ pub async fn broadcast_reload_ui(state: &AppState) {
     }
 }
 
+/// Stock **`openModal`** after I2S **`dtoverlay`** change when **`needsreboot`** (Node `alsa_controller.saveAlsaOptions`).
+/// User-facing behaviour: repository **`docs/PORTING.md`** §3.1 (Playback / ALSA).
+pub async fn broadcast_open_modal_i2s_reboot_prompt(state: &AppState, dac_label: &str) {
+    let payload = serde_json::json!({
+        "title": "I2S DAC activated",
+        "message": format!(
+            "{dac_label} — please restart your device for the changes to take effect."
+        ),
+        "size": "lg",
+        "buttons": [{
+            "name": "Restart",
+            "class": "btn btn-info",
+            "emit": "reboot",
+            "payload": ""
+        }]
+    });
+    let io = match state.socket_io_broadcast.lock() {
+        Ok(g) => g.as_ref().cloned(),
+        Err(_) => None,
+    };
+    if let Some(io) = io {
+        let _ = io.emit("openModal", &payload).await;
+    }
+}
+
 /// Raw 0–100 from MPD + ALSA (ignores [`VolumeUiMuteState`] — use before applying a new mute).
 pub async fn resolve_live_volume_percent(state: &AppState) -> u8 {
     let config = MpdConfig {

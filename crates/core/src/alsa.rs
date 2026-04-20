@@ -16,7 +16,8 @@
 //! `modular_alsa_pipeline_enabled`.
 //! I2S DAC list comes from `dacs.json` (see `crate::i2s`); boot `dtoverlay` uses `sudo` like Node.
 //! The active I2S output card index is **not** the catalogue `alsanum` (varies by board); it is
-//! resolved at runtime from `dacs.json` **`alsacard`** vs `aplay -l` short names.
+//! resolved at runtime from `dacs.json` **`alsacard`** vs the **`aplay -l` driver token** (text
+//! between `card N:` and `[`, same as Node `getAplayInfo`’s `alsacard` field — not the bracket text).
 //! Output device labels and I2S vs integrated filtering follow Node `alsa_controller/cards.json`
 //! (`crate::alsa_cards`).
 
@@ -38,6 +39,9 @@ use crate::i2s::DacEntry;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AplayCard {
     pub id: String,
+    /// Driver id from `aplay -l`: text after `card N:` up to `[` (Node `getAplayInfo` `alsacard`).
+    pub alsacard: String,
+    /// Text inside `[…]` on that line; used for `cards.json` lookup (`prettyname`).
     pub name: String,
 }
 
@@ -114,6 +118,14 @@ fn migrate_intermediate_alsa_flat_file_if_needed() {
     }
 }
 
+/// Result of [`AlsaSettings::apply_save_payload`]: stock UI may show an **`openModal`** reboot prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AlsaSaveApplied {
+    Done,
+    /// Mirror Node `saveAlsaOptions`: I2S overlay updated and catalogue **`needsreboot`** — broadcast **`openModal`** with **`emit: reboot`** (only when DAC selection changed; see Node `i2sstatus.name != data.i2sid.label`).
+    PromptReboot { dac_label: String },
+}
+
 impl AlsaSettings {
     pub fn load() -> Self {
         migrate_intermediate_alsa_flat_file_if_needed();
@@ -136,7 +148,10 @@ impl AlsaSettings {
     }
 
     /// Apply `saveAlsaOptions` / `setOutputDevices` JSON (`output_device` + optional `i2s` / `i2sid`).
-    pub fn apply_save_payload(&mut self, data: &serde_json::Value) -> anyhow::Result<()> {
+    pub fn apply_save_payload(&mut self, data: &serde_json::Value) -> anyhow::Result<AlsaSaveApplied> {
+        let prev_i2s_enabled = self.i2s_enabled;
+        let prev_i2s_dac_id = self.i2s_dac_id.clone();
+
         let i2s = data.get("i2s").and_then(|v| v.as_bool()).unwrap_or(false);
         let dacs = crate::i2s::load_dacs()?;
         let profile = crate::i2s::hardware_profile();
@@ -158,6 +173,9 @@ impl AlsaSettings {
                     entry.id
                 );
             }
+            let dac_selection_changed =
+                !prev_i2s_enabled || prev_i2s_dac_id.as_deref() != Some(dac_id);
+
             crate::i2s::enable_i2s_overlay(&entry.overlay)?;
             if entry.needs_reboot() {
                 tracing::info!(
@@ -173,7 +191,13 @@ impl AlsaSettings {
                 .unwrap_or_else(|| entry.alsanum.clone());
             self.output_device_label = entry.name.clone();
             self.save()?;
-            return Ok(());
+
+            if entry.needs_reboot() && dac_selection_changed {
+                return Ok(AlsaSaveApplied::PromptReboot {
+                    dac_label: entry.name.clone(),
+                });
+            }
+            return Ok(AlsaSaveApplied::Done);
         }
 
         if self.i2s_enabled {
@@ -199,7 +223,7 @@ impl AlsaSettings {
         self.output_device_id = id;
         self.output_device_label = label;
         self.save()?;
-        Ok(())
+        Ok(AlsaSaveApplied::Done)
     }
 
     /// When I2S is enabled, correct `output_device_id` if the saved catalogue `alsanum` does not match
@@ -237,7 +261,8 @@ impl AlsaSettings {
     }
 }
 
-/// Match DAC catalogue [`crate::i2s::DacEntry::alsacard`] against `aplay -l` short names (`AplayCard.name`).
+/// Match DAC catalogue [`crate::i2s::DacEntry::alsacard`] against [`AplayCard::alsacard`] (Node
+/// `getCardByAlsaCardNameAndDevice`), not the bracket pretty-name.
 ///
 /// `alsanum` in JSON is **not** portable (Pi4 vs Pi5 enumerate cards differently); always prefer this.
 pub fn match_dac_card(cards: &[AplayCard], entry: &DacEntry) -> Option<String> {
@@ -247,7 +272,7 @@ pub fn match_dac_card(cards: &[AplayCard], entry: &DacEntry) -> Option<String> {
     }
     cards
         .iter()
-        .find(|c| c.name.eq_ignore_ascii_case(want))
+        .find(|c| c.alsacard.eq_ignore_ascii_case(want))
         .map(|c| c.id.clone())
 }
 
@@ -325,28 +350,39 @@ fn parse_aplay_l(stdout: &str) -> Vec<AplayCard> {
             continue;
         }
         let head = line.split(',').next().unwrap_or("");
-        let Some(colon1) = head.find(':') else {
+        let Some(open_br) = head.find('[') else {
             continue;
         };
-        let card_prefix = head[..colon1].trim();
-        let num_str = card_prefix.strip_prefix("card").map(str::trim).unwrap_or("");
+        let Some(close_rel) = head[open_br + 1..].find(']') else {
+            continue;
+        };
+        let close_br = open_br + 1 + close_rel;
+        let name = head[open_br + 1..close_br].trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let prefix = head[..open_br].trim_end();
+        let Some((card_lhs, alsacard_raw)) = prefix.split_once(':') else {
+            continue;
+        };
+        let num_str = card_lhs.strip_prefix("card").map(str::trim).unwrap_or("");
         let Ok(num) = num_str.parse::<u32>() else {
             continue;
         };
+        let alsacard = alsacard_raw.trim().to_string();
+        if alsacard.is_empty() {
+            continue;
+        }
+
         if last_card == Some(num) {
             continue;
         }
         last_card = Some(num);
-        let name = if let (Some(a), Some(b)) = (head.find('['), head.rfind(']')) {
-            head[a + 1..b].trim().to_string()
-        } else {
-            continue;
-        };
-        if name.is_empty() {
-            continue;
-        }
+
         cards.push(AplayCard {
             id: num.to_string(),
+            alsacard,
             name,
         });
     }
@@ -1369,8 +1405,21 @@ card 1: Device [USB Audio], device 0: USB Audio [USB Audio]
         let c = parse_aplay_l(sample);
         assert_eq!(c.len(), 2);
         assert_eq!(c[0].id, "0");
+        assert_eq!(c[0].alsacard, "PCH");
         assert!(c[0].name.contains("HDA") || c[0].name.contains("Intel"));
         assert_eq!(c[1].id, "1");
+        assert_eq!(c[1].alsacard, "Device");
+    }
+
+    #[test]
+    fn parse_aplay_pi_hifiberry_alsacard_matches_dacs_json_not_bracket_text() {
+        let sample = r"card 1: sndrpihifiberry [HifiberryDacplu - snd_rpi_hifiberry_dacplushd], device 0: HifiBerry DAC+HD HiFi pcm512x-hifi-0 [HifiBerry DAC+HD HiFi pcm512x-hifi-0]
+";
+        let c = parse_aplay_l(sample);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].id, "1");
+        assert_eq!(c[0].alsacard, "sndrpihifiberry");
+        assert!(c[0].name.contains("HifiberryDacplu"));
     }
 
     #[test]
@@ -1378,11 +1427,13 @@ card 1: Device [USB Audio], device 0: USB Audio [USB Audio]
         let cards = vec![
             AplayCard {
                 id: "1".into(),
-                name: "sndrpihifiberry".into(),
+                alsacard: "sndrpihifiberry".into(),
+                name: "snd_rpi_hifiberry_dacplushd".into(),
             },
             AplayCard {
                 id: "2".into(),
-                name: "vc4hdmi0".into(),
+                alsacard: "vc4hdmi0".into(),
+                name: "vc4-hdmi-0".into(),
             },
         ];
         let entry: crate::i2s::DacEntry = serde_json::from_value(serde_json::json!({

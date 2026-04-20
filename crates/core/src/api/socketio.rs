@@ -1116,6 +1116,7 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
         tracing::info!("{} no ALSA playback cards; Playback Options shows a placeholder device", crate::log_tags::EVO_OUTPUT);
         cards.push(alsa::AplayCard {
             id: "nodev".to_string(),
+            alsacard: String::new(),
             name: "No playback device (is aplay installed?)".to_string(),
         });
     }
@@ -1649,6 +1650,7 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
             tracing::warn!("{} getOutputDevices aplay: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![alsa::AplayCard {
                 id: "nodev".into(),
+                alsacard: String::new(),
                 name: "No playback device".into(),
             }]
         }
@@ -1656,6 +1658,7 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
             tracing::warn!("{} getOutputDevices join: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![alsa::AplayCard {
                 id: "nodev".into(),
+                alsacard: String::new(),
                 name: "No playback device".into(),
             }]
         }
@@ -1736,12 +1739,31 @@ async fn set_experience_advanced_settings(_s: SocketRef, TryData(_data): TryData
 
 /// Persist output device (wizard `setOutputDevices`; same shape as `saveAlsaOptions` data).
 async fn set_output_devices(s: SocketRef, State(state): State<AppState>, Data(data): Data<serde_json::Value>) {
-    let mut guard = state.alsa.write().await;
-    match guard.apply_save_payload(&data) {
-        Ok(()) => tracing::info!("{} ALSA output saved: {:?}", crate::log_tags::EVO_ALSA, *guard),
+    let outcome = {
+        let mut guard = state.alsa.write().await;
+        guard.apply_save_payload(&data)
+    };
+    match &outcome {
+        Ok(crate::alsa::AlsaSaveApplied::Done) => {
+            tracing::info!(
+                "{} ALSA output saved: {:?}",
+                crate::log_tags::EVO_ALSA,
+                state.alsa.read().await
+            );
+        }
+        Ok(crate::alsa::AlsaSaveApplied::PromptReboot { dac_label }) => {
+            tracing::info!(
+                "{} ALSA output saved (reboot prompt): dac={} {:?}",
+                crate::log_tags::EVO_ALSA,
+                dac_label,
+                state.alsa.read().await
+            );
+        }
         Err(e) => tracing::warn!("{} setOutputDevices: {}", crate::log_tags::EVO_OUTPUT, e),
     }
-    drop(guard);
+    if let Ok(crate::alsa::AlsaSaveApplied::PromptReboot { dac_label }) = outcome {
+        super::broadcast_open_modal_i2s_reboot_prompt(&state, &dac_label).await;
+    }
     get_output_devices(s, State(state.clone())).await;
 }
 
@@ -3708,12 +3730,31 @@ async fn call_method(
     if payload.endpoint.as_deref() == Some("audio_interface/alsa_controller")
         && payload.method.as_deref() == Some("saveAlsaOptions")
     {
-        let mut guard = state.alsa.write().await;
-        match guard.apply_save_payload(&payload.data) {
-            Ok(()) => tracing::info!("{} ALSA saveAlsaOptions: {:?}", crate::log_tags::EVO_ALSA, *guard),
+        let outcome = {
+            let mut guard = state.alsa.write().await;
+            guard.apply_save_payload(&payload.data)
+        };
+        match &outcome {
+            Ok(crate::alsa::AlsaSaveApplied::Done) => {
+                tracing::info!(
+                    "{} ALSA saveAlsaOptions: {:?}",
+                    crate::log_tags::EVO_ALSA,
+                    state.alsa.read().await
+                );
+            }
+            Ok(crate::alsa::AlsaSaveApplied::PromptReboot { dac_label }) => {
+                tracing::info!(
+                    "{} ALSA saveAlsaOptions (reboot prompt): dac={} {:?}",
+                    crate::log_tags::EVO_ALSA,
+                    dac_label,
+                    state.alsa.read().await
+                );
+            }
             Err(e) => tracing::warn!("{} saveAlsaOptions: {}", crate::log_tags::EVO_ALSA, e),
         }
-        drop(guard);
+        if let Ok(crate::alsa::AlsaSaveApplied::PromptReboot { dac_label }) = outcome {
+            super::broadcast_open_modal_i2s_reboot_prompt(&state, &dac_label).await;
+        }
         let alsa = state.alsa.read().await.clone();
         {
             let mut pb = state.playback.write().await;
