@@ -15,6 +15,8 @@
 //! single-card). When the variable is **unset**, Evo defaults to **modular**; see
 //! `modular_alsa_pipeline_enabled`.
 //! I2S DAC list comes from `dacs.json` (see `crate::i2s`); boot `dtoverlay` uses `sudo` like Node.
+//! The active I2S output card index is **not** the catalogue `alsanum` (varies by board); it is
+//! resolved at runtime from `dacs.json` **`alsacard`** vs `aplay -l` short names.
 //! Output device labels and I2S vs integrated filtering follow Node `alsa_controller/cards.json`
 //! (`crate::alsa_cards`).
 
@@ -167,7 +169,8 @@ impl AlsaSettings {
             self.i2s_enabled = true;
             self.i2s_dac_id = Some(entry.id.clone());
             self.i2s_dac_label = entry.name.clone();
-            self.output_device_id = entry.alsanum.clone();
+            self.output_device_id = resolve_dac_card_number(entry)
+                .unwrap_or_else(|| entry.alsanum.clone());
             self.output_device_label = entry.name.clone();
             self.save()?;
             return Ok(());
@@ -198,6 +201,60 @@ impl AlsaSettings {
         self.save()?;
         Ok(())
     }
+
+    /// When I2S is enabled, correct `output_device_id` if the saved catalogue `alsanum` does not match
+    /// this machine (e.g. moved SD from Pi5 to Pi4). Match is by `dacs.json` **`alsacard`** vs `aplay -l`.
+    pub fn remap_i2s_output_device_from_alsacard(&mut self) -> bool {
+        if !self.i2s_enabled {
+            return false;
+        }
+        let Ok(dacs) = crate::i2s::load_dacs() else {
+            return false;
+        };
+        let profile = crate::i2s::hardware_profile();
+        let Some(ref dac_id) = self.i2s_dac_id else {
+            return false;
+        };
+        let Some(entry) = crate::i2s::find_dac(&dacs, &profile, dac_id) else {
+            return false;
+        };
+        let Some(resolved) = resolve_dac_card_number(entry) else {
+            return false;
+        };
+        if resolved == self.output_device_id {
+            return false;
+        }
+        tracing::info!(
+            old = %self.output_device_id,
+            new = %resolved,
+            dac = %entry.name,
+            "{} I2S output_device_id remapped using alsacard/aplay (catalogue alsanum is not portable across boards)",
+            crate::log_tags::EVO_ALSA
+        );
+        self.output_device_id = resolved;
+        let _ = self.save();
+        true
+    }
+}
+
+/// Match DAC catalogue [`crate::i2s::DacEntry::alsacard`] against `aplay -l` short names (`AplayCard.name`).
+///
+/// `alsanum` in JSON is **not** portable (Pi4 vs Pi5 enumerate cards differently); always prefer this.
+pub fn match_dac_card(cards: &[AplayCard], entry: &DacEntry) -> Option<String> {
+    let want = entry.alsacard.trim();
+    if want.is_empty() {
+        return None;
+    }
+    cards
+        .iter()
+        .find(|c| c.name.eq_ignore_ascii_case(want))
+        .map(|c| c.id.clone())
+}
+
+/// Resolve the current ALSA card index string for an I2S DAC (reads `aplay -l`).
+pub fn resolve_dac_card_number(entry: &DacEntry) -> Option<String> {
+    let cards = list_playback_cards().ok()?;
+    match_dac_card(&cards, entry)
 }
 
 /// Run `aplay -l` and parse playback devices (one entry per card; mirrors Node card list shape).
@@ -256,9 +313,11 @@ fn parse_aplay_l(stdout: &str) -> Vec<AplayCard> {
 }
 
 /// If the saved device is missing (USB unplugged), fall back to the first card.
-/// When I2S is enabled, ALSA card numbers may not match `aplay` until after reboot — skip remap.
+/// When I2S is enabled, remap `output_device_id` from catalogue `alsanum` to the live card index when
+/// **`alsacard`** matches `aplay -l` (see [`AlsaSettings::remap_i2s_output_device_from_alsacard`]).
 pub fn coerce_selection(cards: &[AplayCard], mut settings: AlsaSettings) -> AlsaSettings {
     if settings.i2s_enabled {
+        let _ = settings.remap_i2s_output_device_from_alsacard();
         return settings;
     }
     if cards.is_empty() {
@@ -1270,5 +1329,30 @@ card 1: Device [USB Audio], device 0: USB Audio [USB Audio]
         assert_eq!(c[0].id, "0");
         assert!(c[0].name.contains("HDA") || c[0].name.contains("Intel"));
         assert_eq!(c[1].id, "1");
+    }
+
+    #[test]
+    fn match_dac_prefers_alsacard_over_catalogue_alsanum() {
+        let cards = vec![
+            AplayCard {
+                id: "1".into(),
+                name: "sndrpihifiberry".into(),
+            },
+            AplayCard {
+                id: "2".into(),
+                name: "vc4hdmi0".into(),
+            },
+        ];
+        let entry: crate::i2s::DacEntry = serde_json::from_value(serde_json::json!({
+            "id": "hifiberry-dac2hd",
+            "name": "HiFiBerry DAC2 HD",
+            "overlay": "hifiberry-dacplushd",
+            "alsanum": "2",
+            "alsacard": "sndrpihifiberry",
+            "needsreboot": "yes",
+            "modules": ""
+        }))
+        .unwrap();
+        assert_eq!(match_dac_card(&cards, &entry).as_deref(), Some("1"));
     }
 }

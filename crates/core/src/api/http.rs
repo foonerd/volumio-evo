@@ -402,11 +402,13 @@ pub fn router(
     let network_mounts = Arc::new(crate::network_mounts::NetworkMounts::new());
     let alarm_clock = crate::alarm_clock::AlarmClockCoordinator::new(crate::paths::default_alarm_clock_state_path());
     let backgrounds = crate::backgrounds::BackgroundAppearance::load();
+    let mut alsa_settings = crate::alsa::AlsaSettings::load();
+    let i2s_card_remapped = alsa_settings.remap_i2s_output_device_from_alsacard();
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         network_mounts: network_mounts.clone(),
         system_settings: Arc::new(tokio::sync::RwLock::new(crate::system_settings::SystemSettings::load())),
-        alsa: Arc::new(tokio::sync::RwLock::new(crate::alsa::AlsaSettings::load())),
+        alsa: Arc::new(tokio::sync::RwLock::new(alsa_settings)),
         playback: Arc::new(tokio::sync::RwLock::new(crate::playback_options::PlaybackOptions::load())),
         albumart_clear_tx: tx,
         last_browse: Arc::new(tokio::sync::RwLock::new(None)),
@@ -422,6 +424,21 @@ pub fn router(
             state.ui.active_layout.clone(),
         )),
     });
+
+    if i2s_card_remapped {
+        let st = router_state.clone();
+        tokio::spawn(async move {
+            let alsa = st.alsa.read().await.clone();
+            let pb = st.playback.read().await.clone();
+            if let Err(e) = pb.write_fragment_and_restart_mpd(&alsa).await {
+                tracing::warn!(
+                    "{} startup: MPD fragment after I2S card remap: {}",
+                    crate::log_tags::EVO_ALSA,
+                    e
+                );
+            }
+        });
+    }
 
     let cfg_nas = state.clone();
     let nm_boot = network_mounts.clone();

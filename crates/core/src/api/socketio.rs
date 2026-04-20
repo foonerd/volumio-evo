@@ -1093,7 +1093,7 @@ async fn emit_playback_options_ui(s: &SocketRef, state: &AppState) {
 }
 
 async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
-    let settings = state.alsa.read().await.clone();
+    let settings_in = state.alsa.read().await.clone();
     let playback = state.playback.read().await.clone();
     let profile = i2s::hardware_profile();
     let dacs_file = i2s::load_dacs().ok();
@@ -1122,12 +1122,15 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
 
     let cards = alsa_cards::prepare_playback_cards(
         cards,
-        &settings,
+        &settings_in,
         &catalog,
         dacs_file.as_ref(),
         &profile,
     );
-    let settings = alsa::coerce_selection(&cards, settings);
+    let settings = alsa::coerce_selection(&cards, settings_in.clone());
+    if settings != settings_in {
+        *state.alsa.write().await = settings.clone();
+    }
 
     let card_for_mixers = settings.output_device_id.clone();
     let mixer_controls = match tokio::task::spawn_blocking(move || {
@@ -1631,7 +1634,7 @@ async fn get_extended_output_devices(s: SocketRef) {
 
 /// ALSA device list for wizard / Playback (Node: alsa_controller getAudioDevices -> pushOutputDevices).
 async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
-    let settings = state.alsa.read().await.clone();
+    let settings_in = state.alsa.read().await.clone();
     let profile = i2s::hardware_profile();
     let dacs_file = i2s::load_dacs().ok();
     let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
@@ -1659,12 +1662,15 @@ async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
     };
     let cards = alsa_cards::prepare_playback_cards(
         cards,
-        &settings,
+        &settings_in,
         &catalog,
         dacs_file.as_ref(),
         &profile,
     );
-    let settings = alsa::coerce_selection(&cards, settings);
+    let settings = alsa::coerce_selection(&cards, settings_in.clone());
+    if settings != settings_in {
+        *state.alsa.write().await = settings.clone();
+    }
     let payload = alsa::push_output_devices_json(&cards, &settings, &i2s_dacs);
     s.emit("pushOutputDevices", &payload).ok();
 }

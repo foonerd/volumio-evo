@@ -44,6 +44,10 @@ pub struct DacEntry {
     pub overlay: String,
     #[serde(default)]
     pub alsanum: String,
+    /// Short ALSA id from `aplay -l` / `/proc/asound/cards` brackets (e.g. `sndrpihifiberry`). Used to
+    /// resolve the real card index — `alsanum` is a legacy hint and varies between Pi models.
+    #[serde(default)]
+    pub alsacard: String,
     #[serde(default)]
     pub needsreboot: String,
     /// Stock `dacs.json` uses `""` or, in some device rows, a JSON array of module names.
