@@ -2084,6 +2084,7 @@ async fn browse_library(
                         ),
                         icon: Some("fa fa-list-ol".to_string()),
                         meta: None,
+                        number: None,
                     })
                     .collect();
                 let resp = BrowseResponse {
@@ -2181,6 +2182,7 @@ async fn browse_library(
                             albumart,
                             icon: None,
                             meta: None,
+                            number: None,
                         }
                     })
                     .collect();
@@ -2400,8 +2402,8 @@ struct ReplaceAndPlayCuePayload {
     #[serde(default)]
     uri: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    number: Option<u32>, // CUE track index; we don't support CUE sheets, treat as single uri
+    /// 0-based track index after MPD `load` on the cue file.
+    number: Option<u32>,
     #[serde(default)]
     #[allow(dead_code)]
     service: Option<String>,
@@ -2417,8 +2419,7 @@ async fn replace_and_play_cue(
         return;
     }
     let config = mpd_config(&state);
-    // Volumio: clear queue then add CUE entry; we have no CUE support -> clear + add uri (no play).
-    match mpd::clear_and_add_connected(&config, uri).await {
+    match mpd::replace_and_play_cue_connected(&config, uri, payload.number).await {
         Ok(()) => {
             state.notify_push_state();
             state.notify_push_queue();
@@ -2432,7 +2433,6 @@ struct AddPlayCuePayload {
     #[serde(default)]
     uri: String,
     #[serde(default)]
-    #[allow(dead_code)]
     number: Option<u32>,
     #[serde(default)]
     #[allow(dead_code)]
@@ -2449,8 +2449,7 @@ async fn add_play_cue(
         return;
     }
     let config = mpd_config(&state);
-    // Volumio: add CUE entry to queue; we have no CUE support -> add single uri to queue.
-    match mpd::add_to_queue_connected(&config, uri).await {
+    match mpd::add_play_cue_connected(&config, uri, payload.number).await {
         Ok(()) => {
             state.notify_push_state();
             state.notify_push_queue();
@@ -3211,6 +3210,7 @@ async fn delete_playlist(
                 ),
                 icon: Some("fa fa-list-ol".to_string()),
                 meta: None,
+                number: None,
             })
             .collect();
         let resp = BrowseResponse {
@@ -3381,6 +3381,7 @@ async fn remove_from_playlist(
                     albumart: e.albumart,
                     icon: e.icon,
                     meta: None,
+                    number: None,
                 }
             })
             .collect();
@@ -3421,6 +3422,7 @@ async fn remove_from_playlist(
                     albumart,
                     icon: None,
                     meta: None,
+                    number: None,
                 }
             })
             .collect();

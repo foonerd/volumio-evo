@@ -4,26 +4,26 @@ use crate::albumart;
 use crate::artist_normalize;
 use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use urlencoding::decode;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue, Rescan,
-        Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom, SetRepeat,
-        SetSingle, SetVolume, SingleMode, Song, SongPosition, Status, Stop, Update,
+        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue,
+        Rescan, Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom,
+        SetRepeat, SetSingle, SetVolume, SingleMode, Song, SongPosition, Status, Stop, Update,
     },
     protocol::command::Command as RawCommand,
     responses::PlayState,
     tag::Tag,
     Client,
 };
-use std::io;
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedSender;
+use urlencoding::decode;
 
 /// MPD connection config (host and port from main config).
 #[derive(Clone, Debug)]
@@ -96,6 +96,12 @@ fn volumio_uri_to_mpd_path(uri: &str) -> &str {
     uri.strip_prefix("music-library/").unwrap_or(uri)
 }
 
+fn is_volumio_cue_uri(uri: &str) -> bool {
+    volumio_uri_to_mpd_path(uri)
+        .to_ascii_lowercase()
+        .ends_with(".cue")
+}
+
 /// Add URI to queue (value is Volumio-style URI e.g. music-library/INTERNAL/path/file.mp3).
 pub async fn add_to_queue_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
@@ -159,7 +165,9 @@ pub async fn add_play_connected(config: &MpdConfig, uri: &str) -> Result<()> {
     let (client, _) = Client::connect(stream).await?;
     client.command(ClearQueue).await?;
     let path = volumio_uri_to_mpd_path(uri);
-    client.raw_command(RawCommand::new("add").argument(path)).await?;
+    client
+        .raw_command(RawCommand::new("add").argument(path))
+        .await?;
     client.command(Play::current()).await?;
     Ok(())
 }
@@ -170,20 +178,55 @@ pub async fn add_play_append_connected(config: &MpdConfig, uri: &str) -> Result<
     let (client, _) = Client::connect(stream).await?;
     let path = volumio_uri_to_mpd_path(uri);
     let n = client.command(Queue::all()).await?.len();
-    client.raw_command(RawCommand::new("add").argument(path)).await?;
+    client
+        .raw_command(RawCommand::new("add").argument(path))
+        .await?;
     client
         .command(Play::song(Song::Position(SongPosition(n))))
         .await?;
     Ok(())
 }
 
-/// Clear queue and add single URI (no play). For replaceAndPlayCue.
-pub async fn clear_and_add_connected(config: &MpdConfig, uri: &str) -> Result<()> {
+/// Clear queue, `load` CUE sheet, play optional track position (0-based). Matches legacy `clear` + `load` + `play`.
+pub async fn replace_and_play_cue_connected(
+    config: &MpdConfig,
+    uri: &str,
+    track_index: Option<u32>,
+) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
+    client.command(Stop).await?;
     client.command(ClearQueue).await?;
     let path = volumio_uri_to_mpd_path(uri);
-    client.raw_command(RawCommand::new("add").argument(path)).await?;
+    client
+        .raw_command(RawCommand::new("load").argument(path))
+        .await?;
+    let pos = track_index.unwrap_or(0) as usize;
+    client
+        .command(Play::song(Song::Position(SongPosition(pos))))
+        .await?;
+    Ok(())
+}
+
+/// Append CUE sheet to queue (`load`); if `track_index` is set, start playback at that new song (queue length before load + index).
+pub async fn add_play_cue_connected(
+    config: &MpdConfig,
+    uri: &str,
+    track_index: Option<u32>,
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (client, _) = Client::connect(stream).await?;
+    let qlen = client.command(Queue::all()).await?.len();
+    let path = volumio_uri_to_mpd_path(uri);
+    client
+        .raw_command(RawCommand::new("load").argument(path))
+        .await?;
+    if let Some(idx) = track_index {
+        let pos = qlen + idx as usize;
+        client
+            .command(Play::song(Song::Position(SongPosition(pos))))
+            .await?;
+    }
     Ok(())
 }
 
@@ -201,7 +244,9 @@ pub async fn play_items_list_connected(
     client.command(ClearQueue).await?;
     for uri in uris {
         let path = volumio_uri_to_mpd_path(uri);
-        client.raw_command(RawCommand::new("add").argument(path)).await?;
+        client
+            .raw_command(RawCommand::new("add").argument(path))
+            .await?;
     }
     client
         .command(Play::song(Song::Position(SongPosition(play_index))))
@@ -252,7 +297,11 @@ pub async fn play_next_tracks_connected(config: &MpdConfig, uris: &[String]) -> 
             continue;
         }
         client
-            .raw_command(RawCommand::new("add").argument(path).argument(pos.to_string()))
+            .raw_command(
+                RawCommand::new("add")
+                    .argument(path)
+                    .argument(pos.to_string()),
+            )
             .await?;
         pos += 1;
     }
@@ -280,6 +329,9 @@ pub struct BrowseItem {
     pub icon: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<String>,
+    /// CUE virtual track index for `cuesong` rows (legacy `tracks[j].number - 1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number: Option<u32>,
 }
 
 /// Response for GET /api/v1/browse. Matches Volumio navigation structure.
@@ -387,7 +439,10 @@ fn is_albums_artist_album_browse_uri(uri: &str) -> bool {
     // Two segments: `encode(artist)/encode(album)`. Reject `albums:///Album` (empty first segment).
     rest.contains('/')
         && !rest.starts_with('/')
-        && rest.splitn(2, '/').next().is_some_and(|first| !first.is_empty())
+        && rest
+            .splitn(2, '/')
+            .next()
+            .is_some_and(|first| !first.is_empty())
 }
 
 /// In-progress file entry while parsing lsinfo.
@@ -448,12 +503,7 @@ fn flush_file_item(
                 a.last_ext = ext;
             }
         }
-        let albumart = Some(volumio_albumart_url(
-            &f.uri,
-            &f.artist,
-            &f.album,
-            true,
-        ));
+        let albumart = Some(volumio_albumart_url(&f.uri, &f.artist, &f.album, true));
         items.push(BrowseItem {
             item_type: "song".to_string(),
             title: f.title,
@@ -465,14 +515,14 @@ fn flush_file_item(
             albumart,
             icon: None,
             meta: None,
+            number: None,
         });
     }
 }
 
 /// Matches Node `uri.indexOf('music-library/INTERNAL')` for `internal-folder` vs `folder`.
 fn browse_uri_is_under_internal(browse_uri: &str) -> bool {
-    browse_uri == "music-library/INTERNAL"
-        || browse_uri.starts_with("music-library/INTERNAL/")
+    browse_uri == "music-library/INTERNAL" || browse_uri.starts_with("music-library/INTERNAL/")
 }
 
 /// Node `lsInfo` directory row types: `remdisk`, `internal-folder`, or `folder`.
@@ -511,11 +561,7 @@ fn parse_lsinfo_frame(
                     &mut items,
                     if aggregate { Some(drill) } else { None },
                 );
-                let name = value
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(value)
-                    .to_string();
+                let name = value.rsplit('/').next().unwrap_or(value).to_string();
                 if name.starts_with('.') {
                     continue;
                 }
@@ -534,11 +580,7 @@ fn parse_lsinfo_frame(
                     (None, Some("fa fa-usb".to_string()))
                 } else {
                     (
-                        Some(browse_directory_albumart_url(
-                            &item_uri,
-                            value,
-                            browse_uri,
-                        )),
+                        Some(browse_directory_albumart_url(&item_uri, value, browse_uri)),
                         None,
                     )
                 };
@@ -553,7 +595,94 @@ fn parse_lsinfo_frame(
                     albumart,
                     icon,
                     meta: None,
+                    number: None,
                 });
+            }
+            "playlist" => {
+                flush_file_item(
+                    &mut current_file,
+                    &mut items,
+                    if aggregate { Some(drill) } else { None },
+                );
+                let path_mpd = value.to_string();
+                let name = path_mpd.rsplit('/').next().unwrap_or(&path_mpd).to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let item_uri = format!("music-library/{}", path_mpd);
+                if path_mpd.to_ascii_lowercase().ends_with(".cue") {
+                    let abs = music_root.join(&path_mpd);
+                    match crate::cue_normalize::read_and_parse_cue(&abs) {
+                        Ok(tracks) if !tracks.is_empty() => {
+                            items.push(BrowseItem {
+                                item_type: "cuefile".to_string(),
+                                title: name.clone(),
+                                uri: item_uri.clone(),
+                                service: "mpd".to_string(),
+                                artist: None,
+                                album: None,
+                                duration: None,
+                                albumart: Some(format!(
+                                    "/albumart?metadata=true&path={}",
+                                    urlencoding::encode(&item_uri)
+                                )),
+                                icon: Some("fa fa-list-ol".to_string()),
+                                meta: None,
+                                number: None,
+                            });
+                            for t in &tracks {
+                                let al = Some(name.clone());
+                                let albumart =
+                                    Some(volumio_albumart_url(&item_uri, &t.performer, &al, true));
+                                items.push(BrowseItem {
+                                    item_type: "cuesong".to_string(),
+                                    title: t
+                                        .title
+                                        .clone()
+                                        .unwrap_or_else(|| format!("Track {}", t.track_no)),
+                                    uri: item_uri.clone(),
+                                    service: "mpd".to_string(),
+                                    artist: t.performer.clone(),
+                                    album: Some(name.clone()),
+                                    duration: None,
+                                    albumart,
+                                    icon: Some("fa fa-music".to_string()),
+                                    meta: None,
+                                    number: Some(t.track_no.saturating_sub(1)),
+                                });
+                            }
+                        }
+                        _ => {
+                            items.push(BrowseItem {
+                                item_type: "song".to_string(),
+                                title: name,
+                                uri: item_uri,
+                                service: "mpd".to_string(),
+                                artist: None,
+                                album: None,
+                                duration: None,
+                                albumart: None,
+                                icon: Some("fa fa-list-ol".to_string()),
+                                meta: None,
+                                number: None,
+                            });
+                        }
+                    }
+                } else {
+                    items.push(BrowseItem {
+                        item_type: "song".to_string(),
+                        title: name,
+                        uri: item_uri,
+                        service: "mpd".to_string(),
+                        artist: None,
+                        album: None,
+                        duration: None,
+                        albumart: None,
+                        icon: Some("fa fa-list-ol".to_string()),
+                        meta: None,
+                        number: None,
+                    });
+                }
             }
             "file" => {
                 flush_file_item(
@@ -561,11 +690,7 @@ fn parse_lsinfo_frame(
                     &mut items,
                     if aggregate { Some(drill) } else { None },
                 );
-                let name = value
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(value)
-                    .to_string();
+                let name = value.rsplit('/').next().unwrap_or(value).to_string();
                 let item_uri = format!("music-library/{}", value);
                 current_file = Some(FileEntry {
                     uri: item_uri,
@@ -809,10 +934,12 @@ pub fn browse_item_from_playlist_entry(e: &crate::playlist_library::PlaylistEntr
             albumart: e.albumart.clone(),
             icon: e.icon.clone(),
             meta: None,
+            number: None,
         };
     }
 
-    if uri.starts_with("albums://") || uri.starts_with("artists://") || uri.starts_with("genres://") {
+    if uri.starts_with("albums://") || uri.starts_with("artists://") || uri.starts_with("genres://")
+    {
         return BrowseItem {
             item_type: "folder".to_string(),
             title: tag_uri_display_title(&uri),
@@ -824,6 +951,7 @@ pub fn browse_item_from_playlist_entry(e: &crate::playlist_library::PlaylistEntr
             albumart: e.albumart.clone(),
             icon: None,
             meta: None,
+            number: None,
         };
     }
 
@@ -843,6 +971,7 @@ pub fn browse_item_from_playlist_entry(e: &crate::playlist_library::PlaylistEntr
         albumart: e.albumart.clone(),
         icon: e.icon.clone(),
         meta: None,
+        number: None,
     }
 }
 
@@ -916,7 +1045,10 @@ pub async fn enrich_playlist_browse_items_from_mpd(
 }
 
 /// List content of a stored playlist (listplaylist "name"). Returns URIs (music-library/...).
-pub async fn list_playlist_content_connected(config: &MpdConfig, name: &str) -> Result<Vec<String>> {
+pub async fn list_playlist_content_connected(
+    config: &MpdConfig,
+    name: &str,
+) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
     let raw = RawCommand::new("listplaylist").argument(name);
@@ -1148,14 +1280,13 @@ pub fn music_library_root_response() -> BrowseResponse {
             albumart: Some(music_source_albumart(path_segment).to_string()),
             icon: None,
             meta: None,
+            number: None,
         })
         .collect();
     BrowseResponse {
         navigation: BrowseNavigation {
             info: None,
-            prev: BrowsePrev {
-                uri: String::new(),
-            },
+            prev: BrowsePrev { uri: String::new() },
             lists: vec![BrowseList {
                 available_list_views: vec!["list", "grid"],
                 items,
@@ -1187,10 +1318,7 @@ pub fn browse_favourites_response() -> BrowseResponse {
     let items: Vec<BrowseItem> = entries
         .into_iter()
         .map(|e| {
-            let title = e
-                .title
-                .clone()
-                .unwrap_or_else(|| e.uri.clone());
+            let title = e.title.clone().unwrap_or_else(|| e.uri.clone());
             let uri = crate::playlist_library::normalize_volumio_uri(&e.uri);
             BrowseItem {
                 item_type: "song".to_string(),
@@ -1203,6 +1331,7 @@ pub fn browse_favourites_response() -> BrowseResponse {
                 albumart: e.albumart,
                 icon: e.icon,
                 meta: None,
+                number: None,
             }
         })
         .collect();
@@ -1236,13 +1365,7 @@ async fn list_tag_values(config: &MpdConfig, tag: &str) -> Result<Vec<String>> {
     let frame = client.raw_command(raw).await?;
     let mut vals: Vec<String> = frame
         .fields()
-        .filter_map(|(k, v)| {
-            if k == tag {
-                Some(v.to_string())
-            } else {
-                None
-            }
-        })
+        .filter_map(|(k, v)| if k == tag { Some(v.to_string()) } else { None })
         .collect();
     vals.sort();
     vals.dedup();
@@ -1253,7 +1376,10 @@ async fn list_tag_values(config: &MpdConfig, tag: &str) -> Result<Vec<String>> {
 /// `list albumartist` for browse; we group so "b mars" / "B Mars" collapse when MPD lists both).
 fn artist_browse_normalize_key(s: &str) -> String {
     let t = s.trim();
-    t.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    t.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn is_heavy_uppercase(s: &str) -> bool {
@@ -1272,7 +1398,10 @@ fn pick_canonical_artist_title(candidates: &[String]) -> String {
     }
     let has_mixed = candidates.iter().any(|s| !is_heavy_uppercase(s));
     let pool: Vec<&String> = if has_mixed {
-        candidates.iter().filter(|s| !is_heavy_uppercase(s)).collect()
+        candidates
+            .iter()
+            .filter(|s| !is_heavy_uppercase(s))
+            .collect()
     } else {
         candidates.iter().collect()
     };
@@ -1348,7 +1477,13 @@ async fn list_albums_for_artist_tag(
     let frame = client.raw_command(raw).await?;
     let mut albums: Vec<String> = frame
         .fields()
-        .filter_map(|(k, v)| if k == "Album" { Some(v.to_string()) } else { None })
+        .filter_map(|(k, v)| {
+            if k == "Album" {
+                Some(v.to_string())
+            } else {
+                None
+            }
+        })
         .collect();
     albums.sort();
     albums.dedup();
@@ -1386,9 +1521,10 @@ fn parse_node_style_album_rows_from_frame(
         }
         let album_id = format!("{}{}", album_name, artist_name);
         if seen.insert(album_id) {
-            let rep = p.file_path.as_ref().map(|fp| {
-                format!("music-library/{}", fp.trim_start_matches('/'))
-            });
+            let rep = p
+                .file_path
+                .as_ref()
+                .map(|fp| format!("music-library/{}", fp.trim_start_matches('/')));
             rows.push((album_name, artist_name, rep));
         }
     };
@@ -1438,9 +1574,7 @@ async fn list_albums_via_search_album_empty(
 ) -> Result<Vec<(String, String, Option<String>)>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("search")
-        .argument("album")
-        .argument("");
+    let raw = RawCommand::new("search").argument("album").argument("");
     let frame = client.raw_command(raw).await?;
     Ok(parse_node_style_album_rows_from_frame(&frame))
 }
@@ -1521,6 +1655,7 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
             albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
             meta: None,
+            number: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1543,10 +1678,16 @@ async fn browse_all_artists_connected(config: &MpdConfig) -> Result<BrowseRespon
 /// **Order:** Node `search album ""` (with `path=` when possible) → MPD `list album group …` → last resort
 /// flat `list Album` (no per-album artist; synthetic Various Artists art only).
 async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseResponse> {
-    let mut pairs = list_albums_via_search_album_empty(config).await.unwrap_or_else(|e| {
-        tracing::warn!("{} albums browse: search album \"\" failed: {}", crate::log_tags::EVO_BROWSE, e);
-        Vec::new()
-    });
+    let mut pairs = list_albums_via_search_album_empty(config)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                "{} albums browse: search album \"\" failed: {}",
+                crate::log_tags::EVO_BROWSE,
+                e
+            );
+            Vec::new()
+        });
     if pairs.is_empty() {
         match list_album_artist_pairs_via_list_group(config).await {
             Ok(p) if !p.is_empty() => {
@@ -1592,6 +1733,7 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
                     )),
                     icon: None,
                     meta: None,
+                    number: None,
                 }
             })
             .collect()
@@ -1614,6 +1756,7 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
                 )),
                 icon: None,
                 meta: None,
+                number: None,
             })
             .collect()
     };
@@ -1639,9 +1782,7 @@ async fn browse_album_only_songs_connected(
 ) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find")
-        .argument("Album")
-        .argument(album);
+    let raw = RawCommand::new("find").argument("Album").argument(album);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
@@ -1674,6 +1815,7 @@ async fn browse_all_genres_connected(config: &MpdConfig) -> Result<BrowseRespons
             albumart: Some(browse_virtual_folder_albumart_url(None, None)),
             icon: None,
             meta: None,
+            number: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1728,6 +1870,7 @@ async fn browse_genre_connected(config: &MpdConfig, genre: &str) -> Result<Brows
             albumart: Some(browse_artist_list_albumart_url(uri_token.as_str())),
             icon: None,
             meta: None,
+            number: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1779,6 +1922,7 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
             )),
             icon: None,
             meta: Some(artist.to_string()),
+            number: None,
         })
         .collect();
     Ok(BrowseResponse {
@@ -1893,9 +2037,7 @@ async fn find_artist_all_tracks(
 ) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find")
-        .argument("Artist")
-        .argument(artist);
+    let raw = RawCommand::new("find").argument("Artist").argument(artist);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "artists://explode", music_root, &mut drill, false);
@@ -1910,7 +2052,8 @@ async fn find_artist_all_tracks(
             .argument(artist);
         let frame2 = client.raw_command(raw2).await?;
         let mut drill2 = AlbumDrillAgg::default();
-        let items2 = parse_lsinfo_frame(frame2, "artists://explode", music_root, &mut drill2, false);
+        let items2 =
+            parse_lsinfo_frame(frame2, "artists://explode", music_root, &mut drill2, false);
         uris = items2
             .into_iter()
             .filter(|i| i.item_type == "song")
@@ -1928,9 +2071,7 @@ async fn find_genre_all_tracks(
 ) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find")
-        .argument("Genre")
-        .argument(genre);
+    let raw = RawCommand::new("find").argument("Genre").argument(genre);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "genres://explode", music_root, &mut drill, false);
@@ -2011,7 +2152,12 @@ pub async fn replace_and_play_resolved(
         return Ok(());
     }
     if paths.len() == 1 {
-        add_play_connected(config, &paths[0]).await
+        let p = &paths[0];
+        if is_volumio_cue_uri(p) {
+            replace_and_play_cue_connected(config, p, None).await
+        } else {
+            add_play_connected(config, p).await
+        }
     } else {
         play_items_list_connected(config, &paths, 0).await
     }
@@ -2027,33 +2173,35 @@ pub async fn add_play_append_resolved(
         return Ok(());
     }
     if paths.len() == 1 {
-        add_play_append_connected(config, &paths[0]).await
+        let p = &paths[0];
+        if is_volumio_cue_uri(p) {
+            add_play_cue_connected(config, p, Some(0)).await
+        } else {
+            add_play_append_connected(config, p).await
+        }
     } else {
         add_play_append_many_connected(config, &paths).await
     }
 }
 
-pub async fn add_to_queue_resolved(
-    config: &MpdConfig,
-    music_root: &Path,
-    uri: &str,
-) -> Result<()> {
+pub async fn add_to_queue_resolved(config: &MpdConfig, music_root: &Path, uri: &str) -> Result<()> {
     let paths = resolve_uri_for_queue(config, music_root, uri).await?;
     if paths.is_empty() {
         return Ok(());
     }
     if paths.len() == 1 {
-        add_to_queue_connected(config, &paths[0]).await
+        let p = &paths[0];
+        if is_volumio_cue_uri(p) {
+            add_play_cue_connected(config, p, None).await
+        } else {
+            add_to_queue_connected(config, p).await
+        }
     } else {
         add_multiple_to_queue_connected(config, &paths).await
     }
 }
 
-pub async fn play_next_resolved(
-    config: &MpdConfig,
-    music_root: &Path,
-    uri: &str,
-) -> Result<()> {
+pub async fn play_next_resolved(config: &MpdConfig, music_root: &Path, uri: &str) -> Result<()> {
     let paths = resolve_uri_for_queue(config, music_root, uri).await?;
     if paths.is_empty() {
         return Ok(());
@@ -2296,11 +2444,7 @@ fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
         return Some(format!("{}/{}/extralarge", segs[1], segs[2]));
     }
     if n >= 4 && ROOTS.contains(&segs[0]) {
-        return Some(format!(
-            "{}/{}/extralarge",
-            segs[n - 2],
-            segs[n - 1]
-        ));
+        return Some(format!("{}/{}/extralarge", segs[n - 2], segs[n - 1]));
     }
     let leaf = segs[n - 1];
     if leaf.is_empty() {
@@ -2313,7 +2457,10 @@ fn web_inner_for_mpd_directory(mpd_path: &str) -> Option<String> {
 }
 
 /// Fallback icon for directory rows: storage roots under `music-library` match Node (`microchip` / `server` / `usb`).
-fn browse_directory_fallback_icon(browse_listing_uri: &str, mpd_directory_path: &str) -> &'static str {
+fn browse_directory_fallback_icon(
+    browse_listing_uri: &str,
+    mpd_directory_path: &str,
+) -> &'static str {
     if browse_listing_uri == "music-library" {
         return match mpd_directory_path {
             "INTERNAL" => "microchip",
@@ -2359,8 +2506,12 @@ fn browse_virtual_albumart_url_with_icon(
     album: Option<&str>,
     icon: &str,
 ) -> String {
-    let mut a = artist.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let mut b = album.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mut a = artist
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let mut b = album
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     if a.is_none() && b.is_some() {
         if let Some(ref b_s) = b {
             if let Some((ar, al)) = artist_album_from_leaf_name(b_s) {
@@ -2473,13 +2624,9 @@ pub async fn get_state(
 ) -> Result<VolumioState> {
     let status = client.command(Status).await?;
 
-    let seek_ms = status
-        .elapsed
-        .map(|d| d.as_millis() as u64);
+    let seek_ms = status.elapsed.map(|d| d.as_millis() as u64);
     let duration_secs = status.duration.map(|d| d.as_secs());
-    let position = status
-        .current_song
-        .map(|(pos, _)| pos.0 as u32);
+    let position = status.current_song.map(|(pos, _)| pos.0 as u32);
 
     let raw_status = client.raw_command(RawCommand::new("status")).await.ok();
     let audio_line = raw_status
@@ -2491,13 +2638,11 @@ pub async fn get_state(
         .unwrap_or((None, None));
     // MPD wire format uses `updating_db`; mpd_client maps it to `update_job` — accept both + raw frame.
     let updating_db = status.update_job.is_some()
-        || raw_status.as_ref().is_some_and(|f| {
-            f.find("updating_db").is_some() || f.find("update_job").is_some()
-        });
+        || raw_status
+            .as_ref()
+            .is_some_and(|f| f.find("updating_db").is_some() || f.find("update_job").is_some());
 
-    let bitrate = status
-        .bitrate
-        .map(|b| format!("{} Kbps", b));
+    let bitrate = status.bitrate.map(|b| format!("{} Kbps", b));
 
     let (title, artist, album, uri, track_type, albumart) = if position.is_some() {
         match client.command(CurrentSong).await? {
@@ -2509,11 +2654,7 @@ pub async fn get_state(
                 let volumio_uri = volumio_uri_from_mpd_url(&s.url, music_root);
                 let uri = Some(volumio_uri.clone());
                 let track_type = codec_track_type_from_song_url(&s.url);
-                let albumart = Some(push_state_albumart_url(
-                    &volumio_uri,
-                    &artist,
-                    &album,
-                ));
+                let albumart = Some(push_state_albumart_url(&volumio_uri, &artist, &album));
                 (title, artist, album, uri, track_type, albumart)
             }
             None => (None, None, None, None, None, None),
@@ -2530,10 +2671,7 @@ pub async fn get_state(
 
     let volume = master_volume_from_alsa.or(Some(status.volume));
 
-    let repeat_single = matches!(
-        status.single,
-        SingleMode::Enabled | SingleMode::Oneshot
-    );
+    let repeat_single = matches!(status.single, SingleMode::Enabled | SingleMode::Oneshot);
 
     Ok(VolumioState {
         status: status_str,
@@ -2583,14 +2721,20 @@ pub struct QueueItem {
 
 fn track_type_from_uri(url: &str) -> String {
     let path = url.rsplit('/').next().unwrap_or("");
-    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    let ext = path
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
     match ext.as_str() {
         "mp3" | "flac" | "ogg" | "opus" | "wav" | "m4a" | "aac" | "wma" | "dsf" | "dff" => ext,
         _ => String::new(),
     }
 }
 
-pub async fn get_queue(client: &mut Client, music_root: &std::path::Path) -> Result<Vec<QueueItem>> {
+pub async fn get_queue(
+    client: &mut Client,
+    music_root: &std::path::Path,
+) -> Result<Vec<QueueItem>> {
     let list = client.command(Queue::all()).await?;
     let items = list
         .into_iter()
@@ -2725,7 +2869,10 @@ pub async fn idle_push_state_wake_loop(config: MpdConfig, wake: UnboundedSender<
     }
 }
 
-async fn idle_player_playlist_session(config: &MpdConfig, wake: &UnboundedSender<()>) -> Result<()> {
+async fn idle_player_playlist_session(
+    config: &MpdConfig,
+    wake: &UnboundedSender<()>,
+) -> Result<()> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (read_half, mut write_half) = tokio::io::split(stream);
     let mut reader = BufReader::new(read_half);

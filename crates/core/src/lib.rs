@@ -17,6 +17,7 @@ pub mod i2s;
 pub mod api;
 pub mod artist_normalize;
 pub mod config;
+pub mod cue_normalize;
 pub mod metavolumio;
 pub mod mpd;
 pub mod samba_settings;

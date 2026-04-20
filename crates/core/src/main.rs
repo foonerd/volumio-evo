@@ -23,6 +23,7 @@ mod i2s;
 mod api;
 mod artist_normalize;
 mod config;
+mod cue_normalize;
 mod metavolumio;
 mod mpd;
 mod samba_settings;
