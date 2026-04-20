@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "A vezeték nélküli kapcsolat sikeresen újraindult",
     "WIRELESS_RESTART_TITLE": "Vezeték nélküli kapcsolat újraindítása",
     "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Ön most le lessz választva a vezeték nélküli hálózatról. Kérjük, csatlakozzon újra a vezeték nélküli hálózathoz, és a kapcsolat létrejötte után fedezze fel újra készülékét",
-    "WIRELESS_NETWORK_CONNECTING_TO": "Csatlakozás a vezeték nélküli hállózathoz"
+    "WIRELESS_NETWORK_CONNECTING_TO": "Csatlakozás a vezeték nélküli hállózathoz",
+    "SMB_SERVER_SETTINGS": "SMB fájlmegosztás",
+    "SMB_SERVER_SETTINGS_DOC": "Osszon meg zenét és egyéb engedélyezett mappákat a helyi hálózaton. Felhasználói fiókok és további megosztási útvonalak később, a Volumio2-UI magbővítményben lesznek elérhetők.",
+    "SMB_ENABLE": "SMB-kiszolgáló engedélyezése",
+    "SMB_ENABLE_DOC": "Ha be van kapcsolva, az eszköz futtatja a Samba fájlkiszolgálót (ha a rendszer csomag telepítve van).",
+    "SMB_MIN_PROTOCOL": "Minimális SMB protokoll",
+    "SMB_MIN_PROTOCOL_DOC": "Növeli a kiszolgáló által kínált minimális protokollverziót; elkerüli a nagyon régi (nem biztonságos) klienseket. A klienseknek SMB2 vagy újabb lehet szükséges.",
+    "SMB_PROTOCOL_DEFAULT": "Alapértelmezés (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 vagy újabb",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 vagy újabb",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB felhasználók és további megosztások",
+    "SMB_USERS_AND_SHARES_PENDING": "A lista kezelése (hozzáadás, mentés, eltávolítás) itt jelenik meg, ha a Volumio2-UI opcionális smb mag szekciója telepítve van; lásd docs/SAMBA.md."
   },
   "SLEEP": {
     "POWER_OFF": "Kikapcsolás",

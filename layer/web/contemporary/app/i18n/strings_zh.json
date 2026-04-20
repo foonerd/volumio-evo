@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "成功重启无线网络",
     "WIRELESS_RESTART_TITLE": "重新启用无线网络",
     "WIRELESS_NETWORK_CONNECTING_TO": "连接到无线网络",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "你现在将被断开连接。请重新连接到您的无线网络，并再次发现您的设备，一旦连接建立起来。"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "你现在将被断开连接。请重新连接到您的无线网络，并再次发现您的设备，一旦连接建立起来。",
+    "SMB_SERVER_SETTINGS": "SMB 文件共享",
+    "SMB_SERVER_SETTINGS_DOC": "在局域网中共享音乐及其他允许的文件夹。用户账户与额外共享路径将在后续通过 Volumio2-UI 核心插件加入。",
+    "SMB_ENABLE": "启用 SMB 服务器",
+    "SMB_ENABLE_DOC": "开启后，设备运行 Samba 文件服务器（需已安装系统软件包）。",
+    "SMB_MIN_PROTOCOL": "最低 SMB 协议",
+    "SMB_MIN_PROTOCOL_DOC": "提高服务器提供的最低协议版本，避免极旧的（不安全）客户端。客户端可能需要 SMB2 或更高版本。",
+    "SMB_PROTOCOL_DEFAULT": "默认（Samba / 操作系统）",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 或更高",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 或更高",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB 用户与额外共享",
+    "SMB_USERS_AND_SHARES_PENDING": "列表管理（添加、保存、移除）将在安装可选的 Volumio2-UI smb 核心区块后显示于此；参见 docs/SAMBA.md。"
   },
   "WIZARD": {
     "LANGUAGE": "语言",

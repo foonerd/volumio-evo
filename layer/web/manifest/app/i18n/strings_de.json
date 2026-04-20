@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Drahtloses Netzwerk erfolgreich neu gestartet",
     "WIRELESS_RESTART_TITLE": "Drahtloses Netzwerk wird neu gestartet",
     "WIRELESS_NETWORK_CONNECTING_TO": "Verbinde mit drahtlosem Netzwerk",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Deine Verbindung wird nun getrennt. Bitte verbinde dich wieder mit deinem regulären drahtlosem Netzwerk, um im Anschluss dein Gerät dort vorzufinden"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Deine Verbindung wird nun getrennt. Bitte verbinde dich wieder mit deinem regulären drahtlosem Netzwerk, um im Anschluss dein Gerät dort vorzufinden",
+    "SMB_SERVER_SETTINGS": "SMB-Dateifreigabe",
+    "SMB_SERVER_SETTINGS_DOC": "Musik und andere erlaubte Ordner im lokalen Netzwerk freigeben. Benutzerkonten und zusätzliche Freigabepfade werden in einem späteren Schritt über das Volumio2-UI-Kern-Plugin ergänzt, sobald verfügbar.",
+    "SMB_ENABLE": "SMB-Server aktivieren",
+    "SMB_ENABLE_DOC": "Wenn aktiv, läuft der Samba-Dateiserver auf dem Gerät (sofern das OS-Paket installiert ist).",
+    "SMB_MIN_PROTOCOL": "Mindest-SMB-Protokoll",
+    "SMB_MIN_PROTOCOL_DOC": "Erhöht die minimale angebotene Protokollversion; vermeidet sehr alte (unsichere) Clients. Clients müssen ggf. SMB2 oder neuer unterstützen.",
+    "SMB_PROTOCOL_DEFAULT": "Standard (Samba / Betriebssystem)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 oder höher",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 oder höher",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-Benutzer und zusätzliche Freigaben",
+    "SMB_USERS_AND_SHARES_PENDING": "Listenverwaltung (hinzufügen, speichern, entfernen) erscheint hier, wenn der optionale Volumio2-UI-SMB-Kernbereich installiert ist; siehe docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Sprache",

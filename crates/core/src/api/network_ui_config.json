@@ -167,6 +167,40 @@
       ]
     },
     {"coreSection":"wifi"},
+    {
+      "id": "section_smb_server",
+      "element": "section",
+      "label": "TRANSLATE.NETWORK.SMB_SERVER_SETTINGS",
+      "icon": "fa-folder-open",
+      "doc": "TRANSLATE.NETWORK.SMB_SERVER_SETTINGS_DOC",
+      "onSave": {"type":"controller", "endpoint":"system_controller/network", "method":"saveSambaSettings"},
+      "saveButton": {
+        "label": "TRANSLATE.COMMON.SAVE",
+        "data": ["smb_enabled", "smb_min_protocol"]
+      },
+      "content": [
+        {
+          "id": "smb_enabled",
+          "element": "switch",
+          "doc": "TRANSLATE.NETWORK.SMB_ENABLE_DOC",
+          "label": "TRANSLATE.NETWORK.SMB_ENABLE",
+          "value": false
+        },
+        {
+          "id": "smb_min_protocol",
+          "element": "select",
+          "doc": "TRANSLATE.NETWORK.SMB_MIN_PROTOCOL_DOC",
+          "label": "TRANSLATE.NETWORK.SMB_MIN_PROTOCOL",
+          "value": {"value": "default", "label": "TRANSLATE.NETWORK.SMB_PROTOCOL_DEFAULT"},
+          "options": [
+            {"value": "default", "label": "TRANSLATE.NETWORK.SMB_PROTOCOL_DEFAULT"},
+            {"value": "SMB2_02", "label": "TRANSLATE.NETWORK.SMB_PROTOCOL_SMB2"},
+            {"value": "SMB3_02", "label": "TRANSLATE.NETWORK.SMB_PROTOCOL_SMB3"}
+          ]
+        }
+      ]
+    },
+    {"coreSection":"smb"},
 	{
 	  "id": "section_hotspot",
 	  "element": "section",

@@ -461,7 +461,18 @@
     "WIRELESS_RESTART_SUCCESS": "Draadloos netwerk succesvol herstart",
     "WIRELESS_RESTART_TITLE": "Draadloos netwerk herstarten",
     "WIRELESS_NETWORK_CONNECTING_TO": "Verbinden met draadloos netwerk",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Uw verbinding wordt nu verbroken. Maak opnieuw verbinding met uw gewone draadloze netwerk om uw apparaat daar te vinden, zodra er verbinding is gemaakt"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Uw verbinding wordt nu verbroken. Maak opnieuw verbinding met uw gewone draadloze netwerk om uw apparaat daar te vinden, zodra er verbinding is gemaakt",
+    "SMB_SERVER_SETTINGS": "SMB-bestandsdeling",
+    "SMB_SERVER_SETTINGS_DOC": "Deel muziek en andere toegestane mappen op het lokale netwerk. Gebruikersaccounts en extra share-paden worden later toegevoegd via de Volumio2-UI core-plugin wanneer beschikbaar.",
+    "SMB_ENABLE": "SMB-server inschakelen",
+    "SMB_ENABLE_DOC": "Indien aan draait het apparaat de Samba-bestandsserver (als het OS-pakket is geïnstalleerd).",
+    "SMB_MIN_PROTOCOL": "Minimum SMB-protocol",
+    "SMB_MIN_PROTOCOL_DOC": "Verhoogt de minimale protocolversie die de server aanbiedt; voorkomt zeer oude (onveilige) clients. Clients hebben mogelijk SMB2 of nieuwer nodig.",
+    "SMB_PROTOCOL_DEFAULT": "Standaard (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 of hoger",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 of hoger",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-gebruikers en extra shares",
+    "SMB_USERS_AND_SHARES_PENDING": "Lijstbeheer (toevoegen, opslaan, verwijderen) verschijnt hier wanneer de optionele Volumio2-UI smb-coresectie is geïnstalleerd; zie docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Taal",

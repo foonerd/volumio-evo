@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Mạng không dây khởi động lại thành công",
     "WIRELESS_RESTART_TITLE": "Khởi động lại mạng không dây",
     "WIRELESS_NETWORK_CONNECTING_TO": "Kết nối với mạng không dây",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Bạn sẽ bị ngắt kết nối. Vui lòng kết nối lại với Mạng không dây của bạn và phát hiện lại thiết bị của bạn sau khi kết nối đã được thiết lập."
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Bạn sẽ bị ngắt kết nối. Vui lòng kết nối lại với Mạng không dây của bạn và phát hiện lại thiết bị của bạn sau khi kết nối đã được thiết lập.",
+    "SMB_SERVER_SETTINGS": "Chia sẻ tệp SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Chia sẻ nhạc và các thư mục được phép trên mạng nội bộ. Tài khoản người dùng và đường dẫn chia sẻ bổ sung sẽ được thêm sau trong plugin lõi Volumio2-UI khi có.",
+    "SMB_ENABLE": "Bật máy chủ SMB",
+    "SMB_ENABLE_DOC": "Khi bật, thiết bị chạy máy chủ tệp Samba (nếu gói hệ điều hành đã cài).",
+    "SMB_MIN_PROTOCOL": "Giao thức SMB tối thiểu",
+    "SMB_MIN_PROTOCOL_DOC": "Nâng phiên bản giao thức tối thiểu mà máy chủ cung cấp; tránh máy khách rất cũ (không an toàn). Máy khách có thể cần SMB2 trở lên.",
+    "SMB_PROTOCOL_DEFAULT": "Mặc định (Samba / HĐH)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 trở lên",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 trở lên",
+    "SMB_USERS_AND_SHARES_TITLE": "Người dùng SMB và chia sẻ bổ sung",
+    "SMB_USERS_AND_SHARES_PENDING": "Quản lý danh sách (thêm, lưu, xóa) sẽ hiển thị khi phần smb lõi Volumio2-UI tùy chọn được cài; xem docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Ngôn ngữ",

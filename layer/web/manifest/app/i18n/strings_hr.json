@@ -353,7 +353,18 @@
     "WIRELESS_NETWORK_CONNECTION_SUCCESSFUL_PROCEED": "Prijeđite na sljedeći korak",
     "WIRELESS_RESTART_ERROR": "Pogreška prilikom ponovnog pokretanja bežične mreže: ",
     "WIRELESS_RESTART_SUCCESS": "Bežična mreža je ponovno aktivna",
-    "WIRELESS_RESTART_TITLE": "Ponovno pokretanje bežične mreže"
+    "WIRELESS_RESTART_TITLE": "Ponovno pokretanje bežične mreže",
+    "SMB_SERVER_SETTINGS": "SMB dijeljenje datoteka",
+    "SMB_SERVER_SETTINGS_DOC": "Dijelite glazbu i druge dopuštene mape na lokalnoj mreži. Korisnički računi i dodatne putanje dijeljenja bit će dodani u kasnijem koraku putem Volumio2-UI jezgre plugina kad bude dostupan.",
+    "SMB_ENABLE": "Omogući SMB poslužitelj",
+    "SMB_ENABLE_DOC": "Kad je uključeno, uređaj pokreće Samba poslužitelj datoteka (ako je OS paket instaliran).",
+    "SMB_MIN_PROTOCOL": "Minimalni SMB protokol",
+    "SMB_MIN_PROTOCOL_DOC": "Podiže minimalnu verziju dijalekta koju poslužitelj nudi; izbjegava vrlo stare (nesigurne) klijente. Klijenti možda moraju podržati SMB2 ili noviji.",
+    "SMB_PROTOCOL_DEFAULT": "Zadano (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 ili noviji",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 ili noviji",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB korisnici i dodatna dijeljenja",
+    "SMB_USERS_AND_SHARES_PENDING": "Upravljanje popisom (dodaj, spremi, ukloni) pojavit će se ovdje kad je instalirana opcionalna smb sekcija jezgre Volumio2-UI; vidi docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Jezik",

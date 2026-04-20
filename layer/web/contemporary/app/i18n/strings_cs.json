@@ -410,7 +410,18 @@
     "WIRELESS_RESTART_SUCCESS": "Bezdrátová síť úspěšně restartována",
     "WIRELESS_RESTART_TITLE": "Bezdrátový restart",
     "WIRELESS_NETWORK_CONNECTING_TO": "Připojení k bezdrátové síti",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Nyní budete odpojeni. Po navázání spojení se prosím připojte zpět k bezdrátové síti a znovu objevte své zařízení."
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Nyní budete odpojeni. Po navázání spojení se prosím připojte zpět k bezdrátové síti a znovu objevte své zařízení.",
+    "SMB_SERVER_SETTINGS": "SMB sdílení souborů",
+    "SMB_SERVER_SETTINGS_DOC": "Sdílejte hudbu a další povolené složky v místní síti. Uživatelské účty a další sdílené cesty přibudou v další verzi rozhraní Volumio2-UI.",
+    "SMB_ENABLE": "Povolit SMB server",
+    "SMB_ENABLE_DOC": "Je-li zapnuto, zařízení spouští Samba souborový server (je-li v systému nainstalován balík).",
+    "SMB_MIN_PROTOCOL": "Minimální protokol SMB",
+    "SMB_MIN_PROTOCOL_DOC": "Zvyšuje minimální nabízenou verzi protokolu; omezí velmi staré (nezabezpečené) klienty. Klienti mohou vyžadovat SMB2 nebo novější.",
+    "SMB_PROTOCOL_DEFAULT": "Výchozí (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 nebo vyšší",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 nebo vyšší",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB uživatelé a další sdílení",
+    "SMB_USERS_AND_SHARES_PENDING": "Správa seznamu (přidat, uložit, odebrat) se zobrazí po instalaci volitelné sekce smb jádra Volumio2-UI; viz docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Jazyk",

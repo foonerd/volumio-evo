@@ -1,0 +1,83 @@
+<div ng-controller="SmbPluginController as smb" class="smb-plugin-core">
+  <div class="panel panel-default">
+    <div class="panel-heading">
+      <h3 class="panel-title">
+        <i class="fa fa-folder-open"></i>
+        <span translate="NETWORK.SMB_EXTRA_SHARES_TITLE"></span>
+      </h3>
+    </div>
+    <div class="panel-body">
+      <p class="text-muted" translate="NETWORK.SMB_EXTRA_SHARES_DOC"></p>
+      <button type="button" class="btn btn-info" ng-click="smb.addShareRow()">
+        <i class="fa fa-plus"></i>
+        <span translate="NETWORK.SMB_ADD_EXTRA_SHARE"></span>
+      </button>
+      <div class="clearfix"></div>
+      <br />
+      <table class="table tableSmall" ng-if="smb.extraShares.length">
+        <tr>
+          <th translate="NETWORK.SMB_SHARE_DISPLAY_NAME"></th>
+          <th translate="NETWORK.SMB_SHARE_PATH_ABSOLUTE"></th>
+          <th></th>
+        </tr>
+        <tr ng-repeat="row in smb.extraShares track by $index">
+          <td>
+            <input type="text" class="form-control" ng-model="row.name" />
+          </td>
+          <td>
+            <input type="text" class="form-control" ng-model="row.path" placeholder="/var/lib/volumio-evo/..." />
+          </td>
+          <td class="commandCol">
+            <button type="button" class="btn btn-danger" ng-click="smb.removeShareRow($index)" title="{{ 'COMMON.DELETE' | translate }}">
+              <i class="fa fa-trash-o"></i>
+            </button>
+          </td>
+        </tr>
+      </table>
+      <button type="button" class="btn btn-primary" ng-click="smb.saveShares()">
+        <span translate="NETWORK.SMB_SAVE_EXTRA_SHARES"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="panel panel-default">
+    <div class="panel-heading">
+      <h3 class="panel-title">
+        <i class="fa fa-users"></i>
+        <span translate="NETWORK.SMB_NAMED_USERS_TITLE"></span>
+      </h3>
+    </div>
+    <div class="panel-body">
+      <p class="text-muted" translate="NETWORK.SMB_NAMED_USERS_DOC"></p>
+      <button type="button" class="btn btn-info" ng-click="smb.addUserRow()">
+        <i class="fa fa-plus"></i>
+        <span translate="NETWORK.SMB_ADD_USER"></span>
+      </button>
+      <div class="clearfix"></div>
+      <br />
+      <table class="table tableSmall" ng-if="smb.smbUsers.length">
+        <tr>
+          <th translate="NETWORK.SMB_USERNAME"></th>
+          <th translate="NETWORK.SMB_PASSWORD_OPTIONAL"></th>
+          <th></th>
+        </tr>
+        <tr ng-repeat="row in smb.smbUsers track by $index">
+          <td>
+            <input type="text" class="form-control" ng-model="row.username" autocomplete="off" autocorrect="off" spellcheck="false" />
+          </td>
+          <td>
+            <input type="password" class="form-control" ng-model="row.password" placeholder="{{ 'NETWORK.SMB_PASSWORD_PLACEHOLDER' | translate }}" autocomplete="new-password" />
+          </td>
+          <td class="commandCol">
+            <button type="button" class="btn btn-danger" ng-click="smb.removeUserRow($index)" title="{{ 'COMMON.DELETE' | translate }}">
+              <i class="fa fa-trash-o"></i>
+            </button>
+          </td>
+        </tr>
+      </table>
+      <button type="button" class="btn btn-primary" ng-click="smb.saveUsers()">
+        <span translate="NETWORK.SMB_SAVE_USERS"></span>
+      </button>
+    </div>
+  </div>
+</div>

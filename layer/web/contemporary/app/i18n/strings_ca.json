@@ -370,7 +370,18 @@
     "WIRELESS_RESTART_SUCCESS": "Connexió sense fils reiniciada correctament",
     "WIRELESS_RESTART_TITLE": "Reiniciar la xarxa sense fils",
     "WIRELESS_NETWORK_CONNECTING_TO": "Connexió a una xarxa sense fils",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Ara estaràs desconnectat. Connecta't de nou a la teva xarxa sense fils i descobreix el teu dispositiu novament, una vegada que s'hagi establert la connexió"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Ara estaràs desconnectat. Connecta't de nou a la teva xarxa sense fils i descobreix el teu dispositiu novament, una vegada que s'hagi establert la connexió",
+    "SMB_SERVER_SETTINGS": "Compartició de fitxers SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Comparteix música i altres carpetes permeses a la xarxa local. Els comptes d'usuari i els camins de recursos addicionals s'afegiran més endavant mitjançant el connector nucli de Volumio2-UI quan estigui disponible.",
+    "SMB_ENABLE": "Activar servidor SMB",
+    "SMB_ENABLE_DOC": "Si està activat, el dispositiu executa el servidor de fitxers Samba (si el paquet del sistema està instal·lat).",
+    "SMB_MIN_PROTOCOL": "Protocol SMB mínim",
+    "SMB_MIN_PROTOCOL_DOC": "Puja la versió mínima del dialecte que ofereix el servidor; ajuda a evitar clients molt antics (no segurs). Els clients poden haver de ser compatibles amb SMB2 o superior.",
+    "SMB_PROTOCOL_DEFAULT": "Per defecte (Samba / SO)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 o superior",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 o superior",
+    "SMB_USERS_AND_SHARES_TITLE": "Usuaris SMB i recursos addicionals",
+    "SMB_USERS_AND_SHARES_PENDING": "La gestió de la llista (afegir, desar, eliminar) apareixerà aquí quan estigui instal·lat la secció opcional smb del nucli de Volumio2-UI; consulteu docs/SAMBA.md."
   },
   "SLEEP": {
     "POWER_OFF": "Apagat",

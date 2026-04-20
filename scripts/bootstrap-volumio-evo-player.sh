@@ -74,6 +74,10 @@ EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
+# 1: apt install smbd+nmbd (standalone file server; not the full `samba` AD DC metapackage) — Settings -> Network.
+EVO_INSTALL_SAMBA_SERVER_PKGS="${EVO_INSTALL_SAMBA_SERVER_PKGS:-1}"
+# 1: sudoers for SMB (install smb.conf, systemctl smbd/nmbd, volumio-evo-smb-user-sync.sh — docs/OS_PRIVILEGE_MODEL.md).
+EVO_INSTALL_SAMBA_SUDOERS="${EVO_INSTALL_SAMBA_SUDOERS:-1}"
 # 1: apt install network-manager (nmcli) for Evo NetworkManager integration (see docs/NETWORK_NM.md).
 EVO_INSTALL_NETWORK_MANAGER="${EVO_INSTALL_NETWORK_MANAGER:-1}"
 # 1: compile on device with cargo (slow). Default 0: install from layer/binaries/<triple>/ only.
@@ -135,6 +139,8 @@ Environment (common):
   EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
+  EVO_INSTALL_SAMBA_SERVER_PKGS=1      # 0 to skip apt install smbd/nmbd (Settings -> Network SMB)
+  EVO_INSTALL_SAMBA_SUDOERS=1          # 0 to skip sudoers for SMB (smb.conf install, smbd/nmbd, user-sync script)
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
   EVO_STOCK_BACKGROUNDS_SOURCE=         # optional: override path to stock jpg/thumbnail-* (default: EVO_REPO_DIR/layer/stock-backgrounds)
 
@@ -222,6 +228,7 @@ configure_evo_runtime_user() {
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
+    rm -f "/etc/sudoers.d/volumio-evo-samba" 2>/dev/null || true
     return 0
   fi
 
@@ -505,6 +512,39 @@ EOF
   else
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
   fi
+
+  # SMB file server (Settings → Network): generated smb.conf install, smbd/nmbd, narrow user-sync script.
+  local samba_sudoers="/etc/sudoers.d/volumio-evo-samba"
+  local smb_conf_gen="/var/lib/volumio-evo/settings/samba/smb.conf.generated"
+  if [[ -f "${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh" ]]; then
+    install -m 0755 "${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh" /usr/local/bin/volumio-evo-smb-user-sync.sh
+    echo "Installed /usr/local/bin/volumio-evo-smb-user-sync.sh"
+  else
+    echo "WARN: ${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh missing — SMB user sync will fail until present."
+  fi
+  if [[ "${EVO_INSTALL_SAMBA_SUDOERS:-1}" == "1" ]]; then
+    local tmp_smb
+    tmp_smb="$(mktemp)"
+    cat > "${tmp_smb}" <<EOF
+# volumio-evo: SMB server — install smb.conf, systemctl smbd/nmbd, user-sync wrapper (narrow paths).
+# smb.conf source must match crates/core default_samba_generated_smb_conf_path() when settings dir is default.
+${u} ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 644 ${smb_conf_gen} /etc/samba/smb.conf
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} stop smbd
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} stop nmbd
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} restart smbd
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} restart nmbd
+${u} ALL=(root) NOPASSWD: /usr/local/bin/volumio-evo-smb-user-sync.sh
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_smb}" 2>/dev/null; then
+      install -m 0440 "${tmp_smb}" "${samba_sudoers}"
+      echo "Installed ${samba_sudoers} (SMB NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${samba_sudoers}."
+    fi
+    rm -f "${tmp_smb}"
+  else
+    rm -f "${samba_sudoers}" 2>/dev/null || true
+  fi
 }
 
 need_root() {
@@ -685,10 +725,32 @@ install_packages() {
     libimage-exiftool-perl \
     "${net_pkgs[@]}" \
     "${nm_pkgs[@]}"
+  if [[ "${EVO_INSTALL_SAMBA_SERVER_PKGS:-1}" == "1" ]]; then
+    install_smb_file_server_packages
+    disable_samba_ad_dc_for_evo
+  fi
   if [[ "${EVO_INSTALL_RUST:-0}" == "1" ]]; then
     ensure_rustup_toolchain
   else
     echo "Skipping rustup (installing prebuilt volumio-evo from layer/binaries; use --build to compile on device)."
+  fi
+}
+
+# Standalone SMB **file server** only (`smbd`/`nmbd`). The `samba` metapackage on Debian often pulls
+# `samba-ad-dc`, `winbind`, provision tools, and enables **samba-ad-dc.service** — wrong role for Evo.
+install_smb_file_server_packages() {
+  echo "Installing SMB file server: smbd nmbd (minimal deps; avoids Active Directory DC stack where possible)."
+  if apt-get install -y --no-install-recommends smbd nmbd; then
+    return 0
+  fi
+  echo "WARN: apt install smbd nmbd failed (package split); falling back to: samba without recommends."
+  apt-get install -y --no-install-recommends samba
+}
+
+# If AD DC units were installed/enabled (e.g. older bootstrap used the full metapackage), turn them off.
+disable_samba_ad_dc_for_evo() {
+  if systemctl disable --now samba-ad-dc.service 2>/dev/null; then
+    echo "Disabled samba-ad-dc.service (Evo uses standalone smbd/nmbd only)."
   fi
 }
 
@@ -1106,8 +1168,9 @@ build_and_install_evo() {
     /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd \
     /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites \
     /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network \
-    /var/lib/volumio-evo/settings/alarm /var/lib/volumio-evo/settings/backgrounds \
-    /var/lib/volumio-evo/settings/ui /mnt/NAS
+    /var/lib/volumio-evo/settings/samba /var/lib/volumio-evo/settings/alarm \
+    /var/lib/volumio-evo/settings/backgrounds /var/lib/volumio-evo/settings/ui \
+    /var/lib/volumio-evo/staging/plugins /mnt/NAS
   install_dacs_catalog
   install_alsa_cards_json
   install_bundled_plugins_assets

@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Det trådlösa nätverket startades om",
     "WIRELESS_RESTART_TITLE": "Omstart av trådlöst nätverk",
     "WIRELESS_NETWORK_CONNECTING_TO": "Ansluter till trådlöst nätverk",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Du kommer nu att kopplas ifrån. Anslut till ditt trådlåsa nätverk och leta upp din enhet igen, när anslutningen har upprättats"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Du kommer nu att kopplas ifrån. Anslut till ditt trådlåsa nätverk och leta upp din enhet igen, när anslutningen har upprättats",
+    "SMB_SERVER_SETTINGS": "SMB-fildelning",
+    "SMB_SERVER_SETTINGS_DOC": "Dela musik och andra tillåtna mappar på det lokala nätverket. Användarkonton och extra delningsvägar läggs till senare i Volumio2-UI kärnplugin när det finns tillgängligt.",
+    "SMB_ENABLE": "Aktivera SMB-server",
+    "SMB_ENABLE_DOC": "När på kör enheten Samba-filservern (om OS-paketet är installerat).",
+    "SMB_MIN_PROTOCOL": "Minsta SMB-protokoll",
+    "SMB_MIN_PROTOCOL_DOC": "Höjer den minsta protokollversion servern erbjuder; undviker mycket gamla (osäkra) klienter. Klienter kan kräva SMB2 eller nyare.",
+    "SMB_PROTOCOL_DEFAULT": "Standard (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 eller nyare",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 eller nyare",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-användare och extra delningar",
+    "SMB_USERS_AND_SHARES_PENDING": "Listhantering (lägg till, spara, ta bort) visas här när den valfria Volumio2-UI smb-kärnsektionen är installerad; se docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Språk",

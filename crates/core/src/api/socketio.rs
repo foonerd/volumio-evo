@@ -218,6 +218,9 @@ async fn on_connect(s: SocketRef) {
     s.on("setSleep", set_sleep);
     s.on("getAlarms", get_alarms);
     s.on("saveAlarm", save_alarm);
+    s.on("getSmbServerLists", get_smb_server_lists);
+    s.on("saveSmbExtraShares", save_smb_extra_shares);
+    s.on("saveSmbUsers", save_smb_users);
     s.on("getMultiroom", get_multiroom);
     s.on("setMultiroom", set_multiroom);
     s.on("writeMultiroom", write_multiroom);
@@ -1328,6 +1331,21 @@ async fn set_device_name(s: SocketRef, State(state): State<AppState>, TryData(pa
     if let Err(e) = crate::system_settings::apply_hostname(name) {
         tracing::warn!("{} hostnamectl {:?}: {}", crate::log_tags::EVO_UI, name, e);
     }
+    if crate::samba_settings::SambaSettings::load().enabled {
+        let cfg = std::sync::Arc::clone(&state.config);
+        let n = name.to_string();
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::samba_apply::apply_samba_os_configuration(cfg.as_ref(), n.as_str()).await
+            {
+                tracing::warn!(
+                    "{} apply SMB after device rename: {}",
+                    crate::log_tags::EVO_NET,
+                    e
+                );
+            }
+        });
+    }
     let data = serde_json::json!({ "name": name });
     let _ = s.emit("pushDeviceName", &data);
 }
@@ -1445,6 +1463,152 @@ async fn save_alarm(
     let v = state.alarm_clock.push_alarm_payload().await;
     crate::alarm_clock::broadcast_push_alarm(&state, &v).await;
     s.emit("pushAlarm", &v).ok();
+}
+
+fn smb_server_toast(s: &SocketRef, kind: &str, message: &str) {
+    let _ = s.emit(
+        "pushToastMessage",
+        &serde_json::json!({
+            "type": kind,
+            "title": "Network",
+            "message": message
+        }),
+    );
+}
+
+/// `getSmbServerLists` → `pushSmbServerLists` (extra shares + usernames; **no** passwords).
+async fn get_smb_server_lists(s: SocketRef) {
+    let settings = crate::samba_settings::SambaSettings::load();
+    let payload = serde_json::json!({
+        "extra_shares": settings.extra_shares_json(),
+        "smb_users": settings.smb_users_without_passwords_json(),
+    });
+    let _ = s.emit("pushSmbServerLists", &payload);
+}
+
+async fn save_smb_extra_shares(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    let Some(p) = data.as_ref().ok() else {
+        return;
+    };
+    let shares: Vec<crate::samba_settings::SambaExtraShare> = match p.get("extra_shares") {
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(x) => x,
+            Err(e) => {
+                smb_server_toast(&s, "error", &format!("Invalid extra_shares: {e}"));
+                return;
+            }
+        },
+        None => {
+            smb_server_toast(&s, "error", "Missing extra_shares");
+            return;
+        }
+    };
+
+    let mut settings = crate::samba_settings::SambaSettings::load();
+    settings.extra_shares = shares
+        .into_iter()
+        .map(|mut es| {
+            es.name = es.name.trim().to_string();
+            es.path = es.path.trim().to_string();
+            es
+        })
+        .filter(|es| !es.name.is_empty() && !es.path.is_empty())
+        .collect();
+
+    for es in &settings.extra_shares {
+        if let Err(msg) = crate::samba_conf::validate_extra_share_path(es.path.as_str()) {
+            smb_server_toast(&s, "error", &format!("Share {:?}: {msg}", es.name));
+            return;
+        }
+    }
+
+    crate::samba_settings::normalize_samba_settings(&mut settings);
+
+    if let Err(e) = settings.save() {
+        smb_server_toast(&s, "error", &format!("Could not save SMB shares: {e}"));
+        return;
+    }
+
+    if settings.enabled {
+        let cfg = std::sync::Arc::clone(&state.config);
+        let device = state.system_settings.read().await.device_name.clone();
+        if let Err(e) =
+            crate::samba_apply::apply_samba_os_configuration(cfg.as_ref(), device.as_str()).await
+        {
+            smb_server_toast(
+                &s,
+                "error",
+                &format!("SMB shares saved but configuration apply failed: {e}"),
+            );
+            return;
+        }
+    }
+
+    smb_server_toast(&s, "success", "SMB shares saved");
+}
+
+async fn save_smb_users(
+    s: SocketRef,
+    State(state): State<AppState>,
+    TryData(data): TryData<serde_json::Value>,
+) {
+    let Some(p) = data.as_ref().ok() else {
+        return;
+    };
+    let rows: Vec<crate::samba_apply::IncomingSmbUserRow> = match p.get("smb_users") {
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(x) => x,
+            Err(e) => {
+                smb_server_toast(&s, "error", &format!("Invalid smb_users: {e}"));
+                return;
+            }
+        },
+        None => {
+            smb_server_toast(&s, "error", "Missing smb_users");
+            return;
+        }
+    };
+
+    let prev = crate::samba_settings::SambaSettings::load().smb_users.clone();
+    let next =
+        match crate::samba_apply::reconcile_samba_user_accounts(prev.as_slice(), rows.as_slice())
+        {
+            Ok(n) => n,
+            Err(e) => {
+                smb_server_toast(&s, "error", &e.to_string());
+                return;
+            }
+        };
+
+    let mut settings = crate::samba_settings::SambaSettings::load();
+    settings.smb_users = next;
+    crate::samba_settings::normalize_samba_settings(&mut settings);
+
+    if let Err(e) = settings.save() {
+        smb_server_toast(&s, "error", &format!("Could not save SMB users: {e}"));
+        return;
+    }
+
+    if settings.enabled {
+        let cfg = std::sync::Arc::clone(&state.config);
+        let device = state.system_settings.read().await.device_name.clone();
+        if let Err(e) =
+            crate::samba_apply::apply_samba_os_configuration(cfg.as_ref(), device.as_str()).await
+        {
+            smb_server_toast(
+                &s,
+                "error",
+                &format!("SMB users saved but configuration apply failed: {e}"),
+            );
+            return;
+        }
+    }
+
+    smb_server_toast(&s, "success", "SMB users saved");
 }
 
 /// Stub: no multiroom state (Node: multiroom plugin getMultiroom -> pushMultiroom).
@@ -4212,6 +4376,69 @@ async fn call_method(
         let arr = crate::network_status_ui::push_info_network_array().await;
         let _ = s.emit("pushInfoNetwork", &arr);
         schedule_push_info_network_refresh(&s, &state);
+        let (cfg, _) =
+            super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
+                .await;
+        let _ = s.emit("pushUiConfig", &cfg);
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/network")
+        && payload.method.as_deref() == Some("saveSambaSettings")
+    {
+        let mut settings = crate::samba_settings::SambaSettings::load();
+        super::network_ui::apply_samba_save_payload(&mut settings, &payload.data);
+        match settings.save() {
+            Ok(()) => {
+                let cfg_arc = std::sync::Arc::clone(&state.config);
+                let device = state.system_settings.read().await.device_name.clone();
+                match crate::samba_apply::apply_samba_os_configuration(cfg_arc.as_ref(), device.as_str())
+                    .await
+                {
+                    Ok(()) => {
+                        let _ = s.emit(
+                            "pushToastMessage",
+                            &serde_json::json!({
+                                "type": "success",
+                                "title": "Network",
+                                "message": "SMB settings saved"
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "{} saveSambaSettings apply: {}",
+                            crate::log_tags::EVO_NET,
+                            e
+                        );
+                        let _ = s.emit(
+                            "pushToastMessage",
+                            &serde_json::json!({
+                                "type": "error",
+                                "title": "Network",
+                                "message": format!("SMB settings saved but OS apply failed: {e}")
+                            }),
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "{} saveSambaSettings: {}",
+                    crate::log_tags::EVO_NET,
+                    e
+                );
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Network",
+                        "message": format!("Could not save SMB settings: {e}")
+                    }),
+                );
+                return;
+            }
+        }
         let (cfg, _) =
             super::network_ui::network_settings_ui_config_merged_enriched(state.config.as_ref())
                 .await;

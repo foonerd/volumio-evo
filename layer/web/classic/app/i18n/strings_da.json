@@ -408,7 +408,18 @@
     "NETWORK_NAME": "Netværksnavn",
     "WIRELESS_NETWORK_CONNECTION": "Trådløs netværksforbindelse",
     "WIRELESS_NETWORK_CONNECTING_TO": "Tilslutning til trådløst netværk",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Du vil nu blive afbrudt. Forbind dig igen til dit trådløse netværk, og find din enhed igen, når forbindelsen er oprettet."
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Du vil nu blive afbrudt. Forbind dig igen til dit trådløse netværk, og find din enhed igen, når forbindelsen er oprettet.",
+    "SMB_SERVER_SETTINGS": "SMB-fildeling",
+    "SMB_SERVER_SETTINGS_DOC": "Del musik og andre tilladte mapper på det lokale netværk. Brugerkonti og ekstra delingsstier tilføjes senere i Volumio2-UI core-plugin, når det er tilgængeligt.",
+    "SMB_ENABLE": "Aktivér SMB-server",
+    "SMB_ENABLE_DOC": "Når den er til, kører enheden Samba-filserveren (hvis OS-pakken er installeret).",
+    "SMB_MIN_PROTOCOL": "Mindste SMB-protokol",
+    "SMB_MIN_PROTOCOL_DOC": "Hæver den minimale protokolversion serveren tilbyder; hjælper med at undgå meget gamle (usikre) klienter. Klienter skal muligvis understøtte SMB2 eller nyere.",
+    "SMB_PROTOCOL_DEFAULT": "Standard (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 eller nyere",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 eller nyere",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-brugere og ekstra delinger",
+    "SMB_USERS_AND_SHARES_PENDING": "Liste-styring (tilføj, gem, fjern) vises her, når den valgfrie Volumio2-UI smb kerne-sektion er installeret; se docs/SAMBA.md."
   },
   "ALARM": {
     "ALARM_CLOCK_SAVE": "Vækkeur aktiveret",

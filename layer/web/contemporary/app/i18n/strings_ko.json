@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "무선 네트워크 재시작 성공",
     "WIRELESS_RESTART_TITLE": "무선 네트워크 재시작",
     "WIRELESS_NETWORK_CONNECTING_TO": "무선 네트워크에 연결 중",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "이제 연결이 중단됩니다. 무선 네트워크로 다시 연결한 다음 다시 장치를 찾으세요"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "이제 연결이 중단됩니다. 무선 네트워크로 다시 연결한 다음 다시 장치를 찾으세요",
+    "SMB_SERVER_SETTINGS": "SMB 파일 공유",
+    "SMB_SERVER_SETTINGS_DOC": "로컬 네트워크에서 음악 및 허용된 폴더를 공유합니다. 사용자 계정 및 추가 공유 경로는 Volumio2-UI 코어 플러그인에서 추후 제공됩니다.",
+    "SMB_ENABLE": "SMB 서버 사용",
+    "SMB_ENABLE_DOC": "켜면 Samba 파일 서버를 실행합니다(OS 패키지가 설치된 경우).",
+    "SMB_MIN_PROTOCOL": "최소 SMB 프로토콜",
+    "SMB_MIN_PROTOCOL_DOC": "서버가 제공하는 최소 프로토콜 버전을 높여 매우 오래된(불안전한) 클라이언트를 줄입니다. 클라이언트는 SMB2 이상이 필요할 수 있습니다.",
+    "SMB_PROTOCOL_DEFAULT": "기본값(Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 이상",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 이상",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB 사용자 및 추가 공유",
+    "SMB_USERS_AND_SHARES_PENDING": "목록 관리(추가, 저장, 제거)는 선택적 Volumio2-UI smb 코어 섹션이 설치되면 여기에 표시됩니다. docs/SAMBA.md 참조."
   },
   "SLEEP": {
     "POWER_OFF": "전원 끄기",

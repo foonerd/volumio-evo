@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Kablosuz ağ başarıyla yeniden başlatıldı",
     "WIRELESS_RESTART_TITLE": "Kablosuz ağı yeniden başlat",
     "WIRELESS_NETWORK_CONNECTING_TO": "Kablosuz ağa bağlanma",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Şimdi bağlantınız kesilecektir. Lütfen Kablosuz Ağınıza geri bağlanın ve bağlantı kurulduktan sonra cihazınızı tekrar keşfedin"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Şimdi bağlantınız kesilecektir. Lütfen Kablosuz Ağınıza geri bağlanın ve bağlantı kurulduktan sonra cihazınızı tekrar keşfedin",
+    "SMB_SERVER_SETTINGS": "SMB dosya paylaşımı",
+    "SMB_SERVER_SETTINGS_DOC": "Yerel ağda müzik ve izin verilen diğer klasörleri paylaşın. Kullanıcı hesapları ve ek paylaşım yolları, hazır olduğunda Volumio2-UI çekirdek eklentisiyle eklenecek.",
+    "SMB_ENABLE": "SMB sunucusunu etkinleştir",
+    "SMB_ENABLE_DOC": "Açıkken cihaz Samba dosya sunucusunu çalıştırır (işletim sistemi paketi yüklüyse).",
+    "SMB_MIN_PROTOCOL": "Minimum SMB protokolü",
+    "SMB_MIN_PROTOCOL_DOC": "Sunucunun sunduğu minimum protokol sürümünü yükseltir; çok eski (güvensiz) istemcileri engeller. İstemciler SMB2 veya üstünü gerektirebilir.",
+    "SMB_PROTOCOL_DEFAULT": "Varsayılan (Samba / İşletim sistemi)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 veya üzeri",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 veya üzeri",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB kullanıcıları ve ek paylaşımlar",
+    "SMB_USERS_AND_SHARES_PENDING": "Liste yönetimi (ekle, kaydet, kaldır) isteğe bağlı Volumio2-UI smb çekirdek bölümü kurulduğunda burada görünür; docs/SAMBA.md dosyasına bakın."
   },
   "WIZARD": {
     "LANGUAGE": "Lisan",

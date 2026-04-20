@@ -41,5 +41,18 @@
     "BOOT_BRANDING_ROTATION": "Ротација splash-а",
     "BOOT_BRANDING_ROTATION_DOC": "Савет за ротацију Plymouth ресурса (параметар plymouth=N). Ускладите са оријентацијом екрана.",
     "INSTALL_BOOT_BRANDING": "Инсталирај и омогући"
+  },
+  "NETWORK": {
+    "SMB_SERVER_SETTINGS": "SMB deljenje fajlova",
+    "SMB_SERVER_SETTINGS_DOC": "Delite muziku i druge dozvoljene fascikle na lokalnoj mreži. Korisnički nalozi i dodatne putanje deljenja biće dodati kasnije u Volumio2-UI jezgarnom dodatku kada bude dostupan.",
+    "SMB_ENABLE": "Omogući SMB server",
+    "SMB_ENABLE_DOC": "Kada je uključeno, uređaj pokreće Samba fajl server (ako je OS paket instaliran).",
+    "SMB_MIN_PROTOCOL": "Minimalni SMB protokol",
+    "SMB_MIN_PROTOCOL_DOC": "Podiže minimalnu verziju dijalekta koju server nudi; izbegava vrlo stare (nesigurne) klijente. Klijenti možda moraju podržati SMB2 ili noviji.",
+    "SMB_PROTOCOL_DEFAULT": "Podrazumevano (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 ili noviji",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 ili noviji",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB korisnici i dodatna deljenja",
+    "SMB_USERS_AND_SHARES_PENDING": "Upravljanje listom (dodaj, sačuvaj, ukloni) pojaviće se kada je instalirana opciona smb sekcija jezgra Volumio2-UI; vidi docs/SAMBA.md."
   }
 }

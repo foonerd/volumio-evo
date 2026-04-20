@@ -30,7 +30,76 @@ pub fn network_settings_ui_config_merged() -> Value {
     let mut v = network_settings_ui_config();
     let intent = NetworkIntent::load();
     merge_network_intent_into_ui(&mut v, &intent);
+    let samba = crate::samba_settings::SambaSettings::load();
+    merge_samba_settings_into_ui(&mut v, &samba);
     v
+}
+
+fn merge_samba_settings_into_ui(v: &mut Value, samba: &crate::samba_settings::SambaSettings) {
+    let Some(sections) = v.get_mut("sections").and_then(|s| s.as_array_mut()) else {
+        return;
+    };
+    for section in sections.iter_mut() {
+        if section.get("id").and_then(|x| x.as_str()) == Some("section_smb_server") {
+            merge_samba_section(section, samba);
+            break;
+        }
+    }
+}
+
+fn merge_samba_section(section: &mut Value, samba: &crate::samba_settings::SambaSettings) {
+    set_field_value(section, "smb_enabled", Value::Bool(samba.enabled));
+    let key = crate::samba_settings::normalize_min_protocol(samba.min_protocol.as_str());
+    set_select_field_from_saved(section, "smb_min_protocol", key.as_str());
+}
+
+fn set_select_field_from_saved(section: &mut Value, field_id: &str, saved: &str) {
+    let Some(content) = section.get_mut("content").and_then(|c| c.as_array_mut()) else {
+        return;
+    };
+    for item in content.iter_mut() {
+        if item.get("id").and_then(|x| x.as_str()) != Some(field_id) {
+            continue;
+        }
+        let Some(options) = item.get("options").and_then(|x| x.as_array()) else {
+            return;
+        };
+        let picked = options
+            .iter()
+            .find(|o| {
+                o.get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|sv| sv == saved)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .or_else(|| options.first().cloned());
+        if let Some(p) = picked {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("value".to_string(), p);
+            }
+        }
+        return;
+    }
+}
+
+/// Apply **`saveSambaSettings`** payload from **`callMethod.data`** into **`SambaSettings`**.
+pub fn apply_samba_save_payload(settings: &mut crate::samba_settings::SambaSettings, data: &Value) {
+    settings.enabled = json_truthy(data.get("smb_enabled"));
+    let raw = extract_select_or_string(data.get("smb_min_protocol"));
+    settings.min_protocol = crate::samba_settings::normalize_min_protocol(raw.as_str());
+}
+
+fn extract_select_or_string(v: Option<&Value>) -> String {
+    match v {
+        None => String::new(),
+        Some(Value::String(s)) => s.clone(),
+        Some(o) => o
+            .get("value")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+    }
 }
 
 /// Like [`network_settings_ui_config_merged`], plus a **Preferred Wi-Fi interface** section when

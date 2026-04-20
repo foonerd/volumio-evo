@@ -409,7 +409,18 @@
     "WIRELESS_RESTART_SUCCESS": "WiFi redémarré avec succès",
     "WIRELESS_RESTART_TITLE": "Redémarrage WiFi",
     "WIRELESS_NETWORK_CONNECTING_TO": "Connexion à un réseau WIFI",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Vous allez être déconnecté. Merci de vous reconnecter à votre réseau WIFI pour voir votre périphérique lorsque votre connexion sera rétablie"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Vous allez être déconnecté. Merci de vous reconnecter à votre réseau WIFI pour voir votre périphérique lorsque votre connexion sera rétablie",
+    "SMB_SERVER_SETTINGS": "Partage de fichiers SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Partagez la musique et autres dossiers autorisés sur le réseau local. Les comptes utilisateurs et chemins de partage supplémentaires seront ajoutés ultérieurement via le plugin noyau Volumio2-UI lorsqu'il sera disponible.",
+    "SMB_ENABLE": "Activer le serveur SMB",
+    "SMB_ENABLE_DOC": "Si activé, l'appareil exécute le serveur de fichiers Samba (si le paquet système est installé).",
+    "SMB_MIN_PROTOCOL": "Protocole SMB minimal",
+    "SMB_MIN_PROTOCOL_DOC": "Augmente la version minimale du dialecte proposé ; évite les clients très anciens (non sécurisés). Les clients peuvent devoir prendre en charge SMB2 ou plus récent.",
+    "SMB_PROTOCOL_DEFAULT": "Par défaut (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 ou supérieur",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 ou supérieur",
+    "SMB_USERS_AND_SHARES_TITLE": "Utilisateurs SMB et partages supplémentaires",
+    "SMB_USERS_AND_SHARES_PENDING": "La gestion de liste (ajouter, enregistrer, supprimer) apparaîtra ici lorsque la section smb optionnelle du noyau Volumio2-UI sera installée ; voir docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Langue",

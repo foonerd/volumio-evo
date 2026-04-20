@@ -25,6 +25,9 @@ mod artist_normalize;
 mod config;
 mod metavolumio;
 mod mpd;
+mod samba_settings;
+mod samba_conf;
+mod samba_apply;
 mod network_config;
 mod network_status_ui;
 mod nm_network;
@@ -81,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     tokio::spawn(api::run_startup_volume_bootstrap(state.clone()));
     tokio::spawn(api::run_startup_network_intent_apply(state.clone()));
+    tokio::spawn(api::run_startup_samba_apply(state.clone()));
     tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
     tokio::spawn(api::run_startup_alarm_schedule(state.clone()));
     if std::env::var("VOLUMIO_EVO_PROBE_RTC_WAKE")

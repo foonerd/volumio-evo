@@ -305,7 +305,18 @@
     "WIRELESS_NETWORK_CONNECTION_SUCCESSFUL_PROCEED": "",
     "WIRELESS_RESTART_ERROR": "Feil under omstart av Trådløst nettverk: ",
     "WIRELESS_RESTART_SUCCESS": "Omstart av Trådløst nettverk var vellykket",
-    "WIRELESS_RESTART_TITLE": "Omstart av Trådløst nettverk"
+    "WIRELESS_RESTART_TITLE": "Omstart av Trådløst nettverk",
+    "SMB_SERVER_SETTINGS": "SMB-fildeling",
+    "SMB_SERVER_SETTINGS_DOC": "Del musikk og andre tillatte mapper på det lokale nettverket. Brukerkontoer og ekstra delingsbaner legges til senere i Volumio2-UI kjerneprogramtillegget når det er tilgjengelig.",
+    "SMB_ENABLE": "Aktiver SMB-server",
+    "SMB_ENABLE_DOC": "Når på, kjører enheten Samba-filserveren (hvis OS-pakken er installert).",
+    "SMB_MIN_PROTOCOL": "Minimum SMB-protokoll",
+    "SMB_MIN_PROTOCOL_DOC": "Hever den minimale protokollversjonen serveren tilbyr; unngår veldig gamle (usikre) klienter. Klienter kan kreve SMB2 eller nyere.",
+    "SMB_PROTOCOL_DEFAULT": "Standard (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 eller nyere",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 eller nyere",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-brukere og ekstra delinger",
+    "SMB_USERS_AND_SHARES_PENDING": "Listebehandling (legg til, lagre, fjern) vises her når den valgfrie Volumio2-UI smb-kjerneseksjonen er installert; se docs/SAMBA.md."
   },
   "SLEEP": {
     "POWER_OFF": "Skru av",

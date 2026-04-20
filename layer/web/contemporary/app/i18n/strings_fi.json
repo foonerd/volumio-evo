@@ -408,7 +408,18 @@
     "NETWORK_NAME": "Verkon nimi",
     "WIRELESS_NETWORK_CONNECTION": "Langaton verkkoyhteys",
     "WIRELESS_NETWORK_CONNECTING_TO": "Yhteyden muodostaminen langattomaan verkkoon",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Yhteytesi katkeaa nyt. Muodosta yhteys takaisin langattomaan verkkoon ja löydä laitteesi uudelleen, kun yhteys on muodostettu."
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Yhteytesi katkeaa nyt. Muodosta yhteys takaisin langattomaan verkkoon ja löydä laitteesi uudelleen, kun yhteys on muodostettu.",
+    "SMB_SERVER_SETTINGS": "SMB-tiedostojako",
+    "SMB_SERVER_SETTINGS_DOC": "Jaa musiikkia ja muita sallittuja kansioita lähiverkossa. Käyttäjätilit ja lisäjaot lisätään myöhemmin Volumio2-UI-ydinlaajennuksessa.",
+    "SMB_ENABLE": "Ota SMB-palvelin käyttöön",
+    "SMB_ENABLE_DOC": "Kun päällä, laite käyttää Samba-tiedostopalvelinta (jos järjestelmäpaketti on asennettu).",
+    "SMB_MIN_PROTOCOL": "Vähimmäinen SMB-protokolla",
+    "SMB_MIN_PROTOCOL_DOC": "Nostaa palvelimen tarjoaman vähimmäisversion; välttää hyvin vanhoja (turvattomia) asiakkaita. Asiakkaat saattavat vaatia SMB2 tai uudemman.",
+    "SMB_PROTOCOL_DEFAULT": "Oletus (Samba / käyttöjärjestelmä)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 tai uudempi",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 tai uudempi",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB-käyttäjät ja lisäjaot",
+    "SMB_USERS_AND_SHARES_PENDING": "Luettelon hallinta (lisää, tallenna, poista) näkyy täällä, kun valinnainen Volumio2-UI smb-ydinosa on asennettu; ks. docs/SAMBA.md."
   },
   "SLEEP": {
     "POWER_OFF": "Sammuta",

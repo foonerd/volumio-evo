@@ -411,7 +411,18 @@
     "WIRELESS_RESTART_SUCCESS": "Rete wireless riavviata correttamente",
     "WIRELESS_RESTART_TITLE": "Rete Wireless",
     "WIRELESS_NETWORK_CONNECTING_TO": "Connessione alla rete senza fili",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Durante questa operazione sarai disconnesso. Per favore, riconnettiti alla tua rete senza fili e cerca il dispositivo una volta connesso"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Durante questa operazione sarai disconnesso. Per favore, riconnettiti alla tua rete senza fili e cerca il dispositivo una volta connesso",
+    "SMB_SERVER_SETTINGS": "Condivisione file SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Condividi musica e altre cartelle consentite sulla rete locale. Account utente e percorsi di condivisione aggiuntivi saranno aggiunti in seguito tramite il plugin core Volumio2-UI quando disponibile.",
+    "SMB_ENABLE": "Abilita server SMB",
+    "SMB_ENABLE_DOC": "Se attivo, il dispositivo esegue il server file Samba (se il pacchetto di sistema è installato).",
+    "SMB_MIN_PROTOCOL": "Protocollo SMB minimo",
+    "SMB_MIN_PROTOCOL_DOC": "Aumenta la versione minima del dialetto offerta dal server; evita client molto vecchi (non sicuri). I client potrebbero richiedere SMB2 o superiore.",
+    "SMB_PROTOCOL_DEFAULT": "Predefinito (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 o superiore",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 o superiore",
+    "SMB_USERS_AND_SHARES_TITLE": "Utenti SMB e condivisioni aggiuntive",
+    "SMB_USERS_AND_SHARES_PENDING": "La gestione elenco (aggiungi, salva, rimuovi) apparirà qui quando sarà installata la sezione smb opzionale del core Volumio2-UI; vedere docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Lingua",

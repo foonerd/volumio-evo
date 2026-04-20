@@ -429,6 +429,34 @@ pub async fn run_startup_network_intent_apply(state: AppState) {
     crate::nm_network::log_network_apply_result("startup", &report);
 }
 
+/// After boot, apply persisted SMB server settings (`settings/samba/state.toml`) — **`smb.conf`** + **`smbd`**/**`nmbd`**.
+/// Set `VOLUMIO_EVO_SKIP_STARTUP_SAMBA_APPLY=1` to disable.
+pub async fn run_startup_samba_apply(state: AppState) {
+    if std::env::var("VOLUMIO_EVO_SKIP_STARTUP_SAMBA_APPLY")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!(
+            "{} skipping startup SMB apply (VOLUMIO_EVO_SKIP_STARTUP_SAMBA_APPLY=1)",
+            crate::log_tags::EVO_NET
+        );
+        return;
+    }
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let cfg = std::sync::Arc::clone(&state.config);
+    let device = state.system_settings.read().await.device_name.clone();
+    if let Err(e) = crate::samba_apply::apply_samba_os_configuration(cfg.as_ref(), device.as_str()).await {
+        tracing::warn!(
+            "{} startup SMB apply: {}",
+            crate::log_tags::EVO_NET,
+            e
+        );
+    }
+}
+
 /// After boot, re-apply persisted **Settings → System** locale so the OS matches `settings/system/state.toml`
 /// (timezone, `iw reg` country, hostname) — same commands as **Save** on the locale section.  
 /// Set `VOLUMIO_EVO_SKIP_STARTUP_SYSTEM_LOCALE=1` to disable.

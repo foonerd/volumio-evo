@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_TITLE": "Relançar Rede sem Fios",
     "WIRELESS_NETWORK_CONNECTION": "Ligação de rede sem fios",
     "WIRELESS_NETWORK_CONNECTING_TO": "Ligação à rede sem fios",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Será agora desligado. Volte a ligar-se à sua rede sem fios e descubra novamente o seu dispositivo, assim que a ligação tiver sido estabelecida"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Será agora desligado. Volte a ligar-se à sua rede sem fios e descubra novamente o seu dispositivo, assim que a ligação tiver sido estabelecida",
+    "SMB_SERVER_SETTINGS": "Partilha de ficheiros SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Partilhe música e outras pastas permitidas na rede local. Contas de utilizador e caminhos de partilha adicionais serão acrescentados mais tarde no plugin núcleo Volumio2-UI quando disponível.",
+    "SMB_ENABLE": "Ativar servidor SMB",
+    "SMB_ENABLE_DOC": "Quando ativo, o dispositivo executa o servidor de ficheiros Samba (se o pacote do sistema estiver instalado).",
+    "SMB_MIN_PROTOCOL": "Protocolo SMB mínimo",
+    "SMB_MIN_PROTOCOL_DOC": "Aumenta a versão mínima do dialecto oferecida pelo servidor; evita clientes muito antigos (inseguros). Os clientes podem necessitar de SMB2 ou superior.",
+    "SMB_PROTOCOL_DEFAULT": "Predefinição (Samba / SO)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 ou superior",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 ou superior",
+    "SMB_USERS_AND_SHARES_TITLE": "Utilizadores SMB e partilhas adicionais",
+    "SMB_USERS_AND_SHARES_PENDING": "A gestão da lista (adicionar, guardar, remover) aparecerá aqui quando a secção smb opcional do núcleo Volumio2-UI estiver instalada; ver docs/SAMBA.md."
   },
   "SLEEP": {
     "POWER_OFF": "Desligar",

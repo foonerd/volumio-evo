@@ -39,6 +39,7 @@ When a non-root user runs Evo:
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-rtcwake` | NOPASSWD **`rtcwake`** (full binary path) | Root; path must match **`VOLUMIO_EVO_RTCWAKE`** — alarm RTC wake / suspend tests (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | `/etc/sudoers.d/volumio-evo-boot-branding` (bootstrap; disable with **`EVO_INSTALL_BOOT_BRANDING_SUDOERS=0`**) | NOPASSWD **`/usr/share/volumio-evo/repo/scripts/run-boot-branding.sh`** (or the path from **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**) | Service user; allow only this wrapper (see **[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
+| `/etc/sudoers.d/volumio-evo-samba` (disable with **`EVO_INSTALL_SAMBA_SUDOERS=0`**) | NOPASSWD **`install`** **`…/settings/samba/smb.conf.generated`** → **`/etc/samba/smb.conf`**, **`systemctl`** **`stop`**/**`restart`** **`smbd`**/**`nmbd`**, **`/usr/local/bin/volumio-evo-smb-user-sync.sh`** | Root; paths must match [**`paths.rs`**](../crates/core/src/paths.rs) default generated file and **`VOLUMIO_EVO_SYSTEMCTL`** (**[SAMBA.md](SAMBA.md)**) |
 
 ## Runtime OS actions (Evo process)
 
@@ -54,6 +55,7 @@ When a non-root user runs Evo:
 | **`timedatectl`** (`set-timezone`) | Persisted timezone | **Root**, or **`sudo -n $VOLUMIO_EVO_TIMEDATECTL set-timezone …`** — same sudoers fragment as **`hostnamectl`** |
 | **`rtcwake`** | Program/clear RTC alarm for wake-from-suspend (**alarm clock** groundwork) | **Root**, or **`sudo -n $VOLUMIO_EVO_RTCWAKE …`** — bootstrap **`volumio-evo-rtcwake`** when **`EVO_INSTALL_RTCWAKE_SUDOERS=1`** (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | **Boot branding** installer | **Settings → System → Boot branding** | **Root**, or **`sudo -n /path/to/run-boot-branding.sh <rotation>`** — narrow sudoers line for the wrapper script only (**[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
+| **SMB server** (`smb.conf`, **`smbd`**/**`nmbd`**, optional Unix/Samba users) | Settings → Network → SMB | **Root:** write generated file under **`…/settings/samba/`**, **`install`** → **`/etc/samba/smb.conf`**, **`systemctl`** **`smbd`**/**`nmbd`**. **Non-root:** same via **`sudo -n`** — bootstrap **`volumio-evo-samba`** when **`EVO_INSTALL_SAMBA_SUDOERS=1`**; named users via **`sudo -n /usr/local/bin/volumio-evo-smb-user-sync.sh`** only (**[SAMBA.md](SAMBA.md)**) |
 
 Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** session.
 
@@ -67,6 +69,7 @@ Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** sessio
 | **`EVO_INSTALL_CONFIG_INSTALL_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-config-install`** for **`sudo -n install`** (**`network/config.toml.pending`** **and** **`ui/config.toml.pending`** → **`/etc/volumio-evo/config.toml`**) |
 | **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-hostname-timedate`** for **`sudo -n hostnamectl`** / **`timedatectl`** (device name + timezone when non‑root) |
 | **`EVO_INSTALL_RTCWAKE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-rtcwake`** for **`sudo -n rtcwake`** (RTC alarm / wake-from-suspend — **[ALARM_WAKE.md](ALARM_WAKE.md)**) |
+| **`EVO_INSTALL_SAMBA_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-samba`** for SMB server apply (**`install`** **`smb.conf.generated`**, **`systemctl`** **`smbd`**/**`nmbd`**, **`volumio-evo-smb-user-sync.sh`** — **[SAMBA.md](SAMBA.md)**) |
 | **`EVO_SERVICE_USER`** | unset → auto | See **RUNTIME_USER.md** |
 
 Setting **`EVO_INSTALL_MPD_SUDOERS=0`** while running Evo **as non-root** means fragment writes may succeed but **MPD reload will fail** unless you run Evo as **root** or install an equivalent **NOPASSWD** rule yourself.

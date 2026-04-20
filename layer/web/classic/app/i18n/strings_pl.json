@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Usługi komunikacji bezprzewodowej uruchomione poprawnie",
     "WIRELESS_RESTART_TITLE": "Restart usług komunikacji bezprzewodowej",
     "WIRELESS_NETWORK_CONNECTING_TO": "Podłączanie do sieci bezprzewodowej",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Zostaniesz teraz rozłączony. Podłącz ponownie do swojej sieci bezprzewodowej i wyszukaj ponownie urządzenia."
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Zostaniesz teraz rozłączony. Podłącz ponownie do swojej sieci bezprzewodowej i wyszukaj ponownie urządzenia.",
+    "SMB_SERVER_SETTINGS": "Udostępnianie plików SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Udostępniaj muzykę i inne dozwolone foldery w sieci lokalnej. Konta użytkowników i dodatkowe ścieżki udostępnień zostaną dodane później w wtyczce rdzenia Volumio2-UI.",
+    "SMB_ENABLE": "Włącz serwer SMB",
+    "SMB_ENABLE_DOC": "Po włączeniu urządzenie uruchamia serwer plików Samba (jeśli pakiet systemowy jest zainstalowany).",
+    "SMB_MIN_PROTOCOL": "Minimalny protokół SMB",
+    "SMB_MIN_PROTOCOL_DOC": "Podnosi minimalną wersję dialektu oferowaną przez serwer; ogranicza bardzo stare (niebezpieczne) klienty. Może być wymagane SMB2 lub nowsze.",
+    "SMB_PROTOCOL_DEFAULT": "Domyślne (Samba / system)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 lub nowszy",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 lub nowszy",
+    "SMB_USERS_AND_SHARES_TITLE": "Użytkownicy SMB i dodatkowe udostępnienia",
+    "SMB_USERS_AND_SHARES_PENDING": "Zarządzanie listą (dodaj, zapisz, usuń) pojawi się tutaj po zainstalowaniu opcjonalnej sekcji smb rdzenia Volumio2-UI; zob. docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Język",

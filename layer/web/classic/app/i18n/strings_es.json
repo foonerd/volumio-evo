@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Conexión inalámbrica reiniciada correctamente",
     "WIRELESS_RESTART_TITLE": "Reiniciar la red inalámbrica",
     "WIRELESS_NETWORK_CONNECTING_TO": "Conexión a una red inalámbrica",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Ahora estarás desconectado. Conéctate de nuevo a tu red inalámbrica y descubre tu dispositivo nuevamente, una vez que se haya establecido la conexión"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "Ahora estarás desconectado. Conéctate de nuevo a tu red inalámbrica y descubre tu dispositivo nuevamente, una vez que se haya establecido la conexión",
+    "SMB_SERVER_SETTINGS": "Recursos SMB",
+    "SMB_SERVER_SETTINGS_DOC": "Comparte música y otras carpetas permitidas en la red local. Las cuentas de usuario y rutas adicionales se añadirán más adelante en el complemento núcleo de Volumio2-UI cuando esté disponible.",
+    "SMB_ENABLE": "Activar servidor SMB",
+    "SMB_ENABLE_DOC": "Si está activado, el dispositivo ejecuta el servidor de archivos Samba (si el paquete del sistema está instalado).",
+    "SMB_MIN_PROTOCOL": "Protocolo SMB mínimo",
+    "SMB_MIN_PROTOCOL_DOC": "Sube la versión mínima del dialecto que ofrece el servidor; ayuda a evitar clientes muy antiguos (inseguros). Los clientes pueden necesitar SMB2 o superior.",
+    "SMB_PROTOCOL_DEFAULT": "Predeterminado (Samba / SO)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 o superior",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 o superior",
+    "SMB_USERS_AND_SHARES_TITLE": "Usuarios SMB y recursos adicionales",
+    "SMB_USERS_AND_SHARES_PENDING": "La gestión de la lista (añadir, guardar, eliminar) aparecerá aquí cuando esté instalada la sección smb opcional del núcleo de Volumio2-UI; véase docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Idioma",

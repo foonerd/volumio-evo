@@ -30,5 +30,18 @@
     "BOOT_BRANDING_ROTATION": "Rotacija začetnega zaslona",
     "BOOT_BRANDING_ROTATION_DOC": "Namig za rotacijo sredstev Plymouth (jedro plymouth=N). Ujemanje z orientacijo zaslona.",
     "INSTALL_BOOT_BRANDING": "Namesti in omogoči"
+  },
+  "NETWORK": {
+    "SMB_SERVER_SETTINGS": "SMB ගොනු හුවමාරුව",
+    "SMB_SERVER_SETTINGS_DOC": "දේශීය ජාලයේ සංගීතය සහ අනුමත ෆෝල්ඩර හුවමාරු කරන්න. පරිශීලක ගිණුම් සහ අතිරේක හුවමාරු මාර්ග පසුව Volumio2-UI මූලික පිලගන්නාකුටුවෙන් එකතු වේ.",
+    "SMB_ENABLE": "SMB සේවාදායකය සක්‍රීය කරන්න",
+    "SMB_ENABLE_DOC": "සක්‍රීය නම්, උපාංගය Samba ගොනු සේවාදායකය ධාවනය කරයි (OS පැකේජය ස්ථාපිත නම්).",
+    "SMB_MIN_PROTOCOL": "අවම SMB ප්‍රොටෝකෝලය",
+    "SMB_MIN_PROTOCOL_DOC": "සේවාදායකය දක්වන අවම ප්‍රොටෝකෝල් අනුවාදය ඉහළ දමයි; ඉතා පැරණි (අනාරක්ෂිත) සේවාලාභකයන් මග හරියි. SMB2 හෝ නවීන අවශ්‍ය විය හැක.",
+    "SMB_PROTOCOL_DEFAULT": "පෙරනිමිය (Samba / මෙහෙයුම් පද්ධතිය)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 හෝ ඉහළ",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 හෝ ඉහළ",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB පරිශීලකයින් සහ අතිරේක හුවමාරු",
+    "SMB_USERS_AND_SHARES_PENDING": "ලැයිස්තු කළමනාකරණය (එකතු, සුරැකුම්, ඉවත් කිරීම) විකල්ප Volumio2-UI smb මූල කොටස ස්ථාපිත විට මෙහි දිස් වේ; docs/SAMBA.md බලන්න."
   }
 }

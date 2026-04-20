@@ -220,7 +220,18 @@
     "WIRELESS_RESTART_ERROR": "Klaida iš naujo paleidžiant belaidį ryšį:",
     "WIRELESS_RESTART_SUCCESS": "Belaidis ryšys sėkmingai paleistas iš naujo",
     "WIRELESS_RESTART_TITLE": "Belaidis paleidimas iš naujo",
-    "WIRELESS_NETWORK_CONNECTING_TO": "Prisijungimas prie belaidžio tinklo"
+    "WIRELESS_NETWORK_CONNECTING_TO": "Prisijungimas prie belaidžio tinklo",
+    "SMB_SERVER_SETTINGS": "SMB failų bendrinimas",
+    "SMB_SERVER_SETTINGS_DOC": "Bendrinkite muziką ir kitus leidžiamus aplankus vietiniame tinkle. Naudotojų paskyros ir papildomi bendrinimo keliai bus pridėti vėlesniame žingsnyje per Volumio2-UI branduolio papildinį.",
+    "SMB_ENABLE": "Įjungti SMB serverį",
+    "SMB_ENABLE_DOC": "Įjungus įrenginys paleidžia Samba failų serverį (jei įdiegtas OS paketas).",
+    "SMB_MIN_PROTOCOL": "Minimali SMB protokolo versija",
+    "SMB_MIN_PROTOCOL_DOC": "Keliamas minimalus serverio siūlomas protokolas; padeda išvengti labai senų (nesaugių) klientų. Gali reikėti SMB2 ar naujesnio.",
+    "SMB_PROTOCOL_DEFAULT": "Numatyta (Samba / OS)",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 ar naujesnis",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 ar naujesnis",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB naudotojai ir papildomi bendrinimai",
+    "SMB_USERS_AND_SHARES_PENDING": "Sąrašo valdymas (pridėti, išsaugoti, pašalinti) bus čia, kai įdiegsite pasirenkamą Volumio2-UI smb branduolio skyrių; žr. docs/SAMBA.md."
   },
   "WIZARD": {
     "LANGUAGE": "Kalba",

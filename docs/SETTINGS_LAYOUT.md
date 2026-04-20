@@ -26,6 +26,7 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/favourites/` | Library favourites + radio favourites (JSON, Node-compatible) | `favourites`, `radio-favourites` |
 | `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
 | `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml`: **`ethernet.enabled`** (default **true**; set **false** for Wi‑Fi‑only), **`fallback.hotspot_ifname`** when STA iface ≠ AP iface, optional `wifi-sta.psk` / `wifi-ap.psk` (0600), **`wifi_iface_preferred`** (one line: UI-chosen STA `wlan*`), staging **`config.toml.pending`** (full merged TOML before `install` to `/etc`) |
+| `settings/samba/` | SMB server: enable share, protocol floor, export list + user metadata; **`smb.conf.generated`** staging; **[`SAMBA.md`](SAMBA.md)** | `state.toml` (credentials in Samba **passdb**, not TOML) |
 | `settings/system/` | Settings → System: hostname, timezone, country code (→ `iw reg`), UI language code, kiosk placeholders, privacy/update flags | `state.toml` |
 | `settings/alarm/` | Alarm clock + sleep timer (daily playlist alarms, countdown sleep — `state.toml`) | `state.toml` |
 
@@ -68,6 +69,7 @@ Log level and **`journalctl`** filtering are documented in **[OBSERVABILITY.md](
 | `VOLUMIO_EVO_ALSA_STATE` | **Full path** to the ALSA state file. Overrides `settings/alsa/state.toml`. |
 | `VOLUMIO_EVO_PLAYBACK_STATE` | **Full path** to the MPD playback options file. Overrides `settings/mpd/playback.toml`. |
 | `VOLUMIO_EVO_ALARM_STATE` | **Full path** to alarm/sleep persisted state. Overrides `settings/alarm/state.toml`. |
+| `VOLUMIO_EVO_SAMBA_STATE` | **Full path** to SMB server persisted state. Overrides `settings/samba/state.toml`. |
 | `VOLUMIO_EVO_REPO_DIR` | Root of the **volumio-evo** tree (theme + `scripts/`). Default: `/usr/share/volumio-evo/repo`. Used for **Settings → System → Boot branding** and the install scripts. |
 | `VOLUMIO_EVO_BOOT_BRANDING_SCRIPT` | Optional full path to **`run-boot-branding.sh`**. Default: `$VOLUMIO_EVO_REPO_DIR/scripts/run-boot-branding.sh`. |
 | `VOLUMIO_EVO_BRANDING_READY_URL` | Optional HTTP URL polled by **`vol-branding-v1-app-listening.service`** until ready (drop-in **`Environment=`**). Legacy alias still honored in the unit: **`VOLUMIO_EVO_MILESTONE_URL`**. |
@@ -103,11 +105,7 @@ A **later phase** may apply the same choice OS-wide via **`locale-gen`**, **`/et
 
 ## Required directories on install
 
-Bootstrap creates:
-
-`mkdir -p /var/lib/volumio-evo/settings/alsa /var/lib/volumio-evo/settings/mpd /var/lib/volumio-evo/settings/mounts /var/lib/volumio-evo/settings/favourites /var/lib/volumio-evo/settings/playlist /var/lib/volumio-evo/settings/network /var/lib/volumio-evo/settings/system /var/lib/volumio-evo/settings/alarm`
-
-so the daemon can write state before the first save.
+Bootstrap creates (see `scripts/bootstrap-volumio-evo-player.sh`): settings subtrees including **`settings/samba`**, **`staging/plugins`**, **`/mnt/NAS`**, etc., so the daemon can write state before the first save.
 
 ## Intent vs system truth
 

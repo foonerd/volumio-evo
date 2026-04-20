@@ -61,6 +61,19 @@ pub fn ui_config_toml_pending_path() -> PathBuf {
     settings_dir().join("ui").join("config.toml.pending")
 }
 
+/// SMB server persisted state (**`settings/samba/state.toml`**) when `VOLUMIO_EVO_SAMBA_STATE` is unset.
+/// Policy: repository `docs/SAMBA.md`.
+pub fn default_samba_state_path() -> PathBuf {
+    std::env::var("VOLUMIO_EVO_SAMBA_STATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| settings_dir().join("samba").join("state.toml"))
+}
+
+/// Generated **`smb.conf`** written by Evo before **`sudo install`** → **`/etc/samba/smb.conf`** (non-root path in sudoers).
+pub fn default_samba_generated_smb_conf_path() -> PathBuf {
+    settings_dir().join("samba").join("smb.conf.generated")
+}
+
 /// Root of the **`volumio-evo`** tree (contains `layer/plymouth/`, `scripts/`). Used by boot-branding install.
 /// Default when unset: **`/usr/share/volumio-evo/repo`** (packaged layout); development sets **`VOLUMIO_EVO_REPO_DIR`**.
 pub fn evo_repo_dir() -> PathBuf {
@@ -81,3 +94,15 @@ pub fn boot_branding_run_script_path() -> PathBuf {
 pub fn boot_branding_install_script_path() -> PathBuf {
     evo_repo_dir().join("scripts").join("volumio-boot-branding.sh")
 }
+
+// --- SMB server (user-defined share paths): moderation -------------------------------------------
+
+/// Absolute path prefixes allowed as targets for **user-defined** SMB shares (string prefix policy; see `docs/SAMBA.md`).
+pub const SMB_SHARE_ALLOWED_ROOTS: &[&str] = &[
+    "/var/lib/volumio-evo",
+    "/mnt/NAS",
+    "/mnt/USB",
+];
+
+/// Prefixes that are **never** exported, even if nested under [`SMB_SHARE_ALLOWED_ROOTS`].
+pub const SMB_SHARE_DENIED_PREFIXES: &[&str] = &["/var/lib/volumio-evo/settings"];

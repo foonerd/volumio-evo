@@ -408,7 +408,18 @@
     "WIRELESS_RESTART_SUCCESS": "Wi-Fiが正常に再起動されました",
     "WIRELESS_RESTART_TITLE": "Wi-Fiの再起動",
     "WIRELESS_NETWORK_CONNECTING_TO": "Wi-Fiネットワークに接続中",
-    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "これで接続が切断されます。再接続し、ネットワークでデバイスを再検出してください"
+    "WIRELESS_NETWORK_RESTART_AFTER_CONNECTION": "これで接続が切断されます。再接続し、ネットワークでデバイスを再検出してください",
+    "SMB_SERVER_SETTINGS": "SMB ファイル共有",
+    "SMB_SERVER_SETTINGS_DOC": "ローカルネットワークで音楽と許可されたフォルダを共有します。ユーザーアカウントと追加の共有パスは、利用可能になったら Volumio2-UI のコアプラグインで後から追加されます。",
+    "SMB_ENABLE": "SMB サーバーを有効にする",
+    "SMB_ENABLE_DOC": "オンにすると、Samba ファイルサーバーを実行します（OS パッケージがインストールされている場合）。",
+    "SMB_MIN_PROTOCOL": "最小 SMB プロトコル",
+    "SMB_MIN_PROTOCOL_DOC": "サーバーが提供する最小の方言バージョンを上げ、古い（安全でない）クライアントを避けます。クライアントは SMB2 以降が必要になる場合があります。",
+    "SMB_PROTOCOL_DEFAULT": "既定（Samba / OS）",
+    "SMB_PROTOCOL_SMB2": "SMB 2.0.2 以上",
+    "SMB_PROTOCOL_SMB3": "SMB 3.0.2 以上",
+    "SMB_USERS_AND_SHARES_TITLE": "SMB ユーザーと追加共有",
+    "SMB_USERS_AND_SHARES_PENDING": "一覧の管理（追加・保存・削除）は、オプションの Volumio2-UI smb コアセクションをインストールするとここに表示されます。docs/SAMBA.md を参照してください。"
   },
   "SLEEP": {
     "POWER_OFF": "電源オフ",
