@@ -404,6 +404,13 @@ pub fn router(
     let backgrounds = crate::backgrounds::BackgroundAppearance::load();
     let mut alsa_settings = crate::alsa::AlsaSettings::load();
     let i2s_card_remapped = alsa_settings.remap_i2s_output_device_from_alsacard();
+    if let Err(e) = crate::i2s::ensure_raspberry_pi_i2c_dev_module() {
+        tracing::warn!(
+            "{} Pi OS: could not ensure i2c-dev for /dev/i2c-*: {}",
+            crate::log_tags::EVO_I2S,
+            e
+        );
+    }
     let router_state = Arc::new(RouterState {
         config: state.clone(),
         network_mounts: network_mounts.clone(),

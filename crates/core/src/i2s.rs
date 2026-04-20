@@ -1,7 +1,8 @@
 //! I2S DAC catalogue (`dacs.json`, same source as Node `system_controller/i2s_dacs`) and boot `dtoverlay`
 //! updates. Matches Node banner + `dtoverlay=` block in `/boot/firmware/config.txt` or `/boot/config.txt`.
 //! On **Raspberry PI**, enabling an I2S DAC also ensures `dtparam=i2c_arm=on` and `dtparam=i2s=on` are
-//! active (stock images often leave them commented).
+//! active (stock images often leave them commented), and installs a **`modules-load.d`** drop-in for
+//! **`i2c-dev`** so `/dev/i2c-*` exists (Pi OS Trixie+ no longer auto-loads it with `dtparam=i2c_arm=on` alone).
 //!
 //! Reads prefer **`fs::read_to_string`** when `/boot/...` is world-readable (usual on Pi). Writes use
 //! **`sudo -n tee`** (matches Volumio `volumio-user` sudoers: `NOPASSWD` for `/usr/bin/tee`, not `cat`).
@@ -256,19 +257,65 @@ fn ensure_raspberry_pi_i2c_i2s_dtparams(txt: String) -> Result<String> {
 
 fn write_boot_config(content: &str) -> Result<()> {
     let path = resolved_boot_config_path();
+    sudo_tee_file(path, content.as_bytes())
+}
+
+/// Raspberry Pi OS Bookworm/Trixie: `dtparam=i2c_arm=on` enables the controller but userspace needs the
+/// **`i2c-dev`** module for `/dev/i2c-N` (e.g. `i2cdetect`). Raspi-config used to load it implicitly.
+const PI_I2C_DEV_MODULES_FILE: &str = "/etc/modules-load.d/volumio-evo-i2c-dev.conf";
+
+fn sudo_tee_file(path: &str, bytes: &[u8]) -> Result<()> {
     let mut child = Command::new("sudo")
         .args(["-n", "tee", path])
         .stdin(Stdio::piped())
         .spawn()
-        .context("sudo tee boot config")?;
+        .with_context(|| format!("sudo tee {}", path))?;
     child
         .stdin
         .as_mut()
         .context("stdin")?
-        .write_all(content.as_bytes())?;
+        .write_all(bytes)?;
     let st = child.wait().context("wait tee")?;
     if !st.success() {
         bail!("sudo tee {} failed with {}", path, st);
+    }
+    Ok(())
+}
+
+fn ensure_pi_i2c_dev_module_loaded() -> Result<()> {
+    if !is_raspberry_pi_profile() {
+        return Ok(());
+    }
+    let mut wrote = false;
+    let already = std::fs::read_to_string(PI_I2C_DEV_MODULES_FILE)
+        .ok()
+        .is_some_and(|s| {
+            s.lines().any(|l| {
+                let t = l.split('#').next().unwrap_or("").trim();
+                t == "i2c-dev"
+            })
+        });
+    if !already {
+        sudo_tee_file(PI_I2C_DEV_MODULES_FILE, b"i2c-dev\n")?;
+        wrote = true;
+    }
+    let st = Command::new("sudo")
+        .args(["-n", "modprobe", "i2c-dev"])
+        .status()
+        .context("sudo modprobe i2c-dev")?;
+    if !st.success() {
+        tracing::debug!(
+            "{} modprobe i2c-dev exited {}; module may be built-in",
+            crate::log_tags::EVO_I2S,
+            st
+        );
+    }
+    if wrote {
+        tracing::info!(
+            "{} wrote {} (loads i2c-dev for /dev/i2c-* on Pi OS Trixie+)",
+            crate::log_tags::EVO_I2S,
+            PI_I2C_DEV_MODULES_FILE
+        );
     }
     Ok(())
 }
@@ -280,7 +327,8 @@ fn write_boot_config(content: &str) -> Result<()> {
 /// at the end of the file.
 ///
 /// When `hardware_profile()` is `Raspberry PI`, also uncomments or appends `dtparam=i2c_arm=on` and
-/// `dtparam=i2s=on` so optional interfaces are enabled for HAT overlays.
+/// `dtparam=i2s=on` so optional interfaces are enabled for HAT overlays, and ensures **`i2c-dev`** is
+/// loaded so **`/dev/i2c-*`** exists for userspace tools.
 pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
     if overlay.is_empty() {
         bail!("module-based I2S (empty overlay) is not implemented in Evo yet");
@@ -304,7 +352,22 @@ pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
         crate::log_tags::EVO_I2S,
         resolved_boot_config_path()
     );
+    if is_raspberry_pi_profile() {
+        if let Err(e) = ensure_pi_i2c_dev_module_loaded() {
+            tracing::warn!(
+                "{} could not install i2c-dev auto-load for /dev/i2c-*: {}",
+                crate::log_tags::EVO_I2S,
+                e
+            );
+        }
+    }
     Ok(())
+}
+
+/// Loads **`i2c-dev`** on Raspberry Pi OS so **`/dev/i2c-*`** exists (needed on Trixie+ even when
+/// `dtparam=i2c_arm=on`). Idempotent. Same drop-in path as [`enable_i2s_overlay`] side effect.
+pub fn ensure_raspberry_pi_i2c_dev_module() -> Result<()> {
+    ensure_pi_i2c_dev_module_loaded()
 }
 
 /// Remove the Volumio I2S block (`disableI2SDAC`).

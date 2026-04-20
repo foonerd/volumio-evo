@@ -704,6 +704,23 @@ install_ui_from_layer_web() {
   EVO_UI_INSTALLED_ALL_LAYOUTS=1
 }
 
+# Pi OS Trixie+: enabling I2C via config.txt (`dtparam=i2c_arm=on`) does not load `i2c-dev`; without it
+# there are no /dev/i2c-* nodes for i2cdetect/userspace — kernel drivers still bind. Evo matches
+# crates/core/src/i2s.rs (same path as Evo saveAlsaOptions I2S DAC).
+ensure_raspberry_pi_i2c_dev_module() {
+  [[ -r /proc/device-tree/model ]] || return 0
+  if ! tr -d '\0' < /proc/device-tree/model | grep -qi raspberry; then
+    return 0
+  fi
+  local f=/etc/modules-load.d/volumio-evo-i2c-dev.conf
+  if [[ ! -f "${f}" ]] || [[ "$(head -n1 "${f}" | tr -d '\r')" != "i2c-dev" ]]; then
+    printf '%s\n' 'i2c-dev' > "${f}"
+    chmod 644 "${f}" 2>/dev/null || true
+    echo "Installed ${f} — auto-load i2c-dev for /dev/i2c-* (Pi OS Trixie+)."
+  fi
+  modprobe i2c-dev 2>/dev/null || true
+}
+
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   local -a net_pkgs=()
@@ -734,6 +751,7 @@ install_packages() {
   else
     echo "Skipping rustup (installing prebuilt volumio-evo from layer/binaries; use --build to compile on device)."
   fi
+  ensure_raspberry_pi_i2c_dev_module
 }
 
 # Standalone SMB **file server** only (`smbd`/`nmbd`). Ubuntu often ships `smbd` + `nmbd` as separate
@@ -1469,6 +1487,7 @@ main() {
   install_packages
 
   if [[ "${BOOTSTRAP_MODE}" == "upgrade-evo" ]]; then
+    ensure_raspberry_pi_i2c_dev_module
     build_and_install_evo
     validate_backend_only
     exit 0
