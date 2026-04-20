@@ -6,10 +6,12 @@ use crate::config::MUSIC_SOURCE_NAMES;
 use anyhow::Result;
 use mpd_client::{
     commands::{
-        Add, ClearQueue, CurrentSong, List as MpdListCmd, Move, Next, Play, Previous, Queue,
-        Rescan, Seek as MpdSeekCmd, SeekMode, SetConsume, SetPause as MpdPause, SetRandom,
-        SetRepeat, SetSingle, SetVolume, SingleMode, Song, SongPosition, Status, Stop, Update,
+        Add, ClearQueue, Command as MpdTypedCommand, CurrentSong, Find, List as MpdListCmd, Move,
+        Next, Play, Previous, Queue, Rescan, Seek as MpdSeekCmd, SeekMode, SetConsume,
+        SetPause as MpdPause, SetRandom, SetRepeat, SetSingle, SetVolume, SingleMode, Song,
+        SongPosition, Status, Stop, Update,
     },
+    filter::Filter,
     protocol::command::Command as RawCommand,
     responses::PlayState,
     tag::Tag,
@@ -24,6 +26,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedSender;
 use urlencoding::decode;
+
+/// `find` using MPD **filter expressions** (see `mpd_client::filter::Filter`). MPD 0.21+ rejects
+/// legacy `find Album B'Day` tokenization with **Invalid unquoted character**; filters quote values
+/// (`Album == "B'Day"`).
+#[inline]
+fn raw_find_tag_equals(tag: Tag, value: &str) -> RawCommand {
+    MpdTypedCommand::command(&Find::new(Filter::tag(tag, value.to_string())))
+}
+
+/// `find` with the special `any` tag (search across tags).
+#[inline]
+fn raw_find_any_term(query: &str) -> RawCommand {
+    MpdTypedCommand::command(&Find::new(Filter::tag(Tag::any(), query.to_string())))
+}
 
 /// MPD connection config (host and port from main config).
 #[derive(Clone, Debug)]
@@ -443,6 +459,14 @@ fn is_albums_artist_album_browse_uri(uri: &str) -> bool {
             .splitn(2, '/')
             .next()
             .is_some_and(|first| !first.is_empty())
+}
+
+/// After stripping `albums://` and URI-decoding the rest. Removes a **leading** `/` so `albums:///Album`
+/// (many clients emit `albums://` + `/Earth To Mars`) is treated as **album-only**, not
+/// `(artist="", album="Earth To Mars")`. The latter produced `find … AlbumArtist ""` which MPD 0.24+
+/// rejects (`Incorrect number of filter arguments`).
+fn normalize_albums_uri_rest(rest_dec: &str) -> String {
+    rest_dec.trim().trim_start_matches('/').trim().to_string()
 }
 
 /// In-progress file entry while parsing lsinfo.
@@ -1233,8 +1257,7 @@ pub async fn search_connected(
     }
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    // find any "term" searches in any tag
-    let raw = RawCommand::new("find").argument("any").argument(query);
+    let raw = raw_find_any_term(query);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
@@ -1567,16 +1590,93 @@ fn parse_node_style_album_rows_from_frame(
     rows
 }
 
+/// After [`parse_node_style_album_rows_from_frame`], the same album title can appear twice:
+/// `(album, "")` when some tracks have **no** AlbumArtist/Artist in MPD, and `(album, "Bruno Mars")`
+/// when others do — one physical release, two Browse tiles (“flat list” vs “proper” row). If every
+/// non-empty artist tag for that title agrees on **one** spelling (case-insensitive), drop the
+/// empty-artist rows so only the tagged row remains.
+///
+/// When two or more distinct non-empty artists share an album title (compilation or name collision),
+/// empty-artist rows are kept so ambiguous libraries do not hide tracks.
+fn merge_album_browse_rows_drop_empty_artist_when_unique_nonempty(
+    rows: Vec<(String, String, Option<String>)>,
+) -> Vec<(String, String, Option<String>)> {
+    let mut buckets: HashMap<String, Vec<(String, String, Option<String>)>> = HashMap::new();
+    for row in rows {
+        let key = row.0.trim().to_lowercase();
+        buckets.entry(key).or_default().push(row);
+    }
+    let mut out: Vec<(String, String, Option<String>)> = Vec::new();
+    for (_k, group) in buckets {
+        let nonempty_lower: HashSet<String> = group
+            .iter()
+            .filter(|(_, a, _)| !a.trim().is_empty())
+            .map(|(_, a, _)| a.trim().to_lowercase())
+            .collect();
+        let drop_empty =
+            nonempty_lower.len() == 1 && group.iter().any(|(_, a, _)| a.trim().is_empty());
+        let filtered: Vec<_> = if drop_empty {
+            group.into_iter().filter(|(_, a, _)| !a.trim().is_empty()).collect()
+        } else {
+            group
+        };
+        let mut seen_pair: HashSet<(String, String)> = HashSet::new();
+        for row in filtered {
+            let pid = (
+                row.0.trim().to_lowercase(),
+                row.1.trim().to_lowercase(),
+            );
+            if seen_pair.insert(pid) {
+                out.push(row);
+            }
+        }
+    }
+    out.sort_by(|a, b| {
+        a.0.to_lowercase()
+            .cmp(&b.0.to_lowercase())
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+    out
+}
+
 /// Same source as Node `listAlbums` (`search album ""`). Third tuple element is a representative
 /// `music-library/...` file URI for `/albumart?path=` (first track per album), matching Node.
+///
+/// **MPD 0.24+** rejects `search album ""` with `Incorrect number of filter arguments`. In that case we
+/// use **`listallinfo`** (full library scan with the same `file:` / tag shape as search) so we still run
+/// Node-style dedupe instead of jumping straight to [`list_album_artist_pairs_via_list_group`].
 async fn list_albums_via_search_album_empty(
     config: &MpdConfig,
 ) -> Result<Vec<(String, String, Option<String>)>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("search").argument("album").argument("");
-    let frame = client.raw_command(raw).await?;
-    Ok(parse_node_style_album_rows_from_frame(&frame))
+
+    let search_cmd = RawCommand::new("search").argument("album").argument("");
+    match client.raw_command(search_cmd).await {
+        Ok(frame) => {
+            let rows = parse_node_style_album_rows_from_frame(&frame);
+            if !rows.is_empty() {
+                return Ok(rows);
+            }
+            tracing::info!(
+                "{} albums browse: search album \"\" returned no rows; using listallinfo",
+                crate::log_tags::EVO_BROWSE
+            );
+            let list_cmd = RawCommand::new("listallinfo");
+            let frame = client.raw_command(list_cmd).await?;
+            Ok(parse_node_style_album_rows_from_frame(&frame))
+        }
+        Err(e) => {
+            tracing::info!(
+                "{} albums browse: search album \"\" failed ({}); using listallinfo",
+                crate::log_tags::EVO_BROWSE,
+                e
+            );
+            let list_cmd = RawCommand::new("listallinfo");
+            let frame = client.raw_command(list_cmd).await?;
+            Ok(parse_node_style_album_rows_from_frame(&frame))
+        }
+    }
 }
 
 /// Fallback when [`list_albums_via_search_album_empty`] is empty (some MPD builds/configs return no rows).
@@ -1709,19 +1809,27 @@ async fn browse_all_albums_connected(config: &MpdConfig) -> Result<BrowseRespons
             ),
         }
     }
+    if !pairs.is_empty() {
+        pairs = merge_album_browse_rows_drop_empty_artist_when_unique_nonempty(pairs);
+    }
     let items: Vec<BrowseItem> = if !pairs.is_empty() {
         pairs
             .into_iter()
             .map(|(album, artist, rep_path)| {
                 let artist_for_item = (!artist.is_empty()).then(|| artist.clone());
-                BrowseItem {
-                    item_type: "folder".to_string(),
-                    title: album.clone(),
-                    uri: format!(
+                let uri = if artist.trim().is_empty() {
+                    format!("albums://{}", urlencoding::encode(album.as_str()))
+                } else {
+                    format!(
                         "albums://{}/{}",
                         urlencoding::encode(artist.as_str()),
                         urlencoding::encode(album.as_str())
-                    ),
+                    )
+                };
+                BrowseItem {
+                    item_type: "folder".to_string(),
+                    title: album.clone(),
+                    uri,
                     service: "mpd".to_string(),
                     artist: artist_for_item,
                     album: None,
@@ -1782,7 +1890,7 @@ async fn browse_album_only_songs_connected(
 ) -> Result<BrowseResponse> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find").argument("Album").argument(album);
+    let raw = raw_find_tag_equals(Tag::Album, album);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "music-library", music_root, &mut drill, false);
@@ -1939,43 +2047,30 @@ async fn browse_artist_connected(config: &MpdConfig, artist: &str) -> Result<Bro
     })
 }
 
-/// List songs in an album from `albums://artist/album`. Matches Node: `find` by Album + AlbumArtist,
-/// then Album + Artist if the library has no AlbumArtist tags. Emits `navigation.info` like Node
-/// `listAlbumSongs` (album header: art, duration, year, genre) and **`list`** view only for tracks.
+/// List songs in an album from `albums://artist/album`.
+///
+/// **Tracks query:** `find Album "<album>"` only — the same scope as [`browse_album_only_songs_connected`].
+/// Node used `find` with Album + AlbumArtist, which on real libraries often returns **only the subset
+/// of tracks** that have that exact `AlbumArtist` tag; the rest share the same `Album` tag but omit or
+/// vary album-artist → the album view showed a **single track** while “flat” `albums://` (album-only)
+/// showed them all. The URI artist is used for **`navigation.info`** (header, `albumart?web=`), not as an
+/// MPD filter for the file list.
 async fn browse_album_songs_connected(
     config: &MpdConfig,
     music_root: &Path,
     artist: &str,
     album: &str,
 ) -> Result<BrowseResponse> {
+    if artist.trim().is_empty() {
+        return browse_album_only_songs_connected(config, music_root, album).await;
+    }
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
     let mut agg = AlbumDrillAgg::default();
 
-    let raw_aa = RawCommand::new("find")
-        .argument("Album")
-        .argument(album)
-        .argument("AlbumArtist")
-        .argument(artist);
-    let frame = client.raw_command(raw_aa).await?;
-    let mut items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root, &mut agg, true);
-    if items.is_empty() {
-        agg = AlbumDrillAgg::default();
-        let raw_ar = RawCommand::new("find")
-            .argument("Album")
-            .argument(album)
-            .argument("Artist")
-            .argument(artist);
-        let frame2 = client.raw_command(raw_ar).await?;
-        items = parse_lsinfo_frame(frame2, "albums://find-tracks", music_root, &mut agg, true);
-    }
-    // Missing artist tags are not always the same as empty-string tags in MPD.
-    if items.is_empty() && artist.is_empty() {
-        agg = AlbumDrillAgg::default();
-        let raw_album_only = RawCommand::new("find").argument("Album").argument(album);
-        let frame3 = client.raw_command(raw_album_only).await?;
-        items = parse_lsinfo_frame(frame3, "albums://find-tracks", music_root, &mut agg, true);
-    }
+    let raw = raw_find_tag_equals(Tag::Album, album);
+    let frame = client.raw_command(raw).await?;
+    let items = parse_lsinfo_frame(frame, "albums://find-tracks", music_root, &mut agg, true);
 
     let browse_uri = format!(
         "albums://{}/{}",
@@ -2037,7 +2132,7 @@ async fn find_artist_all_tracks(
 ) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find").argument("Artist").argument(artist);
+    let raw = raw_find_tag_equals(Tag::Artist, artist);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "artists://explode", music_root, &mut drill, false);
@@ -2047,9 +2142,7 @@ async fn find_artist_all_tracks(
         .map(|i| i.uri)
         .collect();
     if uris.is_empty() {
-        let raw2 = RawCommand::new("find")
-            .argument("AlbumArtist")
-            .argument(artist);
+        let raw2 = raw_find_tag_equals(Tag::AlbumArtist, artist);
         let frame2 = client.raw_command(raw2).await?;
         let mut drill2 = AlbumDrillAgg::default();
         let items2 =
@@ -2071,7 +2164,7 @@ async fn find_genre_all_tracks(
 ) -> Result<Vec<String>> {
     let stream = TcpStream::connect(config.addr()).await?;
     let (client, _) = Client::connect(stream).await?;
-    let raw = RawCommand::new("find").argument("Genre").argument(genre);
+    let raw = raw_find_tag_equals(Tag::Genre, genre);
     let frame = client.raw_command(raw).await?;
     let mut drill = AlbumDrillAgg::default();
     let items = parse_lsinfo_frame(frame, "genres://explode", music_root, &mut drill, false);
@@ -2105,15 +2198,20 @@ pub async fn resolve_uri_for_queue(
         let rest_dec = decode(rest)
             .map(|c| c.into_owned())
             .unwrap_or_else(|_| rest.to_string());
-        if let Some((a, b)) = rest_dec.split_once('/') {
+        let rest_norm = normalize_albums_uri_rest(&rest_dec);
+        if let Some((a, b)) = rest_norm.split_once('/') {
             let artist = a.trim();
             let album = b.trim();
-            if !album.is_empty() {
+            if !album.is_empty() && !artist.is_empty() {
                 let resp = browse_album_songs_connected(config, music_root, artist, album).await?;
                 return Ok(song_uris_from_browse(&resp));
             }
+            if !album.is_empty() && artist.is_empty() {
+                let resp = browse_album_only_songs_connected(config, music_root, album).await?;
+                return Ok(song_uris_from_browse(&resp));
+            }
         }
-        let album = rest_dec.trim();
+        let album = rest_norm.trim();
         if album.is_empty() {
             return Ok(vec![]);
         }
@@ -2255,17 +2353,21 @@ pub async fn browse_connected(
         let rest_dec = decode(rest)
             .map(|c| c.into_owned())
             .unwrap_or_else(|_| rest.to_string());
-        if rest_dec.is_empty() {
+        let rest_norm = normalize_albums_uri_rest(&rest_dec);
+        if rest_norm.is_empty() {
             return browse_all_albums_connected(config).await;
         }
-        if let Some((a, b)) = rest_dec.split_once('/') {
+        if let Some((a, b)) = rest_norm.split_once('/') {
             let artist = a.trim();
             let album = b.trim();
-            if !album.is_empty() {
+            if !album.is_empty() && !artist.is_empty() {
                 return browse_album_songs_connected(config, music_root, artist, album).await;
             }
+            if !album.is_empty() && artist.is_empty() {
+                return browse_album_only_songs_connected(config, music_root, album).await;
+            }
         }
-        return browse_album_only_songs_connected(config, music_root, &rest_dec).await;
+        return browse_album_only_songs_connected(config, music_root, &rest_norm).await;
     }
 
     let stream = TcpStream::connect(config.addr()).await?;
@@ -2901,5 +3003,40 @@ async fn idle_player_playlist_session(
                 let _ = wake.send(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod album_browse_merge_tests {
+    use super::merge_album_browse_rows_drop_empty_artist_when_unique_nonempty;
+
+    #[test]
+    fn merge_drops_empty_artist_when_single_nonempty_album_key() {
+        let rows = vec![
+            (
+                "Earth To Mars".into(),
+                String::new(),
+                Some("music-library/a.mp3".into()),
+            ),
+            (
+                "Earth To Mars".into(),
+                "Bruno Mars".into(),
+                Some("music-library/b.mp3".into()),
+            ),
+        ];
+        let m = merge_album_browse_rows_drop_empty_artist_when_unique_nonempty(rows);
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].1, "Bruno Mars");
+    }
+
+    #[test]
+    fn merge_keeps_both_when_two_distinct_artists_same_album_title() {
+        let rows = vec![
+            ("Hits".into(), "Queen".into(), None),
+            ("Hits".into(), "Someone Else".into(), None),
+            ("Hits".into(), String::new(), None),
+        ];
+        let m = merge_album_browse_rows_drop_empty_artist_when_unique_nonempty(rows);
+        assert_eq!(m.len(), 3);
     }
 }

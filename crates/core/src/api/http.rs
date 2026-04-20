@@ -350,6 +350,11 @@ struct ApiHostResponse {
 /// GET /api/host — matches volumio3-backend: JSON base URL(s) for Socket.IO + REST.
 /// Uses live interface addresses (not a static file) so WiFi/LAN changes apply after reload.
 /// If the HTTP `Host` header is a local IPv4, that address is preferred (same subnet as the client).
+///
+/// When the UI is loaded from loopback (`Host: 127.0.0.1` / `localhost`), the Socket.IO URL must be
+/// loopback too. Otherwise the SPA is served from `http://127.0.0.1/` while `/api/host` pointed at the
+/// first LAN address — cross-origin websocket/polling fails or is flaky in embedded browsers → UI
+/// animates locally but emits never reach Evo (seek snaps back, no backend traffic).
 async fn api_host(State(state): State<AppState>, headers: HeaderMap) -> Json<ApiHostResponse> {
     use std::net::Ipv4Addr;
     let port = http_listen_port(&state.config.bind);
@@ -359,10 +364,16 @@ async fn api_host(State(state): State<AppState>, headers: HeaderMap) -> Json<Api
         .and_then(|h| h.to_str().ok())
         .map(|s| trim_host_port(s));
 
+    let loopback = Ipv4Addr::new(127, 0, 0, 1);
     let mut preferred: Option<Ipv4Addr> = None;
     if let Some(ref h) = host_hdr {
-        if let Ok(ip) = h.parse::<Ipv4Addr>() {
-            if candidates.iter().any(|(_, cand)| *cand == ip) {
+        let t = h.trim();
+        if t.eq_ignore_ascii_case("localhost") {
+            preferred = Some(loopback);
+        } else if let Ok(ip) = t.parse::<Ipv4Addr>() {
+            if ip.is_loopback() {
+                preferred = Some(loopback);
+            } else if candidates.iter().any(|(_, cand)| *cand == ip) {
                 preferred = Some(ip);
             }
         }
@@ -370,7 +381,7 @@ async fn api_host(State(state): State<AppState>, headers: HeaderMap) -> Json<Api
 
     let primary = preferred
         .or_else(|| candidates.first().map(|(_, ip)| *ip))
-        .unwrap_or(Ipv4Addr::new(127, 0, 0, 1));
+        .unwrap_or(loopback);
 
     let host = format!("http://{}:{}", primary, port);
     let host2 = if candidates.len() > 1 {
