@@ -1,5 +1,7 @@
 //! I2S DAC catalogue (`dacs.json`, same source as Node `system_controller/i2s_dacs`) and boot `dtoverlay`
 //! updates. Matches Node banner + `dtoverlay=` block in `/boot/firmware/config.txt` or `/boot/config.txt`.
+//! On **Raspberry PI**, enabling an I2S DAC also ensures `dtparam=i2c_arm=on` and `dtparam=i2s=on` are
+//! active (stock images often leave them commented).
 //!
 //! Reads prefer **`fs::read_to_string`** when `/boot/...` is world-readable (usual on Pi). Writes use
 //! **`sudo -n tee`** (matches Volumio `volumio-user` sudoers: `NOPASSWD` for `/usr/bin/tee`, not `cat`).
@@ -197,6 +199,57 @@ fn strip_duplicate_dtoverlay_lines(txt: &str, overlay: &str) -> Result<String> {
     Ok(re.replace_all(txt, "").to_string())
 }
 
+fn is_raspberry_pi_profile() -> bool {
+    hardware_profile().trim() == "Raspberry PI"
+}
+
+/// Stock Pi images ship with `#dtparam=i2c_arm=on` / `#dtparam=i2s=on` commented; I2S HATs need the
+/// I2S clock/data lines and often I2C (ID EEPROM, volume control). Uncomment, flip `off` → `on`, or
+/// append missing `dtparam=` lines. Only used for [`Raspberry PI`] in `dacs.json`.
+fn ensure_raspberry_pi_i2c_i2s_dtparams(txt: String) -> Result<String> {
+    let mut out = txt;
+    let re_comment_i2c =
+        Regex::new(r"(?m)^(\s*)#\s*dtparam=i2c_arm=on\s*$").context("i2c uncomment")?;
+    out = re_comment_i2c
+        .replace_all(&out, "dtparam=i2c_arm=on")
+        .to_string();
+    let re_comment_i2s =
+        Regex::new(r"(?m)^(\s*)#\s*dtparam=i2s=on\s*$").context("i2s uncomment")?;
+    out = re_comment_i2s
+        .replace_all(&out, "dtparam=i2s=on")
+        .to_string();
+
+    let re_off_i2c = Regex::new(r"(?m)^(\s*)dtparam=i2c_arm=(off|0|false)\s*$")
+        .context("i2c off regex")?;
+    out = re_off_i2c
+        .replace_all(&out, "dtparam=i2c_arm=on")
+        .to_string();
+    let re_off_i2s =
+        Regex::new(r"(?m)^(\s*)dtparam=i2s=(off|0|false)\s*$").context("i2s off regex")?;
+    out = re_off_i2s.replace_all(&out, "dtparam=i2s=on").to_string();
+
+    let has_i2c = Regex::new(r"(?m)^\s*dtparam=i2c_arm=on\s*$")
+        .context("i2c active check")?
+        .is_match(&out);
+    let has_i2s =
+        Regex::new(r"(?m)^\s*dtparam=i2s=on\s*$").context("i2s active check")?.is_match(&out);
+
+    if !has_i2c || !has_i2s {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("\n# Volumio Evo: I2S DAC — enable SoC I2C + I2S (do not remove)\n");
+        if !has_i2c {
+            out.push_str("dtparam=i2c_arm=on\n");
+        }
+        if !has_i2s {
+            out.push_str("dtparam=i2s=on\n");
+        }
+    }
+
+    Ok(out)
+}
+
 fn write_boot_config(content: &str) -> Result<()> {
     let path = resolved_boot_config_path();
     let mut child = Command::new("sudo")
@@ -221,6 +274,9 @@ fn write_boot_config(content: &str) -> Result<()> {
 /// If the same `dtoverlay=<overlay>` already appears elsewhere (e.g. under `[all]` from an image or
 /// manual edit), those lines are removed so the overlay is only defined once — in the Volumio block
 /// at the end of the file.
+///
+/// When `hardware_profile()` is `Raspberry PI`, also uncomments or appends `dtparam=i2c_arm=on` and
+/// `dtparam=i2s=on` so optional interfaces are enabled for HAT overlays.
 pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
     if overlay.is_empty() {
         bail!("module-based I2S (empty overlay) is not implemented in Evo yet");
@@ -229,6 +285,9 @@ pub fn enable_i2s_overlay(overlay: &str) -> Result<()> {
     let mut txt = read_boot_config()?;
     txt = strip_volumio_i2s_block(&txt);
     txt = strip_duplicate_dtoverlay_lines(&txt, overlay)?;
+    if is_raspberry_pi_profile() {
+        txt = ensure_raspberry_pi_i2c_i2s_dtparams(txt)?;
+    }
     if !txt.ends_with('\n') {
         txt.push('\n');
     }
@@ -311,5 +370,37 @@ dtoverlay=hifiberry-dacplushd
                 .any(|d| d.name == "Raspberry PI" && !d.data.is_empty()),
             "expected Raspberry PI section"
         );
+    }
+
+    #[test]
+    fn raspberry_pi_uncomments_stock_i2c_i2s_dtparams() {
+        let sample = "# Optional hardware\n#dtparam=i2c_arm=on\n#dtparam=i2s=on\n";
+        let out = ensure_raspberry_pi_i2c_i2s_dtparams(sample.to_string()).unwrap();
+        assert!(out.contains("\ndtparam=i2c_arm=on\n") || out.starts_with("dtparam=i2c_arm=on"));
+        assert!(out.lines().any(|l| l.trim() == "dtparam=i2c_arm=on"));
+        assert!(out.lines().any(|l| l.trim() == "dtparam=i2s=on"));
+        assert!(!out.contains("#dtparam=i2c_arm=on"));
+        assert!(!out.contains("#dtparam=i2s=on"));
+    }
+
+    #[test]
+    fn raspberry_pi_appends_dtparams_when_absent() {
+        let sample = "[all]\nenable_uart=1\n";
+        let out = ensure_raspberry_pi_i2c_i2s_dtparams(sample.to_string()).unwrap();
+        assert!(out.contains("dtparam=i2c_arm=on"));
+        assert!(out.contains("dtparam=i2s=on"));
+        assert!(out.contains("Volumio Evo: I2S DAC"));
+    }
+
+    #[test]
+    fn raspberry_pi_flips_dtparam_off_to_on() {
+        let sample = "dtparam=i2c_arm=off\ndtparam=i2s=off\n";
+        let out = ensure_raspberry_pi_i2c_i2s_dtparams(sample.to_string()).unwrap();
+        assert_eq!(
+            out.matches("dtparam=i2c_arm=on").count(),
+            1,
+            "{out}"
+        );
+        assert_eq!(out.matches("dtparam=i2s=on").count(), 1);
     }
 }
