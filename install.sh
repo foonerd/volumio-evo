@@ -28,7 +28,28 @@ EVO_REPO_DIR="${EVO_REPO_DIR:-${DEFAULT_EVO_REPO_DIR}}"
 
 BOOTSTRAP="${EVO_REPO_DIR}/scripts/bootstrap-volumio-evo-player.sh"
 
+_ensure_git() {
+  if command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "git is required to clone the repository but was not found. Installing..."
+  if command -v apt-get >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git ca-certificates
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y git ca-certificates
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y git ca-certificates
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache git ca-certificates
+  else
+    echo "ERROR: Install git (and ca-certificates) manually, then re-run this installer."
+    exit 1
+  fi
+}
+
 if [[ ! -f "${EVO_REPO_DIR}/Cargo.toml" || ! -d "${EVO_REPO_DIR}/layer" ]]; then
+  _ensure_git
   if [[ -e "${EVO_REPO_DIR}" ]]; then
     echo "ERROR: ${EVO_REPO_DIR} exists but is not a complete volumio-evo checkout."
     echo "Remove it, or set EVO_REPO_DIR to an empty path, then re-run."
