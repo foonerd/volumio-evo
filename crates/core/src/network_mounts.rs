@@ -6,9 +6,11 @@
 //! captive/connectivity probe lags DHCP), then retries transient “network unreachable” errors once.
 //!
 //! **Runtime:** A background task periodically calls [`NetworkMounts::remount_unmounted_shares_best_effort`]
-//! so shares come online after the user changes network or moves the device (no reboot). If a
-//! configured share is still not mounted, MPD is nudged to **stop** / **clear** NAS queue traffic and
-//! **`update NAS/`** so the database is not full of dead paths (avoids **No such song** storms).
+//! so shares come online after the user changes network or moves the device (no reboot).
+//! `NetworkMounts::mitigate_mpd_if_unreachable_library_segments` stops/clears MPD when **`music-library`
+//! paths refer to missing storage** (broken `INTERNAL`/`USB`/`SMB`
+//! symlinks, unplugged USB, NAS shares not mounted, …) and runs scoped **`update`** so the DB does not
+//! keep hammering stale paths (**No such song** storms).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -24,6 +26,62 @@ use crate::paths;
 
 /// Root for CIFS/NFS mounts (same as volumio3-backend `networkfs`).
 pub const NAS_MOUNT_ROOT: &str = "/mnt/NAS";
+
+/// True when `music_root/<segment>` does not exist or **`music-library` would point at a dangling symlink**
+/// (typical after USB is removed). Does not guess “empty folder” removable media — only structural absence.
+pub fn library_segment_path_unreachable(path: &Path) -> bool {
+    if !path.exists() {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return false;
+        };
+        if meta.file_type().is_symlink() {
+            let Ok(target) = std::fs::read_link(path) else {
+                return true;
+            };
+            let resolved = if target.is_absolute() {
+                target
+            } else {
+                path.parent()
+                    .unwrap_or_else(|| Path::new("/"))
+                    .join(target)
+            };
+            if !resolved.exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Segments under `music_root` that are missing or unreachable, plus **`NAS`**
+/// when any persisted share’s mount point is not active.
+pub async fn unreachable_music_library_segments(cfg: &Config, nm: &NetworkMounts) -> Vec<String> {
+    let mut out = Vec::new();
+    for seg in ["INTERNAL", "USB", "SMB"] {
+        let p = cfg.music_sources.music_root.join(seg);
+        if library_segment_path_unreachable(&p) {
+            out.push(seg.to_string());
+        }
+    }
+    if let Ok(file) = nm.load().await {
+        if !file.shares.is_empty() {
+            let nas_missing = file.shares.iter().any(|sh| {
+                let mp = NetworkMounts::mountpoint_for_name(&sh.name);
+                !NetworkMounts::is_mounted(&mp)
+            });
+            if nas_missing {
+                out.push("NAS".to_string());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
 
 /// Ensure `music_root/NAS` → [`NAS_MOUNT_ROOT`] so MPD `music_directory` layout (`NAS/<alias>/…`) matches
 /// actual mounts under `/mnt/NAS/<alias>/…`. Replaces an **empty** `NAS` directory (bootstrap placeholder).
@@ -970,7 +1028,7 @@ impl NetworkMounts {
         }
 
         if transient_retry.is_empty() {
-            self.mitigate_mpd_if_configured_shares_unmounted(&cfg).await;
+            self.mitigate_mpd_if_unreachable_library_segments(&cfg).await;
             return;
         }
         tracing::info!(
@@ -1013,29 +1071,30 @@ impl NetworkMounts {
             }
         }
 
-        self.mitigate_mpd_if_configured_shares_unmounted(&cfg).await;
+        self.mitigate_mpd_if_unreachable_library_segments(&cfg).await;
     }
 
-    async fn mitigate_mpd_if_configured_shares_unmounted(&self, cfg: &Config) {
-        let Ok(file) = self.load().await else {
-            return;
-        };
-        let share_unmounted = file.shares.iter().any(|sh| {
-            let mp = Self::mountpoint_for_name(&sh.name);
-            !Self::is_mounted(&mp)
-        });
-        if !share_unmounted {
+    async fn mitigate_mpd_if_unreachable_library_segments(&self, cfg: &Config) {
+        let missing = unreachable_music_library_segments(cfg, self).await;
+        if missing.is_empty() {
             return;
         }
         let mpd_cfg = MpdConfig {
             host: cfg.mpd_host.clone(),
             port: cfg.mpd_port,
         };
-        match mpd::mitigate_unreachable_nas_library_connected(&mpd_cfg, &cfg.music_sources.music_root).await {
+        match mpd::mitigate_unreachable_library_storage_connected(
+            &mpd_cfg,
+            &cfg.music_sources.music_root,
+            &missing,
+        )
+        .await
+        {
             Ok(()) => {}
             Err(e) => tracing::warn!(
-                "{} NAS mount missing: could not mitigate MPD (stop/clear/update): {}",
+                "{} missing library storage {:?}: could not mitigate MPD (stop/clear/update): {}",
                 crate::log_tags::EVO_UI,
+                missing,
                 e
             ),
         }
@@ -1104,7 +1163,7 @@ impl NetworkMounts {
             }
         }
 
-        self.mitigate_mpd_if_configured_shares_unmounted(cfg).await;
+        self.mitigate_mpd_if_unreachable_library_segments(cfg).await;
     }
 
     /// Edit share: unmount, update config, remount (Node-compatible).

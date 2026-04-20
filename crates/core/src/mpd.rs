@@ -2866,33 +2866,41 @@ pub async fn get_queue(
     Ok(items)
 }
 
-fn queue_item_uri_is_under_nas_library(uri: &str) -> bool {
-    uri.contains("music-library/NAS/")
-}
-
-fn queue_touches_nas_library(items: &[QueueItem]) -> bool {
-    items.iter().any(|q| {
-        q.uri
-            .as_deref()
-            .is_some_and(queue_item_uri_is_under_nas_library)
+fn uri_touches_unreachable_segments(uri: &str, missing_roots: &[String]) -> bool {
+    missing_roots.iter().any(|seg| {
+        let needle = format!("music-library/{seg}/");
+        uri.contains(&needle)
     })
 }
 
-/// When NAS mounts are **down** but MPD still has queue/catalog paths under `music-library/NAS/…`,
-/// playback can hammer missing paths (**No such song**, decode storms). Call only after callers verify
-/// configured shares exist but `mountpoint` is not mounted.
+fn queue_touches_unreachable_segments(items: &[QueueItem], missing_roots: &[String]) -> bool {
+    items.iter().any(|q| {
+        q.uri
+            .as_deref()
+            .is_some_and(|u| uri_touches_unreachable_segments(u, missing_roots))
+    })
+}
+
+/// When library storage is **gone** (see [`crate::network_mounts::unreachable_music_library_segments`])
+/// but MPD still has queue/catalog paths under those `music-library/<SEG>/…` trees, playback can hammer
+/// missing paths (**No such song**, decode storms).
 ///
-/// **Stop + clear queue** when the queue or current track touches NAS; then **`update NAS`** so the DB
-/// sheds stale entries until the mount returns.
-pub async fn mitigate_unreachable_nas_library_connected(
+/// **Stop + clear queue** when the queue or current track touches any missing segment; then **`update`**
+/// each affected segment so the DB sheds stale entries.
+pub async fn mitigate_unreachable_library_storage_connected(
     config: &MpdConfig,
     music_root: &Path,
+    missing_roots: &[String],
 ) -> Result<()> {
+    if missing_roots.is_empty() {
+        return Ok(());
+    }
+
     let stream = TcpStream::connect(config.addr()).await?;
     let (mut client, _) = Client::connect(stream).await?;
 
     let queue = get_queue(&mut client, music_root).await?;
-    let queue_nas = queue_touches_nas_library(&queue);
+    let queue_bad = queue_touches_unreachable_segments(&queue, missing_roots);
 
     let status = client.command(Status).await?;
     let playing_or_paused = matches!(
@@ -2900,41 +2908,42 @@ pub async fn mitigate_unreachable_nas_library_connected(
         PlayState::Playing | PlayState::Paused
     );
 
-    let playing_nas = if playing_or_paused {
+    let playing_bad = if playing_or_paused {
         match client.command(CurrentSong).await? {
-            Some(c) => queue_item_uri_is_under_nas_library(&volumio_uri_from_mpd_url(
-                &c.song.url,
-                music_root,
-            )),
+            Some(c) => uri_touches_unreachable_segments(
+                &volumio_uri_from_mpd_url(&c.song.url, music_root),
+                missing_roots,
+            ),
             None => false,
         }
     } else {
         false
     };
 
-    if !queue_nas && !playing_nas {
+    if !queue_bad && !playing_bad {
         return Ok(());
     }
 
     tracing::warn!(
-        "{} MPD: NAS library unreachable — stopping playback, clearing queue (had NAS refs), scheduling DB update for NAS/",
-        crate::log_tags::EVO_DB
+        "{} MPD: library storage unreachable {:?} — stopping playback, clearing queue (had refs), scheduling DB update",
+        crate::log_tags::EVO_DB,
+        missing_roots
     );
 
     client.command(Stop).await?;
     client.command(ClearQueue).await?;
 
-    match client.command(Update::new().uri("NAS")).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
+    for seg in missing_roots {
+        if let Err(e) = client.command(Update::new().uri(seg.as_str())).await {
             tracing::warn!(
-                "{} MPD: queue cleared but update NAS failed: {}",
+                "{} MPD: queue cleared but update {:?} failed: {}",
                 crate::log_tags::EVO_DB,
+                seg,
                 e
             );
-            Ok(())
         }
     }
+    Ok(())
 }
 
 /// Run a playback command (play, pause, stop, next, prev, clearQueue, volume, seek, repeat, random).
