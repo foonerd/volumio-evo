@@ -6,7 +6,9 @@
 //! captive/connectivity probe lags DHCP), then retries transient “network unreachable” errors once.
 //!
 //! **Runtime:** A background task periodically calls [`NetworkMounts::remount_unmounted_shares_best_effort`]
-//! so shares come online after the user changes network or moves the device (no reboot).
+//! so shares come online after the user changes network or moves the device (no reboot). If a
+//! configured share is still not mounted, MPD is nudged to **stop** / **clear** NAS queue traffic and
+//! **`update NAS/`** so the database is not full of dead paths (avoids **No such song** storms).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -968,6 +970,7 @@ impl NetworkMounts {
         }
 
         if transient_retry.is_empty() {
+            self.mitigate_mpd_if_configured_shares_unmounted(&cfg).await;
             return;
         }
         tracing::info!(
@@ -1008,6 +1011,33 @@ impl NetworkMounts {
                     e
                 ),
             }
+        }
+
+        self.mitigate_mpd_if_configured_shares_unmounted(&cfg).await;
+    }
+
+    async fn mitigate_mpd_if_configured_shares_unmounted(&self, cfg: &Config) {
+        let Ok(file) = self.load().await else {
+            return;
+        };
+        let share_unmounted = file.shares.iter().any(|sh| {
+            let mp = Self::mountpoint_for_name(&sh.name);
+            !Self::is_mounted(&mp)
+        });
+        if !share_unmounted {
+            return;
+        }
+        let mpd_cfg = MpdConfig {
+            host: cfg.mpd_host.clone(),
+            port: cfg.mpd_port,
+        };
+        match mpd::mitigate_unreachable_nas_library_connected(&mpd_cfg, &cfg.music_sources.music_root).await {
+            Ok(()) => {}
+            Err(e) => tracing::warn!(
+                "{} NAS mount missing: could not mitigate MPD (stop/clear/update): {}",
+                crate::log_tags::EVO_UI,
+                e
+            ),
         }
     }
 
@@ -1073,6 +1103,8 @@ impl NetworkMounts {
                 ),
             }
         }
+
+        self.mitigate_mpd_if_configured_shares_unmounted(cfg).await;
     }
 
     /// Edit share: unmount, update config, remount (Node-compatible).

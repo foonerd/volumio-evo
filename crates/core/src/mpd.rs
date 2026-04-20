@@ -2866,6 +2866,77 @@ pub async fn get_queue(
     Ok(items)
 }
 
+fn queue_item_uri_is_under_nas_library(uri: &str) -> bool {
+    uri.contains("music-library/NAS/")
+}
+
+fn queue_touches_nas_library(items: &[QueueItem]) -> bool {
+    items.iter().any(|q| {
+        q.uri
+            .as_deref()
+            .is_some_and(queue_item_uri_is_under_nas_library)
+    })
+}
+
+/// When NAS mounts are **down** but MPD still has queue/catalog paths under `music-library/NAS/…`,
+/// playback can hammer missing paths (**No such song**, decode storms). Call only after callers verify
+/// configured shares exist but `mountpoint` is not mounted.
+///
+/// **Stop + clear queue** when the queue or current track touches NAS; then **`update NAS`** so the DB
+/// sheds stale entries until the mount returns.
+pub async fn mitigate_unreachable_nas_library_connected(
+    config: &MpdConfig,
+    music_root: &Path,
+) -> Result<()> {
+    let stream = TcpStream::connect(config.addr()).await?;
+    let (mut client, _) = Client::connect(stream).await?;
+
+    let queue = get_queue(&mut client, music_root).await?;
+    let queue_nas = queue_touches_nas_library(&queue);
+
+    let status = client.command(Status).await?;
+    let playing_or_paused = matches!(
+        status.state,
+        PlayState::Playing | PlayState::Paused
+    );
+
+    let playing_nas = if playing_or_paused {
+        match client.command(CurrentSong).await? {
+            Some(c) => queue_item_uri_is_under_nas_library(&volumio_uri_from_mpd_url(
+                &c.song.url,
+                music_root,
+            )),
+            None => false,
+        }
+    } else {
+        false
+    };
+
+    if !queue_nas && !playing_nas {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        "{} MPD: NAS library unreachable — stopping playback, clearing queue (had NAS refs), scheduling DB update for NAS/",
+        crate::log_tags::EVO_DB
+    );
+
+    client.command(Stop).await?;
+    client.command(ClearQueue).await?;
+
+    match client.command(Update::new().uri("NAS")).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            tracing::warn!(
+                "{} MPD: queue cleared but update NAS failed: {}",
+                crate::log_tags::EVO_DB,
+                e
+            );
+            Ok(())
+        }
+    }
+}
+
 /// Run a playback command (play, pause, stop, next, prev, clearQueue, volume, seek, repeat, random).
 pub async fn run_command(
     client: &mut Client,
