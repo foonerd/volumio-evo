@@ -5,7 +5,9 @@
 //! **`i2c-dev`** so `/dev/i2c-*` exists (Pi OS Trixie+ no longer auto-loads it with `dtparam=i2c_arm=on` alone).
 //!
 //! Reads prefer **`fs::read_to_string`** when `/boot/...` is world-readable (usual on Pi). Writes use
-//! **`sudo -n tee`** (matches Volumio `volumio-user` sudoers: `NOPASSWD` for `/usr/bin/tee`, not `cat`).
+//! **`sudo -n tee`** when non-root (matches Volumio `volumio-user` sudoers: `NOPASSWD` for **`tee`**), or
+//! direct **`fs::write`** when **`euid == 0`**. Runtime **`modprobe i2c-dev`** runs only as root — the
+//! service user skips it and relies on **`modules-load.d`** at boot (avoid **`sudo modprobe`** without NOPASSWD).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -264,6 +266,11 @@ fn write_boot_config(content: &str) -> Result<()> {
 /// **`i2c-dev`** module for `/dev/i2c-N` (e.g. `i2cdetect`). Raspi-config used to load it implicitly.
 const PI_I2C_DEV_MODULES_FILE: &str = "/etc/modules-load.d/volumio-evo-i2c-dev.conf";
 
+#[inline]
+fn running_as_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
 fn sudo_tee_file(path: &str, bytes: &[u8]) -> Result<()> {
     let mut child = Command::new("sudo")
         .args(["-n", "tee", path])
@@ -296,18 +303,37 @@ fn ensure_pi_i2c_dev_module_loaded() -> Result<()> {
             })
         });
     if !already {
-        sudo_tee_file(PI_I2C_DEV_MODULES_FILE, b"i2c-dev\n")?;
+        if running_as_root() {
+            if let Some(parent) = Path::new(PI_I2C_DEV_MODULES_FILE).parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("create_dir_all {}", parent.display()))?;
+            }
+            std::fs::write(PI_I2C_DEV_MODULES_FILE, b"i2c-dev\n")
+                .with_context(|| format!("write {}", PI_I2C_DEV_MODULES_FILE))?;
+        } else {
+            sudo_tee_file(PI_I2C_DEV_MODULES_FILE, b"i2c-dev\n")?;
+        }
         wrote = true;
     }
-    let st = Command::new("sudo")
-        .args(["-n", "modprobe", "i2c-dev"])
-        .status()
-        .context("sudo modprobe i2c-dev")?;
-    if !st.success() {
+    // Non-root service must not run `sudo modprobe` (no NOPASSWD → journal spam / password prompts).
+    // `modules-load.d` above loads i2c-dev at boot; immediate load only when we are root (e.g. tests).
+    if running_as_root() {
+        let st = Command::new("modprobe")
+            .arg("i2c-dev")
+            .status()
+            .context("modprobe i2c-dev")?;
+        if !st.success() {
+            tracing::debug!(
+                "{} modprobe i2c-dev exited {}; module may be built-in",
+                crate::log_tags::EVO_I2S,
+                st
+            );
+        }
+    } else {
         tracing::debug!(
-            "{} modprobe i2c-dev exited {}; module may be built-in",
+            "{} skip runtime modprobe i2c-dev (not root); loads at boot via {}",
             crate::log_tags::EVO_I2S,
-            st
+            PI_I2C_DEV_MODULES_FILE
         );
     }
     if wrote {
