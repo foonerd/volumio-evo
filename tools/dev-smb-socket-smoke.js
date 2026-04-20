@@ -3,7 +3,7 @@
  * Smoke-test SMB Socket.IO handlers without the Angular UI.
  *
  *   npm install socket.io-client
- *   node scripts/dev-smb-socket-smoke.js http://127.0.0.1:3000
+ *   node tools/dev-smb-socket-smoke.js http://127.0.0.1:3000
  *
  * Prints pushSmbServerLists payload and exits 0.
  */

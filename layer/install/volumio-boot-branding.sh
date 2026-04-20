@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install and enable Volumio Evo Plymouth boot branding (packages, theme, cmdline, initramfs, vol-branding units).
 # Run as root:
-#   sudo EVO_REPO_DIR=/path/to/volumio-evo ./scripts/volumio-boot-branding.sh
+#   sudo EVO_REPO_DIR=/path/to/volumio-evo ./layer/install/volumio-boot-branding.sh
 # Optional: PLYMOUTH_ROTATION=0|90|180|270 (kernel cmdline plymouth=N for volumio-adaptive asset rotation).
 #
 # Progress for Evo UI: lines "::BRANDING <pct> <message>"

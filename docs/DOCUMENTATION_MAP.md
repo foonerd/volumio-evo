@@ -9,7 +9,7 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | volumio3-backend parity: REST, Socket.IO, stubs | [PORTING.md](PORTING.md) |
 | Bootstrap / on-device validation | [TESTER_GUIDE.md](TESTER_GUIDE.md) |
 | `sudo -n`, sudoers, service user | [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
-| Plymouth, VOL tokens, **`vol-branding-v1-*`**, UI installer | [BRANDED_BOOT.md](BRANDED_BOOT.md); **`apt`** line = **`scripts/volumio-boot-branding.sh`** |
+| Plymouth, VOL tokens, **`vol-branding-v1-*`**, UI installer | [BRANDED_BOOT.md](BRANDED_BOOT.md); **`apt`** line = **`layer/install/volumio-boot-branding.sh`** |
 | NetworkManager / `nmcli` | [NETWORK_NM.md](NETWORK_NM.md) |
 | Paths under `/var/lib/volumio-evo/` | [SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md) |
 | Logging / `journalctl` | [OBSERVABILITY.md](OBSERVABILITY.md) |

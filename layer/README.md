@@ -6,6 +6,7 @@ Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie
 
 - **plymouth/** - Vendored **`volumio-adaptive`** theme and dev tool **`generate-overlays.sh`** (ImageMagick) to (re)build **`overlay-vol-*.png`** — see **`plymouth/README.md`**.
 - **systemd/** - `volumio-evo.service` for the backend process. **Optional** `vol-branding-v1-*.service` units send `VOL:v1:…` strings to Plymouth for branded boot (see `systemd/vol-branding-v1.target` and each unit’s header); copy to `/etc/systemd/system/`, `daemon-reload`, `enable` the target or individual services, and require `plymouth` + `splash` in the kernel cmdline. **`ExecStart=-/usr/bin/plymouth`** uses systemd’s `-` prefix so `plymouth message` failing after the splash has quit (common on fast boots) does not mark the unit as failed.
+- **install/** - Shell hooks shipped with the repo for bootstrap and sudoers-stable paths (boot-branding wrappers, **`volumio-evo-smb-user-sync.sh`** — copied from here by **`scripts/bootstrap-volumio-evo-player.sh`**).
 - **binaries/** - Prebuilt **`volumio-evo`** per Linux target triple (`binaries/README.md`). Bootstrap installs the matching binary when present (avoids `cargo build` on device).
 - **config/** - Example config (`volumio-evo.toml.example`). Copy to `/etc/volumio-evo/config.toml` and adjust.
 - **web/** - Vendored static UI trees for **classic** / **contemporary** / **manifest** (see `web/README.md`). Used by the bootstrap script when present.

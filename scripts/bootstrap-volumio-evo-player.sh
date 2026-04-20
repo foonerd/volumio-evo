@@ -190,11 +190,11 @@ publish_evo_repo_symlink() {
   if [[ "${EVO_SOURCE_AVAILABLE:-0}" != "1" ]]; then
     return 0
   fi
-  if [[ ! -f "${EVO_REPO_DIR}/scripts/run-boot-branding.sh" ]]; then
-    echo "WARN: ${EVO_REPO_DIR}/scripts/run-boot-branding.sh missing — boot branding UI will fail until repo is complete."
+  if [[ ! -f "${EVO_REPO_DIR}/layer/install/run-boot-branding.sh" ]]; then
+    echo "WARN: ${EVO_REPO_DIR}/layer/install/run-boot-branding.sh missing — boot branding UI will fail until repo is complete."
     return 0
   fi
-  chmod 755 "${EVO_REPO_DIR}/scripts/run-boot-branding.sh" "${EVO_REPO_DIR}/scripts/volumio-boot-branding.sh" 2>/dev/null || true
+  chmod 755 "${EVO_REPO_DIR}/layer/install/run-boot-branding.sh" "${EVO_REPO_DIR}/layer/install/volumio-boot-branding.sh" 2>/dev/null || true
   mkdir -p /usr/share/volumio-evo
   ln -sfn "${EVO_REPO_DIR}" /usr/share/volumio-evo/repo
   echo "Boot branding repo path: /usr/share/volumio-evo/repo -> ${EVO_REPO_DIR}"
@@ -500,7 +500,7 @@ EOF
     tmp_bb="$(mktemp)"
     cat > "${tmp_bb}" <<EOF
 # volumio-evo: Plymouth boot-branding installer (narrow path; managed by bootstrap).
-${u} ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/scripts/run-boot-branding.sh
+${u} ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/layer/install/run-boot-branding.sh
 EOF
     if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_bb}" 2>/dev/null; then
       install -m 0440 "${tmp_bb}" "${boot_branding_sudoers}"
@@ -516,11 +516,11 @@ EOF
   # SMB file server (Settings → Network): generated smb.conf install, smbd/nmbd, narrow user-sync script.
   local samba_sudoers="/etc/sudoers.d/volumio-evo-samba"
   local smb_conf_gen="/var/lib/volumio-evo/settings/samba/smb.conf.generated"
-  if [[ -f "${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh" ]]; then
-    install -m 0755 "${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh" /usr/local/bin/volumio-evo-smb-user-sync.sh
+  if [[ -f "${EVO_REPO_DIR}/layer/install/volumio-evo-smb-user-sync.sh" ]]; then
+    install -m 0755 "${EVO_REPO_DIR}/layer/install/volumio-evo-smb-user-sync.sh" /usr/local/bin/volumio-evo-smb-user-sync.sh
     echo "Installed /usr/local/bin/volumio-evo-smb-user-sync.sh"
   else
-    echo "WARN: ${EVO_REPO_DIR}/scripts/volumio-evo-smb-user-sync.sh missing — SMB user sync will fail until present."
+    echo "WARN: ${EVO_REPO_DIR}/layer/install/volumio-evo-smb-user-sync.sh missing — SMB user sync will fail until present."
   fi
   if [[ "${EVO_INSTALL_SAMBA_SUDOERS:-1}" == "1" ]]; then
     local tmp_smb

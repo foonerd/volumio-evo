@@ -2,7 +2,7 @@
 """Merge NETWORK.SMB_* keys from strings_en.json into every strings_*.json per theme.
 
 Uses English strings as placeholders for locales missing those keys. After merging, run
-``scripts/i18n-apply-network-smb-translations.py`` so ``scripts/data/network-smb-i18n.json``
+``tools/i18n-apply-network-smb-translations.py`` so ``tools/data/network-smb-i18n.json``
 overwrites those keys with real translations."""
 from __future__ import annotations
 

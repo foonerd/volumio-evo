@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overwrite NETWORK.SMB_* strings in locale files using scripts/data/network-smb-i18n.json.
+"""Overwrite NETWORK.SMB_* strings in locale files using tools/data/network-smb-i18n.json.
 
 Leaves strings_en.json unchanged (canonical English lives there)."""
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 def main() -> int:
     repo = Path(__file__).resolve().parents[1]
-    data_path = repo / "scripts" / "data" / "network-smb-i18n.json"
+    data_path = repo / "tools" / "data" / "network-smb-i18n.json"
     translations: dict[str, dict[str, str]] = json.loads(data_path.read_text(encoding="utf-8"))
     layer = repo / "layer" / "web"
     themes = ["classic", "contemporary", "manifest"]

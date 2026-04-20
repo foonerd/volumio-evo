@@ -1,4 +1,4 @@
-//! **Settings → System → Boot branding:** run `scripts/volumio-boot-branding.sh` via **`sudo -n`** and
+//! **Settings → System → Boot branding:** run `layer/install/volumio-boot-branding.sh` via **`sudo -n`** and
 //! mirror Node **`openModal` → `modalProgress` → `modalDone`** so the stock progress modal updates.
 
 use serde_json::json;

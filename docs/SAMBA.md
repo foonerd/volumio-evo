@@ -23,7 +23,7 @@ SMB stays entirely under **Settings → Network** (no separate top-level menu).
 
 - **Themes:** All three layouts use the same **`core-plugin/smb-plugin.*`** include — no duplicate SMB UI per theme unless you intentionally fork styling.
 - **Strings in the core plugin:** Prefer Angular **`$translate('NETWORK.SMB_*')`** (or a dedicated **`SMB.*`** namespace) so non‑English locales use the same **`strings_*.json`** pipeline as elsewhere (e.g. network-drives).
-- **Strings in `network_ui_config.json`:** Use **`TRANSLATE.NETWORK.*`** tokens; Evo resolves them with **`resolve_translate_tokens`** (embedded **`strings_en.json`** per theme). **`NETWORK.SMB_*`** keys exist in **`layer/web/<theme>/app/i18n/strings_*.json`** for every locale. Non‑English strings are maintained in **`scripts/data/network-smb-i18n.json`** and applied per locale by **`scripts/i18n-apply-network-smb-translations.py`** (run after editing translations). The three **`strings_en.json`** files are the English source of truth.
+- **Strings in `network_ui_config.json`:** Use **`TRANSLATE.NETWORK.*`** tokens; Evo resolves them with **`resolve_translate_tokens`** (embedded **`strings_en.json`** per theme). **`NETWORK.SMB_*`** keys exist in **`layer/web/<theme>/app/i18n/strings_*.json`** for every locale. Non‑English strings are maintained in **`tools/data/network-smb-i18n.json`** and applied per locale by **`tools/i18n-apply-network-smb-translations.py`** (run after editing translations). The three **`strings_en.json`** files are the English source of truth.
 - **Adding or changing SMB keys:** update all three **`strings_en.json`**, add the same keys (per locale) to **`network-smb-i18n.json`**, run **`i18n-merge-network-smb-keys.py`** if you need to copy new keys from English into any file that is still missing them, then run **`i18n-apply-network-smb-translations.py`**. For **server-side** `getUiConfig` in the user’s live language, Evo would need the same per-request i18n path as the rest of the app; today the embedded dictionary is English-only, while the full locale files back Angular **`$translate`** in the browser.
 
 ## Persisted state
@@ -38,11 +38,11 @@ See **[`SETTINGS_LAYOUT.md`](SETTINGS_LAYOUT.md)** — **`settings/samba/`** (e.
    - `emit('getSmbServerLists')` → expect **`pushSmbServerLists`** with **`extra_shares`** and **`smb_users`**.
    - **`saveSmbExtraShares`** / **`saveSmbUsers`** payloads match the Rust handlers in **`socketio.rs`** (objects with **`extra_shares`** / **`smb_users`** arrays).
 
-3. **Standalone Socket.IO client:** Repo script **`scripts/dev-smb-socket-smoke.js`** (**`npm install socket.io-client`**) connects to Evo, emits **`getSmbServerLists`**, prints **`pushSmbServerLists`**. Or use any client matching the server’s **`socket.io`** protocol to **`emit('getSmbServerLists')`** / listen for **`pushSmbServerLists`** on **`http://<device>:3000`** — no browser UI required.
+3. **Standalone Socket.IO client:** Repo script **`tools/dev-smb-socket-smoke.js`** (**`npm install socket.io-client`**) connects to Evo, emits **`getSmbServerLists`**, prints **`pushSmbServerLists`**. Or use any client matching the server’s **`socket.io`** protocol to **`emit('getSmbServerLists')`** / listen for **`pushSmbServerLists`** on **`http://<device>:3000`** — no browser UI required.
 
 4. **Rust:** **`cargo check`** / targeted tests for validation helpers; full SMB apply still needs root/sudo on a real image.
 
-New **`NETWORK.SMB_*`** UI strings: refresh non‑English locale files via **`scripts/i18n-merge-network-smb-keys.py`** and **`scripts/i18n-apply-network-smb-translations.py`** after updating **`scripts/data/network-smb-i18n.json`**.
+New **`NETWORK.SMB_*`** UI strings: refresh non‑English locale files via **`tools/i18n-merge-network-smb-keys.py`** and **`tools/i18n-apply-network-smb-translations.py`** after updating **`tools/data/network-smb-i18n.json`**.
 
 ---
 

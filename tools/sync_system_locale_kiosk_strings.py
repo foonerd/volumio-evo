@@ -2,7 +2,7 @@
 """
 Merge translated SYSTEM.* kiosk/locale strings into every strings_<lang>.json (except en).
 
-Run from repo root: python3 scripts/sync_system_locale_kiosk_strings.py
+Run from repo root: python3 tools/sync_system_locale_kiosk_strings.py
 
 Source of truth for English keys: layer/web/classic/app/i18n/strings_en.json (SYSTEM subsection).
 """

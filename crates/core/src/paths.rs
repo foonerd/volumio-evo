@@ -74,7 +74,7 @@ pub fn default_samba_generated_smb_conf_path() -> PathBuf {
     settings_dir().join("samba").join("smb.conf.generated")
 }
 
-/// Root of the **`volumio-evo`** tree (contains `layer/plymouth/`, `scripts/`). Used by boot-branding install.
+/// Root of the **`volumio-evo`** tree (contains `layer/plymouth/`, `layer/install/`). Used by boot-branding install.
 /// Default when unset: **`/usr/share/volumio-evo/repo`** (packaged layout); development sets **`VOLUMIO_EVO_REPO_DIR`**.
 pub fn evo_repo_dir() -> PathBuf {
     std::env::var("VOLUMIO_EVO_REPO_DIR")
@@ -82,17 +82,20 @@ pub fn evo_repo_dir() -> PathBuf {
         .unwrap_or_else(|_| Path::new("/usr/share/volumio-evo/repo").to_path_buf())
 }
 
-/// Optional override for **`scripts/run-boot-branding.sh`** (must be executable).
-/// When unset: **`$EVO_REPO_DIR/scripts/run-boot-branding.sh`** so **`sudo`** may use a stable path in sudoers.
+/// Optional override for **`layer/install/run-boot-branding.sh`** (must be executable).
+/// When unset: **`$EVO_REPO_DIR/layer/install/run-boot-branding.sh`** so **`sudo`** may use a stable path in sudoers.
 pub fn boot_branding_run_script_path() -> PathBuf {
     std::env::var("VOLUMIO_EVO_BOOT_BRANDING_SCRIPT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| evo_repo_dir().join("scripts").join("run-boot-branding.sh"))
+        .unwrap_or_else(|_| evo_repo_dir().join("layer").join("install").join("run-boot-branding.sh"))
 }
 
-/// Root install script invoked by [`boot_branding_run_script_path`] (packages ship both under **`repo/scripts/`**).
+/// Root install script invoked by [`boot_branding_run_script_path`] (ships under **`repo/layer/install/`**).
 pub fn boot_branding_install_script_path() -> PathBuf {
-    evo_repo_dir().join("scripts").join("volumio-boot-branding.sh")
+    evo_repo_dir()
+        .join("layer")
+        .join("install")
+        .join("volumio-boot-branding.sh")
 }
 
 // --- SMB server (user-defined share paths): moderation -------------------------------------------
