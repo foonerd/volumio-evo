@@ -88,6 +88,12 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(api::run_startup_samba_apply(state.clone()));
     tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
     tokio::spawn(api::run_startup_alarm_schedule(state.clone()));
+    if !std::env::var("VOLUMIO_EVO_SKIP_ALSA_HOTPLUG")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        tokio::spawn(api::run_alsa_sound_hotplug_loop(state.clone()));
+    }
     if std::env::var("VOLUMIO_EVO_PROBE_RTC_WAKE")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)

@@ -1092,9 +1092,16 @@ async fn emit_playback_options_ui(s: &SocketRef, state: &AppState) {
     }
 }
 
-async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
+/// Run `aplay -l`, apply [`alsa_cards::prepare_playback_cards`], coerce persisted [`crate::alsa::AlsaSettings`].
+/// Used by Playback Options, wizard output list, and ALSA hotplug broadcast.
+pub(crate) async fn sync_playback_cards_from_aplay(
+    state: &AppState,
+) -> (
+    Vec<alsa::AplayCard>,
+    crate::alsa::AlsaSettings,
+    Vec<i2s::DacEntry>,
+) {
     let settings_in = state.alsa.read().await.clone();
-    let playback = state.playback.read().await.clone();
     let profile = i2s::hardware_profile();
     let dacs_file = i2s::load_dacs().ok();
     let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
@@ -1109,11 +1116,17 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
             tracing::warn!("{} aplay -l: {}", crate::log_tags::EVO_OUTPUT, e);
             vec![]
         }
-        Err(e) => return Err(anyhow::Error::new(e)),
+        Err(e) => {
+            tracing::warn!("{} aplay -l join: {}", crate::log_tags::EVO_OUTPUT, e);
+            vec![]
+        }
     };
 
     if cards.is_empty() {
-        tracing::info!("{} no ALSA playback cards; Playback Options shows a placeholder device", crate::log_tags::EVO_OUTPUT);
+        tracing::info!(
+            "{} no ALSA playback cards; Playback Options shows a placeholder device",
+            crate::log_tags::EVO_OUTPUT
+        );
         cards.push(alsa::AplayCard {
             id: "nodev".to_string(),
             alsacard: String::new(),
@@ -1133,6 +1146,16 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
         *state.alsa.write().await = settings.clone();
     }
 
+    (cards, settings, i2s_dacs)
+}
+
+pub(crate) async fn playback_options_ui_from_synced_cards(
+    state: &AppState,
+    cards: &[alsa::AplayCard],
+    settings: &crate::alsa::AlsaSettings,
+    i2s_dacs: &[i2s::DacEntry],
+) -> anyhow::Result<serde_json::Value> {
+    let playback = state.playback.read().await.clone();
     let card_for_mixers = settings.output_device_id.clone();
     let mixer_controls = match tokio::task::spawn_blocking(move || {
         alsa::list_playback_mixer_controls(&card_for_mixers)
@@ -1147,13 +1170,18 @@ async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_jso
     };
 
     let params = alsa::PlaybackOptionsUiParams {
-        cards: &cards,
-        settings: &settings,
-        i2s_dacs: &i2s_dacs,
+        cards,
+        settings,
+        i2s_dacs,
         playback: &playback,
         mixer_controls: &mixer_controls,
     };
     Ok(alsa::playback_options_ui_config(&params))
+}
+
+async fn build_playback_options_ui(state: &AppState) -> anyhow::Result<serde_json::Value> {
+    let (cards, settings, i2s_dacs) = sync_playback_cards_from_aplay(state).await;
+    playback_options_ui_from_synced_cards(state, &cards, &settings, &i2s_dacs).await
 }
 
 async fn get_dsp_ui_config(s: SocketRef) {
@@ -1635,45 +1663,7 @@ async fn get_extended_output_devices(s: SocketRef) {
 
 /// ALSA device list for wizard / Playback (Node: alsa_controller getAudioDevices -> pushOutputDevices).
 async fn get_output_devices(s: SocketRef, State(state): State<AppState>) {
-    let settings_in = state.alsa.read().await.clone();
-    let profile = i2s::hardware_profile();
-    let dacs_file = i2s::load_dacs().ok();
-    let i2s_dacs: Vec<i2s::DacEntry> = dacs_file
-        .as_ref()
-        .map(|d| i2s::dac_list_for_profile(d, &profile))
-        .unwrap_or_default();
-    let catalog = alsa_cards::AlsaCardCatalog::load_optional();
-
-    let cards = match tokio::task::spawn_blocking(|| alsa::list_playback_cards()).await {
-        Ok(Ok(c)) => c,
-        Ok(Err(e)) => {
-            tracing::warn!("{} getOutputDevices aplay: {}", crate::log_tags::EVO_OUTPUT, e);
-            vec![alsa::AplayCard {
-                id: "nodev".into(),
-                alsacard: String::new(),
-                name: "No playback device".into(),
-            }]
-        }
-        Err(e) => {
-            tracing::warn!("{} getOutputDevices join: {}", crate::log_tags::EVO_OUTPUT, e);
-            vec![alsa::AplayCard {
-                id: "nodev".into(),
-                alsacard: String::new(),
-                name: "No playback device".into(),
-            }]
-        }
-    };
-    let cards = alsa_cards::prepare_playback_cards(
-        cards,
-        &settings_in,
-        &catalog,
-        dacs_file.as_ref(),
-        &profile,
-    );
-    let settings = alsa::coerce_selection(&cards, settings_in.clone());
-    if settings != settings_in {
-        *state.alsa.write().await = settings.clone();
-    }
+    let (cards, settings, i2s_dacs) = sync_playback_cards_from_aplay(&state).await;
     let payload = alsa::push_output_devices_json(&cards, &settings, &i2s_dacs);
     s.emit("pushOutputDevices", &payload).ok();
 }

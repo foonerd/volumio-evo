@@ -1,5 +1,6 @@
 //! HTTP and Socket.IO API.
 
+mod alsa_hotplug;
 mod boot_branding;
 mod http;
 mod network_ui;
@@ -249,6 +250,7 @@ pub async fn read_master_volume_percent(state: &AppState) -> Option<u8> {
 
 pub use http::router;
 pub use socketio::push_state_queue_loop;
+pub use alsa_hotplug::run_alsa_sound_hotplug_loop;
 
 /// After plugins would be up on Node, apply **Default startup volume** via MPD (`volumecontrol.setStartupVolume`).
 /// Set `VOLUMIO_EVO_SKIP_STARTUP_VOLUME=1` to disable. Retries while MPD is still starting.
