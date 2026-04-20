@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::alsa::{match_dac_card, AplayCard, AlsaSettings};
+use crate::alsa::{resolve_dac_card_number_using_cards, AplayCard, AlsaSettings};
 use crate::i2s;
 
 #[derive(Deserialize)]
@@ -124,7 +124,7 @@ fn canonical_cards_json_path() -> std::path::PathBuf {
 /// - Apply **prettyname** from the catalog when present.
 /// - If **I2S is off**: drop entries catalogued as I2S HATs (`type: i2S`) so only “local” outputs remain.
 /// - If **I2S is on**: drop the ALSA card for the active DAC (matched by **`alsacard`** vs `aplay -l`, same
-///   idea as [`crate::alsa::resolve_dac_card_number`]; falls back to catalogue **`alsanum`** if unresolved).
+///   idea as [`crate::alsa::resolve_dac_card_number`], with `/proc/asound/cards` fallback; then catalogue **`alsanum`** if still unresolved).
 pub fn prepare_playback_cards(
     raw: Vec<AplayCard>,
     settings: &AlsaSettings,
@@ -135,7 +135,7 @@ pub fn prepare_playback_cards(
     let i2s_hat_card_id: Option<String> = if settings.i2s_enabled {
         match (dacs, settings.i2s_dac_id.as_deref()) {
             (Some(dacs), Some(dac_id)) => i2s::find_dac(dacs, profile, dac_id).and_then(|entry| {
-                match_dac_card(&raw, entry).or_else(|| {
+                resolve_dac_card_number_using_cards(&raw, entry).or_else(|| {
                     let t = entry.alsanum.trim();
                     if t.is_empty() {
                         None

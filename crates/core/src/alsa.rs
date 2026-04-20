@@ -251,10 +251,52 @@ pub fn match_dac_card(cards: &[AplayCard], entry: &DacEntry) -> Option<String> {
         .map(|c| c.id.clone())
 }
 
-/// Resolve the current ALSA card index string for an I2S DAC (reads `aplay -l`).
+/// Parse `/proc/asound/cards` text — lines like ` 1 [sndrpihifiberry]: ...`.
+fn card_index_for_alsacard_in_proc_text(proc_cards: &str, alsacard: &str) -> Option<String> {
+    let want = alsacard.trim();
+    if want.is_empty() {
+        return None;
+    }
+    let re = Regex::new(r"(?m)^\s*(\d+)\s+\[([^\]]+)\]").expect("proc asound cards regex");
+    for caps in re.captures_iter(proc_cards) {
+        let idx = caps.get(1)?.as_str();
+        let short = caps.get(2)?.as_str().trim();
+        if short.eq_ignore_ascii_case(want) {
+            return Some(idx.to_string());
+        }
+    }
+    None
+}
+
+fn resolve_dac_card_from_proc_asound(alsacard: &str) -> Option<String> {
+    let raw = std::fs::read_to_string("/proc/asound/cards").ok()?;
+    card_index_for_alsacard_in_proc_text(&raw, alsacard)
+}
+
+/// Same as [`resolve_dac_card_number`] but uses an existing `aplay -l` parse (avoids a second `aplay`
+/// invocation). Falls back to `/proc/asound/cards` when the short name is missing from `cards`.
+pub(crate) fn resolve_dac_card_number_using_cards(
+    cards: &[AplayCard],
+    entry: &DacEntry,
+) -> Option<String> {
+    let want = entry.alsacard.trim();
+    if want.is_empty() {
+        return None;
+    }
+    match_dac_card(cards, entry).or_else(|| resolve_dac_card_from_proc_asound(want))
+}
+
+/// Resolve the current ALSA card index for an I2S DAC: `aplay -l` first, then `/proc/asound/cards`.
 pub fn resolve_dac_card_number(entry: &DacEntry) -> Option<String> {
-    let cards = list_playback_cards().ok()?;
-    match_dac_card(&cards, entry)
+    let want = entry.alsacard.trim();
+    if want.is_empty() {
+        return None;
+    }
+    if let Ok(cards) = list_playback_cards() {
+        resolve_dac_card_number_using_cards(&cards, entry)
+    } else {
+        resolve_dac_card_from_proc_asound(want)
+    }
 }
 
 /// Run `aplay -l` and parse playback devices (one entry per card; mirrors Node card list shape).
@@ -1354,5 +1396,17 @@ card 1: Device [USB Audio], device 0: USB Audio [USB Audio]
         }))
         .unwrap();
         assert_eq!(match_dac_card(&cards, &entry).as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn proc_asound_cards_finds_sndrpihifiberry_index() {
+        let sample = r" 0 [bcm2835_headpho]: bcm2835 Headphones
+ 1 [sndrpihifiberry]: HifiberryDacplu - snd_rpi_hifiberry_dacplushd
+ 2 [vc4hdmi0]: vc4-hdmi-0
+";
+        assert_eq!(
+            super::card_index_for_alsacard_in_proc_text(sample, "sndrpihifiberry").as_deref(),
+            Some("1")
+        );
     }
 }
