@@ -74,7 +74,7 @@ EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
-# 1: apt install smbd+nmbd (standalone file server; not the full `samba` AD DC metapackage) — Settings -> Network.
+# 1: apt install SMB server (smbd+nmbd when split packages exist, else samba without recommends) — Settings -> Network.
 EVO_INSTALL_SAMBA_SERVER_PKGS="${EVO_INSTALL_SAMBA_SERVER_PKGS:-1}"
 # 1: sudoers for SMB (install smb.conf, systemctl smbd/nmbd, volumio-evo-smb-user-sync.sh — docs/OS_PRIVILEGE_MODEL.md).
 EVO_INSTALL_SAMBA_SUDOERS="${EVO_INSTALL_SAMBA_SUDOERS:-1}"
@@ -139,7 +139,7 @@ Environment (common):
   EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
-  EVO_INSTALL_SAMBA_SERVER_PKGS=1      # 0 to skip apt install smbd/nmbd (Settings -> Network SMB)
+  EVO_INSTALL_SAMBA_SERVER_PKGS=1      # 0 to skip apt SMB server install (Settings -> Network SMB)
   EVO_INSTALL_SAMBA_SUDOERS=1          # 0 to skip sudoers for SMB (smb.conf install, smbd/nmbd, user-sync script)
   EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
   EVO_STOCK_BACKGROUNDS_SOURCE=         # optional: override path to stock jpg/thumbnail-* (default: EVO_REPO_DIR/layer/stock-backgrounds)
@@ -736,15 +736,18 @@ install_packages() {
   fi
 }
 
-# Standalone SMB **file server** only (`smbd`/`nmbd`). The `samba` metapackage on Debian often pulls
-# `samba-ad-dc`, `winbind`, provision tools, and enables **samba-ad-dc.service** — wrong role for Evo.
+# Standalone SMB **file server** only (`smbd`/`nmbd`). Ubuntu often ships `smbd` + `nmbd` as separate
+# packages; Debian frequently does not — only `samba` exists in the index. Prefer split packages when
+# present to avoid pulling the full metapackage; otherwise use `samba` with `--no-install-recommends`
+# and disable AD DC units below.
 install_smb_file_server_packages() {
-  echo "Installing SMB file server: smbd nmbd (minimal deps; avoids Active Directory DC stack where possible)."
-  if apt-get install -y --no-install-recommends smbd nmbd; then
-    return 0
+  if apt-cache show smbd >/dev/null 2>&1 && apt-cache show nmbd >/dev/null 2>&1; then
+    echo "Installing SMB file server: smbd nmbd (--no-install-recommends)."
+    apt-get install -y --no-install-recommends smbd nmbd
+  else
+    echo "Installing SMB file server: samba (--no-install-recommends; no separate smbd/nmbd packages on this distro)."
+    apt-get install -y --no-install-recommends samba
   fi
-  echo "WARN: apt install smbd nmbd failed (package split); falling back to: samba without recommends."
-  apt-get install -y --no-install-recommends samba
 }
 
 # If AD DC units were installed/enabled (e.g. older bootstrap used the full metapackage), turn them off.

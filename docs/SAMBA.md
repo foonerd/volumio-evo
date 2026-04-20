@@ -4,7 +4,7 @@ Volumio Evo exposes an SMB file server comparable to classic Node Volumio (guest
 
 The Rust backend writes **`settings/samba/smb.conf.generated`**, installs it to **`/etc/samba/smb.conf`** via **`sudo -n install`** (narrow sudoers **`volumio-evo-samba`**), then **`restart smbd`**/**`nmbd`** (or **`stop`** when SMB is disabled). **`VOLUMIO_EVO_SKIP_STARTUP_SAMBA_APPLY=1`** skips the boot-time apply hook.
 
-**Bootstrap / OS:** Install **`smbd`** + **`nmbd`** with **`--no-install-recommends`** so Debian does not pull **`samba-ad-dc`** (Active Directory domain controller) and enable **`samba-ad-dc.service`** — Evo is a standalone file server only. Bootstrap runs **`systemctl disable --now samba-ad-dc.service`** if that unit exists (e.g. after an older install used the full **`samba`** metapackage).
+**Bootstrap / OS:** Install the SMB server with **`--no-install-recommends`**: **`smbd`** + **`nmbd`** when both exist in apt (common on Ubuntu); otherwise **`samba`** alone (typical on Debian, where **`smbd`** is not a separate package name). That limits AD DC tooling; Evo is a standalone file server only. Bootstrap runs **`systemctl disable --now samba-ad-dc.service`** if that unit exists (e.g. after **`samba`** pulled **`samba-ad-dc`**).
 
 This document covers **UX placement**, **i18n**, persisted settings, and **allowed paths** for user-defined shares.
 
