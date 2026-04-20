@@ -7,7 +7,7 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | Topic | Canonical doc |
 |-------|----------------|
 | volumio3-backend parity: REST, Socket.IO, stubs | [PORTING.md](PORTING.md) |
-| Bootstrap / on-device validation | [TESTER_GUIDE.md](TESTER_GUIDE.md) |
+| Bootstrap / on-device validation, git depth & updates | [TESTER_GUIDE.md](TESTER_GUIDE.md) |
 | `sudo -n`, sudoers, service user | [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
 | Plymouth, VOL tokens, **`vol-branding-v1-*`**, UI installer | [BRANDED_BOOT.md](BRANDED_BOOT.md); **`apt`** line = **`layer/install/volumio-boot-branding.sh`** |
 | NetworkManager / `nmcli` | [NETWORK_NM.md](NETWORK_NM.md) |
@@ -31,7 +31,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 |------|------|
 | [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | **This index** — assumptions, authority, completed vs not ported, deferred. |
 | [PORTING.md](PORTING.md) | volumio3-backend ↔ Evo parity inventory and phased status. |
-| [TESTER_GUIDE.md](TESTER_GUIDE.md) | Canonical on-device bootstrap and validation. |
+| [TESTER_GUIDE.md](TESTER_GUIDE.md) | Canonical on-device bootstrap and validation (incl. shallow **`EVO_REPO_DEPTH`** / lightweight git updates). |
 | [BUILD_GUIDE.md](BUILD_GUIDE.md) | Compile and cross-compile **`volumio-evo`**. |
 | [CONCEPT.md](CONCEPT.md) | Architecture one-pager. |
 | [NETWORK_NM.md](NETWORK_NM.md) | NetworkManager contract + **implementation status** table. |

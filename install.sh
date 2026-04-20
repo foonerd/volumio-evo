@@ -4,6 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh | sudo bash
 # Optional:
 #   sudo EVO_GIT_REF=main EVO_REPO_URL=https://github.com/foonerd/volumio-evo.git bash -s -- --build
+# Shallow clone by default (matches bootstrap): EVO_REPO_DEPTH=1. Full history: EVO_REPO_DEPTH=0 before curl.
 set -euo pipefail
 
 if [[ "${EUID:-}" -ne 0 ]]; then
@@ -15,6 +16,9 @@ fi
 BASE_DIR="${BASE_DIR:-/opt/volumio}"
 EVO_REPO_URL="${EVO_REPO_URL:-https://github.com/foonerd/volumio-evo.git}"
 EVO_GIT_REF="${EVO_GIT_REF:-main}"
+# Passed through to bootstrap so docs/env stay aligned (bootstrap uses EVO_REPO_BRANCH when set).
+EVO_REPO_BRANCH="${EVO_REPO_BRANCH:-${EVO_GIT_REF}}"
+EVO_REPO_DEPTH="${EVO_REPO_DEPTH:-1}"
 # Piped from curl: BASH_SOURCE is "-"; default clone dir. Local: ./install.sh next to Cargo.toml uses this tree.
 DEFAULT_EVO_REPO_DIR="${BASE_DIR}/volumio-evo"
 SCRIPT_SRC="${BASH_SOURCE[0]:-}"
@@ -55,9 +59,13 @@ if [[ ! -f "${EVO_REPO_DIR}/Cargo.toml" || ! -d "${EVO_REPO_DIR}/layer" ]]; then
     echo "Remove it, or set EVO_REPO_DIR to an empty path, then re-run."
     exit 1
   fi
-  echo "Cloning ${EVO_REPO_URL} (ref ${EVO_GIT_REF}) -> ${EVO_REPO_DIR}"
+  echo "Cloning ${EVO_REPO_URL} (branch ${EVO_REPO_BRANCH}, depth=${EVO_REPO_DEPTH:-1}) -> ${EVO_REPO_DIR}"
   mkdir -p "$(dirname "${EVO_REPO_DIR}")"
-  GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "${EVO_GIT_REF}" "${EVO_REPO_URL}" "${EVO_REPO_DIR}"
+  if [[ "${EVO_REPO_DEPTH:-1}" != "0" && -n "${EVO_REPO_DEPTH:-1}" ]]; then
+    GIT_TERMINAL_PROMPT=0 git clone --depth "${EVO_REPO_DEPTH:-1}" --single-branch --branch "${EVO_REPO_BRANCH}" "${EVO_REPO_URL}" "${EVO_REPO_DIR}"
+  else
+    GIT_TERMINAL_PROMPT=0 git clone --branch "${EVO_REPO_BRANCH}" "${EVO_REPO_URL}" "${EVO_REPO_DIR}"
+  fi
 fi
 
 if [[ ! -x "${BOOTSTRAP}" ]]; then
@@ -68,4 +76,6 @@ fi
 export BASE_DIR
 export EVO_REPO_DIR
 export EVO_REPO_URL
+export EVO_REPO_BRANCH
+export EVO_REPO_DEPTH
 exec bash "${BOOTSTRAP}" "$@"

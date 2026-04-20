@@ -4,7 +4,7 @@
 
 **Testers and devices must not compile Rust** to get a working player: `scripts/bootstrap-volumio-evo-player.sh` installs the **checked-in** binary from this directory (unless **`--build`** / **`EVO_BUILD_FROM_SOURCE`**).
 
-Whenever **`crates/core`** changes behaviour—see **[docs/PORTING.md](../../docs/PORTING.md)** and **[docs/DOCUMENTATION_MAP.md](../../docs/DOCUMENTATION_MAP.md)**—**maintainers must** refresh **release** binaries below and **`SHA256SUMS`** before **`git pull` + bootstrap** reflects those changes.
+Whenever **`crates/core`** changes behaviour—see **[docs/PORTING.md](../../docs/PORTING.md)** and **[docs/DOCUMENTATION_MAP.md](../../docs/DOCUMENTATION_MAP.md)**—**maintainers must** refresh **release** binaries below and **`SHA256SUMS`** before testers’ **bootstrap update** (shallow **`git fetch`** + fast-forward on device) reflects those changes.
 
 Rust **release** builds checked in for offline / fast bootstrap. Layout matches `rustc` target triples:
 

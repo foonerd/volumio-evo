@@ -6,7 +6,7 @@ Use this on a **fresh** Raspberry Pi OS (including **Raspberry Pi OS Lite**), De
 
 **Full-stack install and test on the device are defined only by `scripts/bootstrap-volumio-evo-player.sh`.**
 
-Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or reinstall: it clones or pulls **volumio-evo**, copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and installs the backend. **By default** (no **`--build`**) the script installs the **prebuilt** **`volumio-evo`** from **`layer/binaries/<arch-triple>/`** when that file exists and matches **`uname -m`** — no **rustup/cargo** on the device. Pass **`--build`** (or set **`EVO_BUILD_FROM_SOURCE=1`**) to compile the Rust binary on the device (**installs rustup**; slow on a Pi). There is **no** npm/gulp or Volumio2-UI clone on device.
+Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-edited MPD/nginx as your “official” test. **Re-run the same script** when you need to refresh sources or reinstall: it clones or updates **volumio-evo** (see **Git checkout size** below), copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and installs the backend. **By default** (no **`--build`**) the script installs the **prebuilt** **`volumio-evo`** from **`layer/binaries/<arch-triple>/`** when that file exists and matches **`uname -m`** — no **rustup/cargo** on the device. Pass **`--build`** (or set **`EVO_BUILD_FROM_SOURCE=1`**) to compile the Rust binary on the device (**installs rustup**; slow on a Pi). There is **no** npm/gulp or Volumio2-UI clone on device.
 
 [BUILD_GUIDE.md](BUILD_GUIDE.md) is for cross-compiling or host-side binaries — **not** a substitute for on-device verification with bootstrap.
 
@@ -16,7 +16,7 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-
 
 ## Run bootstrap (only command that matters)
 
-As **root**, run the script (path to the script only matters for finding it; the checkout lives at **`EVO_REPO_DIR`**, default **`/opt/volumio/volumio-evo`**). The script **always tries to clone or git pull** that repo — it does **not** skip cloning just because a binary already exists under **`/usr/local/bin`**. The **backend binary** for normal runs comes from **`layer/binaries/<triple>/volumio-evo`** inside that checkout unless you use **`--build`**.
+As **root**, run the script (path to the script only matters for finding it; the checkout lives at **`EVO_REPO_DIR`**, default **`/opt/volumio/volumio-evo`**). The script **always tries to clone or update** that repo — it does **not** skip cloning just because a binary already exists under **`/usr/local/bin`**. The **backend binary** for normal runs comes from **`layer/binaries/<triple>/volumio-evo`** inside that checkout unless you use **`--build`**.
 
 The repo must include **`layer/web/{classic,contemporary,manifest}`** with **`index.html`** in each, **or** set **`UI_DIST_SOURCE`** to a single prebuilt **`dist/`** (see **`--help`**). Air-gapped installs can use **`EVO_ALLOW_BINARY_FALLBACK=1`** (not recommended for a full UI).
 
@@ -30,13 +30,13 @@ sudo /path/to/bootstrap-volumio-evo-player.sh
 curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh | sudo bash
 ```
 
-Optional: `EVO_REPO_URL`, `EVO_GIT_REF` (default **`main`**), `BASE_DIR` / `EVO_REPO_DIR`. Pass bootstrap flags after `--`, e.g. `| sudo bash -s -- --build`.
+Optional (see also **Git checkout size**): `EVO_REPO_URL`, **`EVO_REPO_DIR`** / **`BASE_DIR`**. The **`install.sh`** one-liner reads **`EVO_GIT_REF`** (default **`main`**) and sets **`EVO_REPO_BRANCH`** from it unless you already exported **`EVO_REPO_BRANCH`** — the **first clone** uses **`EVO_REPO_BRANCH`** as **`git clone --branch`**. Bootstrap alone (no `install.sh`) uses **`EVO_REPO_BRANCH`** the same way when it creates **`EVO_REPO_DIR`**; if unset, clone follows the remote default branch (**single-branch** when shallow). Pass bootstrap flags after `--`, e.g. `| sudo bash -s -- --build`.
 
 By default, bootstrap picks the **current session user** (e.g. **`SUDO_USER`** when you use `sudo`), so **`volumio-evo`** usually runs as your **SSH login** without extra flags. To force root or another account, see [RUNTIME_USER.md](RUNTIME_USER.md). **Sudo, `systemctl`, and `/etc` ownership** are defined in [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) — the service must stay **non-interactive** (no password prompts in normal operation).
 
 **Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary only), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
 
-**Updates:** run the **same command again**. By default the script **git pull**s **`EVO_REPO_DIR`** when **`EVO_REPO_UPDATE=1`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
+**Updates:** run the **same command again**. When **`EVO_REPO_UPDATE=1`** (default), bootstrap **fetches only the current branch** from **`origin`** and **fast-forwards** if possible — it does **not** run **`git fetch --all`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
 
 Then:
 
@@ -45,6 +45,20 @@ Then:
 3. Press Play and confirm audio from the speaker
 
 The script installs packages, installs the backend (prebuilt binary by default, or **`cargo`** build with **`--build`**), installs UI assets, configures MPD/systemd/nginx, and serves the web app on port **80**. Evo listens on **`3000`**; **`GET /api/host`** is proxied by nginx so the UI gets a current Socket.IO base URL when the IP changes (the Socket.IO client still connects to **`http://<ip>:3000`** per that response; nginx does not proxy **`/socket.io`** by default — see [PORTING.md](PORTING.md)).
+
+### Git checkout size (slow Wi‑Fi / Pi)
+
+Downloading the **full** git history can exceed **~1 GiB** on large repos — painful on **2.4 GHz Wi‑Fi** or older Pis. Bootstrap defaults to a **shallow** checkout:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| **`EVO_REPO_DEPTH`** | **`1`** | **`git clone --depth 1`** (first clone) and **shallow fetch** on update. Smallest routine download. |
+| **`EVO_REPO_DEPTH`** | **`0`** | Full history (bisect, old **`git`** debugging). **Much larger** transfer. |
+| **`EVO_REPO_BRANCH`** | *(unset)* | Optional branch name for clone when bootstrap creates the repo (default: remote **HEAD** / single default branch). |
+
+**`install.sh`** (curl one-liner) aligns **`EVO_REPO_BRANCH`** with **`EVO_GIT_REF`** when you did not set **`EVO_REPO_BRANCH`** yourself, shallow-clones, and exports **`EVO_REPO_BRANCH`** / **`EVO_REPO_DEPTH`** so bootstrap re-runs match.
+
+An existing checkout that was **never** shallow is still updated with a **single-branch** **`git fetch`** (lighter than **`fetch --all`**); it does **not** automatically convert an old full clone into a shallow one.
 
 ---
 

@@ -92,6 +92,11 @@ EVO_BOOTSTRAP_BUILD=0
 EVO_INSTALL_RUST=0
 # Default 1: re-running bootstrap refreshes git checkouts (no separate manual git pull).
 EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
+# Clone/fetch depth: default 1 (shallow) so Pi / slow Wi-Fi pulls ~current tree only (~100MB-class vs full ~1GB+).
+# Set 0 for full history (git troubleshooting, bisect); updates then use non-shallow fetch for that branch only.
+EVO_REPO_DEPTH="${EVO_REPO_DEPTH:-1}"
+# Optional branch to clone/track (default: remote HEAD). Export EVO_REPO_BRANCH=main if needed.
+EVO_REPO_BRANCH="${EVO_REPO_BRANCH:-}"
 # 1: if git clone fails, use pre-installed EVO_BINARY_PATH only (no layer/web — not recommended).
 EVO_ALLOW_BINARY_FALLBACK="${EVO_ALLOW_BINARY_FALLBACK:-0}"
 EVO_SOURCE_AVAILABLE=0
@@ -119,6 +124,8 @@ Environment (common):
   EVO_REPO_URL=https://github.com/foonerd/volumio-evo.git
   EVO_REPO_DIR=/opt/volumio/volumio-evo
   EVO_REPO_UPDATE=1
+  EVO_REPO_DEPTH=1               # shallow clone/fetch (set 0 for full git history — much larger download)
+  EVO_REPO_BRANCH=               # optional: e.g. main — else remote default branch
   EVO_ALLOW_BINARY_FALLBACK=0   # set 1 only for air-gapped + pre-placed binary (no layer/web)
   UI_DIST_SOURCE=/path/to/single/dist
   BACKEND_URL=http://<device-ip>:3000
@@ -921,34 +928,72 @@ ensure_volumio_evo_checkout() {
   return 1
 }
 
+# Current branch name for checkout at $1, or "main" if detached/unknown.
+evo_git_resolve_branch() {
+  local dir="$1"
+  local b
+  b="$(git -C "${dir}" symbolic-ref -q --short HEAD 2>/dev/null)"
+  if [[ -n "${b}" ]]; then
+    echo "${b}"
+    return 0
+  fi
+  b="$(git -C "${dir}" branch --show-current 2>/dev/null)"
+  if [[ -n "${b}" ]]; then
+    echo "${b}"
+    return 0
+  fi
+  echo "main"
+}
+
 clone_or_update_repo() {
   local url="$1"
   local dir="$2"
-  local branch="${3:-}"
+  # Explicit arg $3 overrides EVO_REPO_BRANCH for this call.
+  local branch="${3:-${EVO_REPO_BRANCH:-}}"
+  local do_update="${4:-1}"
+  local depth="${EVO_REPO_DEPTH:-1}"
+
   if [[ ! -d "${dir}/.git" ]]; then
     mkdir -p "$(dirname "${dir}")"
-    if [[ -n "${branch}" ]]; then
-      GIT_TERMINAL_PROMPT=0 git clone --branch "${branch}" --depth 1 "${url}" "${dir}" || {
-        echo "ERROR: cannot clone ${url}"
-        echo "Private or missing repo: use a public URL (EVO_REPO_URL=...) or clone with SSH/credentials."
-        echo "Or place a full checkout at EVO_REPO_DIR and re-run."
-        return 1
-      }
+    local -a clone_cmd=(clone)
+    if [[ "${depth}" != "0" && -n "${depth}" ]]; then
+      clone_cmd+=(--depth "${depth}")
+      if [[ -n "${branch}" ]]; then
+        clone_cmd+=(--branch "${branch}" --single-branch)
+      else
+        clone_cmd+=(--single-branch)
+      fi
     else
-      GIT_TERMINAL_PROMPT=0 git clone "${url}" "${dir}" || {
-        echo "ERROR: cannot clone ${url}"
-        echo "Private or missing repo: use a public URL (EVO_REPO_URL=...) or clone with SSH/credentials."
-        echo "Or place a full checkout at EVO_REPO_DIR and re-run."
-        return 1
-      }
+      if [[ -n "${branch}" ]]; then
+        clone_cmd+=(--branch "${branch}")
+      fi
     fi
-  elif [[ "${4:-1}" == "1" ]]; then
+    clone_cmd+=("${url}" "${dir}")
+    echo "git ${clone_cmd[*]}  (EVO_REPO_DEPTH=${depth:-unset})"
+    if ! GIT_TERMINAL_PROMPT=0 git "${clone_cmd[@]}"; then
+      echo "ERROR: cannot clone ${url}"
+      echo "Private or missing repo: use a public URL (EVO_REPO_URL=...) or clone with SSH/credentials."
+      echo "Or place a full checkout at EVO_REPO_DIR and re-run."
+      return 1
+    fi
+  elif [[ "${do_update}" == "1" ]]; then
+    local curr
+    curr="$(evo_git_resolve_branch "${dir}")"
     if [[ -n "${branch}" ]]; then
+      echo "git fetch/checkout branch ${branch} in ${dir}"
       git -C "${dir}" fetch origin "${branch}" || true
       git -C "${dir}" checkout "${branch}" || true
+      curr="${branch}"
     fi
-    git -C "${dir}" fetch --all --prune || return 1
-    git -C "${dir}" pull --ff-only || return 1
+    local shallow
+    shallow="$(git -C "${dir}" rev-parse --is-shallow-repository 2>/dev/null || echo false)"
+    echo "git fetch origin ${curr} (shallow_repo=${shallow}, EVO_REPO_DEPTH=${depth})"
+    if [[ "${shallow}" == "true" && "${depth}" != "0" && -n "${depth}" ]]; then
+      git -C "${dir}" fetch --prune --depth="${depth}" origin "${curr}" || return 1
+    else
+      git -C "${dir}" fetch --prune origin "${curr}" || return 1
+    fi
+    git -C "${dir}" merge --ff-only FETCH_HEAD || return 1
   else
     echo "Using existing repo without update: ${dir}"
   fi
