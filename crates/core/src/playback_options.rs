@@ -478,6 +478,12 @@ fn linux_effective_uid() -> Option<u32> {
 }
 
 /// When true, only `sudo -n … systemctl` is used (non-root cannot restart units without auth).
+/// Re-exported for [`crate::api::system_power`] (reboot / shutdown) — same contract as MPD.
+pub(crate) fn evo_non_root_service() -> bool {
+    restart_mpd_use_sudo_only()
+}
+
+/// When true, only `sudo -n … systemctl` is used (non-root cannot restart units without auth).
 fn restart_mpd_use_sudo_only() -> bool {
     #[cfg(target_os = "linux")]
     if let Some(uid) = linux_effective_uid() {
@@ -493,7 +499,7 @@ fn restart_mpd_use_sudo_only() -> bool {
 async fn restart_mpd_after_fragment_write() -> anyhow::Result<()> {
     let systemctl = std::env::var("VOLUMIO_EVO_SYSTEMCTL").unwrap_or_else(|_| "/usr/bin/systemctl".to_string());
 
-    if restart_mpd_use_sudo_only() {
+    if evo_non_root_service() {
         let sudo = tokio::process::Command::new("/usr/bin/sudo")
             .arg("-n")
             .arg(&systemctl)

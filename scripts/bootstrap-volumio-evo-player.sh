@@ -69,6 +69,8 @@ EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 EVO_INSTALL_MOUNT_SUDOERS="${EVO_INSTALL_MOUNT_SUDOERS:-1}"
 # 1: install /etc/sudoers.d/volumio-evo-mpd so non-root Evo can `sudo -n systemctl restart mpd` after fragment writes.
 EVO_INSTALL_MPD_SUDOERS="${EVO_INSTALL_MPD_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-power — sudo -n systemctl reboot/poweroff + fallback reboot/shutdown (Socket.IO; modal Restart).
+EVO_INSTALL_POWER_SUDOERS="${EVO_INSTALL_POWER_SUDOERS:-1}"
 EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 # 1: /etc/sudoers.d/volumio-evo-boot-branding — sudo -n run-boot-branding.sh (see docs/BRANDED_BOOT.md).
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
@@ -136,6 +138,7 @@ Environment (common):
   EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
   EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1  # 0 to skip sudoers for sudo -n hostnamectl/timedatectl (Settings → System)
   EVO_INSTALL_RTCWAKE_SUDOERS=1            # 0 to skip sudoers for sudo -n rtcwake (RTC wake from suspend; see docs/ALARM_WAKE.md)
+  EVO_INSTALL_POWER_SUDOERS=1             # 0 to skip sudoers for systemctl reboot/poweroff + fallback paths (Settings / modal Restart)
   EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
@@ -214,6 +217,7 @@ configure_evo_runtime_user() {
   local hostname_timedate_sudoers="/etc/sudoers.d/volumio-evo-hostname-timedate"
   local rtcwake_sudoers="/etc/sudoers.d/volumio-evo-rtcwake"
   local boot_branding_sudoers="/etc/sudoers.d/volumio-evo-boot-branding"
+  local power_sudoers="/etc/sudoers.d/volumio-evo-power"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -227,6 +231,7 @@ configure_evo_runtime_user() {
     rm -f "${hostname_timedate_sudoers}" 2>/dev/null || true
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
+    rm -f "${power_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-samba" 2>/dev/null || true
     return 0
@@ -281,6 +286,17 @@ configure_evo_runtime_user() {
     rtcwake_bin="/usr/sbin/rtcwake"
   fi
 
+  local reboot_bin
+  reboot_bin="$(command -v reboot 2>/dev/null || true)"
+  if [[ -z "${reboot_bin}" || ! -x "${reboot_bin}" ]]; then
+    reboot_bin="/sbin/reboot"
+  fi
+  local shutdown_bin
+  shutdown_bin="$(command -v shutdown 2>/dev/null || true)"
+  if [[ -z "${shutdown_bin}" || ! -x "${shutdown_bin}" ]]; then
+    shutdown_bin="/sbin/shutdown"
+  fi
+
   if ! id -u "${u}" >/dev/null 2>&1; then
     echo "ERROR: EVO_SERVICE_USER='${u}' is not a valid login on this system. Create the user or fix EVO_SERVICE_USER."
     exit 1
@@ -309,6 +325,8 @@ Environment=VOLUMIO_EVO_IW=${iw_bin}
 Environment=VOLUMIO_EVO_HOSTNAMECTL=${hostnamectl_bin}
 Environment=VOLUMIO_EVO_TIMEDATECTL=${timedatectl_bin}
 Environment=VOLUMIO_EVO_RTCWAKE=${rtcwake_bin}
+Environment=VOLUMIO_EVO_REBOOT_BIN=${reboot_bin}
+Environment=VOLUMIO_EVO_SHUTDOWN_BIN=${shutdown_bin}
 EOF
   if [[ "${EVO_SOURCE_AVAILABLE:-0}" == "1" ]]; then
     {
@@ -367,6 +385,28 @@ EOF
     rm -f "${tmp_mpd}"
   else
     rm -f "${mpd_sudoers}" 2>/dev/null || true
+  fi
+
+  if [[ "${EVO_INSTALL_POWER_SUDOERS:-1}" == "1" ]]; then
+    local tmp_pw
+    tmp_pw="$(mktemp)"
+    cat > "${tmp_pw}" <<EOF
+# volumio-evo: graceful reboot/shutdown from UI (Socket.IO reboot/shutdown; modal Restart).
+# Paths must match Environment=VOLUMIO_EVO_* in 10-runtime-user.conf and crates/core/src/api/system_power.rs.
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} reboot
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} poweroff
+${u} ALL=(root) NOPASSWD: ${reboot_bin}
+${u} ALL=(root) NOPASSWD: ${shutdown_bin} -h now
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_pw}" 2>/dev/null; then
+      install -m 0440 "${tmp_pw}" "${power_sudoers}"
+      echo "Installed ${power_sudoers} (reboot/poweroff NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${power_sudoers}."
+    fi
+    rm -f "${tmp_pw}"
+  else
+    rm -f "${power_sudoers}" 2>/dev/null || true
   fi
 
   if [[ "${EVO_INSTALL_RFKILL_SUDOERS:-1}" == "1" ]]; then

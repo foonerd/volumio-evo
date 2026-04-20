@@ -34,6 +34,7 @@ When a non-root user runs Evo:
 | `/var/lib/volumio-evo/**` | Settings, album art, state | **Service user** |
 | `/etc/sudoers.d/volumio-evo-mount` | NOPASSWD mount/umount | Root; content references **service user** |
 | `/etc/sudoers.d/volumio-evo-mpd` | NOPASSWD `systemctl restart mpd` | Root; **`systemctl`** path must match **`VOLUMIO_EVO_SYSTEMCTL`** |
+| **`/etc/sudoers.d/volumio-evo-power`** (bootstrap; disable with **`EVO_INSTALL_POWER_SUDOERS=0`**) | NOPASSWD **`systemctl`** **`reboot`** / **`poweroff`**, **`reboot`** binary, **`shutdown -h now`** — paths must match **`Environment=`** **`VOLUMIO_EVO_SYSTEMCTL`**, **`VOLUMIO_EVO_REBOOT_BIN`**, **`VOLUMIO_EVO_SHUTDOWN_BIN`** | Service user; Evo uses **`sudo -n`** only (**[`system_power.rs`](../crates/core/src/api/system_power.rs)**) |
 | `/etc/sudoers.d/volumio-evo-rfkill` | NOPASSWD **`rfkill unblock wifi`** | Root; **`rfkill`** path must match **`VOLUMIO_EVO_RFKILL`** |
 | `/etc/sudoers.d/volumio-evo-nmcli` | NOPASSWD **`nmcli`** (full binary path) | Root; path must match **`VOLUMIO_EVO_NMCLI`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
@@ -47,6 +48,7 @@ When a non-root user runs Evo:
 |--------|-----------|-----|
 | Rewrite MPD fragment | Playback / ALSA / volume saves that affect MPD | **`std::fs::write`** to **`VOLUMIO_EVO_MPD_FRAGMENT`** (or default path) |
 | Reload MPD | After a successful fragment write | **Root:** `systemctl restart mpd` (or **`$VOLUMIO_EVO_SYSTEMCTL`**). **Non-root:** **only** `sudo -n $VOLUMIO_EVO_SYSTEMCTL restart mpd` — never a bare `systemctl` first |
+| **`systemctl`** **`reboot`** / **`poweroff`** | Settings → Shutdown, Socket.IO **`reboot`** / **`shutdown`** (boot branding modal **Restart**) | **Root:** direct **`systemctl`**. **Non-root:** **`sudo -n $VOLUMIO_EVO_SYSTEMCTL`** **`reboot`** \| **`poweroff`** only — bootstrap **`volumio-evo-power`**; fallback after 3s uses **`sudo -n $VOLUMIO_EVO_REBOOT_BIN`** or **`sudo -n $VOLUMIO_EVO_SHUTDOWN_BIN -h now`** |
 | NAS mounts (where implemented) | User adds/edits shares | **`sudo -n /usr/bin/mount`** / **`umount`** as allowed in **`volumio-evo-mount`** |
 | **NetworkManager** (`nmcli`) | Wi‑Fi scan, connection add/up/down (network intent apply) | **Root**, or **`sudo -n $VOLUMIO_EVO_NMCLI …`** — bootstrap installs **`/etc/sudoers.d/volumio-evo-nmcli`** when **`EVO_INSTALL_NMCLI_SUDOERS=1`** (must match **`VOLUMIO_EVO_NMCLI`**) |
 | **`rfkill`** (`unblock wifi`) | Clear **soft block** before `nmcli` Wi‑Fi scan when `/sys/class/rfkill/*/soft` blocks **wlan** | **Root**, or **`sudo -n $VOLUMIO_EVO_RFKILL unblock wifi`** — bootstrap installs **`/etc/sudoers.d/volumio-evo-rfkill`** when **`EVO_INSTALL_RFKILL_SUDOERS=1`** (must match **`VOLUMIO_EVO_RFKILL`** path) |
@@ -65,6 +67,7 @@ Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** sessio
 |--------|---------|--------|
 | **`EVO_INSTALL_MOUNT_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-mount`** |
 | **`EVO_INSTALL_MPD_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-mpd`** for **`systemctl restart mpd`** |
+| **`EVO_INSTALL_POWER_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-power`** for **`sudo -n`** graceful reboot/shutdown (**Socket.IO**, branding modal) |
 | **`EVO_INSTALL_NMCLI_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-nmcli`** for **`sudo -n nmcli`** (non-root network apply) |
 | **`EVO_INSTALL_CONFIG_INSTALL_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-config-install`** for **`sudo -n install`** (**`network/config.toml.pending`** **and** **`ui/config.toml.pending`** → **`/etc/volumio-evo/config.toml`**) |
 | **`EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-hostname-timedate`** for **`sudo -n hostnamectl`** / **`timedatectl`** (device name + timezone when non‑root) |
