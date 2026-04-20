@@ -2,18 +2,24 @@
 //! → online: Cover Art Archive (MusicBrainz, multi-release + title variants) → Last.fm → iTunes
 //! → Volumio meta (artist-only web=) → default.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
 use crate::config::AlbumArtProvidersConfig;
 
-const COVER_NAMES: &[&str] = &[
+/// Preferred whole filenames (**lowercase**). Directory entries are matched with
+/// [`str::to_lowercase`] so `Cover.JPG`, `COVER.jpg`, `CoVeR.JpG`, etc. all resolve without listing
+/// every permutation (Unicode filenames use full Unicode lowercase rules).
+const COVER_FILENAME_PRIORITY: &[&str] = &[
+    "cover.jpg", "folder.jpg", "cover.png", "folder.png",
     "coverart.jpg", "albumart.jpg", "coverart.png", "albumart.png",
-    "cover.JPG", "Cover.JPG", "folder.JPG", "Folder.JPG",
-    "cover.PNG", "Cover.PNG", "folder.PNG", "Folder.PNG",
-    "cover.jpg", "Cover.jpg", "folder.jpg", "Folder.jpg",
-    "cover.png", "Cover.png", "folder.png", "Folder.png",
+    "artists.jpg", "artist.jpg", "artists.png", "artist.png",
+    "front.jpg", "front.png",
+    "album.jpg",
+    "scan.jpg",
+    "cover.webp", "folder.webp", "artists.webp",
 ];
 
 const MAX_COVER_BYTES: u64 = 5_000_000;
@@ -89,6 +95,11 @@ fn try_folder_cache(
         .join("extralarge.jpeg");
     if cache_path.exists() {
         if std::fs::metadata(&cache_path).ok()?.len() > 0 {
+            tracing::debug!(
+                "{} resolved folder cache path={:?}",
+                crate::log_tags::EVO_ALBUMART,
+                cache_path
+            );
             return Some((cache_path, "image/jpeg"));
         }
     }
@@ -104,48 +115,119 @@ fn try_metadata_cache(
     let rel = folder.strip_prefix(music_root).ok()?;
     let meta_path = albumart_root.join("metadata").join(rel).join("metadata.jpeg");
     if meta_path.exists() && std::fs::metadata(&meta_path).ok()?.len() > 0 {
+        tracing::debug!(
+            "{} resolved metadata cache path={:?}",
+            crate::log_tags::EVO_ALBUMART,
+            meta_path
+        );
         return Some((meta_path, "image/jpeg"));
     }
     None
 }
 
-/// Look for cover file in folder (COVER_NAMES then any .jpg/.png).
-fn try_folder_covers(folder: &Path) -> Option<(PathBuf, &'static str)> {
-    for name in COVER_NAMES {
-        let p = folder.join(name);
-        if p.exists() {
-            if let Ok(m) = std::fs::metadata(&p) {
-                if m.len() > 0 && m.len() <= MAX_COVER_BYTES {
-                    let ct = if name.ends_with(".png") || name.ends_with(".PNG") {
-                        "image/png"
-                    } else {
-                        "image/jpeg"
-                    };
-                    return Some((p, ct));
-                }
-            }
+#[inline]
+fn folder_cover_file_size_ok(p: &Path) -> bool {
+    match std::fs::metadata(p) {
+        Ok(m) => {
+            let len = m.len();
+            len > 0 && len <= MAX_COVER_BYTES
         }
+        Err(_) => false,
     }
+}
+
+fn image_content_type_for_ext(ext: &str) -> &'static str {
+    if ext.eq_ignore_ascii_case("png") {
+        "image/png"
+    } else if ext.eq_ignore_ascii_case("webp") {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    }
+}
+
+/// Prefer sensible filenames when the folder has several images (thumbs, extras).
+fn folder_cover_scan_priority(basename: &str) -> u8 {
+    let lower = basename.to_lowercase();
+    if lower.starts_with("thumb")
+        || lower.contains("small")
+        || lower.contains("_tn")
+    {
+        return 3;
+    }
+    if lower.starts_with("cover")
+        || lower.starts_with("folder")
+        || lower.starts_with("album")
+        || lower.starts_with("front")
+        || lower.starts_with("artist")
+        || lower.starts_with("scan")
+    {
+        return 0;
+    }
+    1
+}
+
+/// Look for cover file in folder (preferred names, **case-insensitive** on full filename; then
+/// best-match images by priority).
+fn try_folder_covers(folder: &Path) -> Option<(PathBuf, &'static str)> {
     let entries = std::fs::read_dir(folder).ok()?;
+    let mut by_lower: HashMap<String, PathBuf> = HashMap::new();
     for e in entries.flatten() {
         let p = e.path();
-        if let Some(ext) = p.extension() {
-            let ext = ext.to_string_lossy();
-            if ext.eq_ignore_ascii_case("jpg") || ext.eq_ignore_ascii_case("jpeg") || ext.eq_ignore_ascii_case("png") {
-                if let Ok(m) = std::fs::metadata(&p) {
-                    if m.len() > 0 && m.len() <= MAX_COVER_BYTES {
-                        let ct = if ext.eq_ignore_ascii_case("png") {
-                            "image/png"
-                        } else {
-                            "image/jpeg"
-                        };
-                        return Some((p, ct));
-                    }
-                }
+        let fname = p.file_name()?.to_string_lossy().into_owned();
+        if fname.starts_with('.') {
+            continue;
+        }
+        by_lower.entry(fname.to_lowercase()).or_insert(p);
+    }
+
+    for wanted in COVER_FILENAME_PRIORITY {
+        let key = wanted.to_lowercase();
+        if let Some(p) = by_lower.get(&key) {
+            if folder_cover_file_size_ok(p) {
+                let ext = p.extension()?.to_string_lossy();
+                tracing::debug!(
+                    "{} folder cover priority key={} path={:?}",
+                    crate::log_tags::EVO_ALBUMART,
+                    wanted,
+                    p
+                );
+                return Some((p.clone(), image_content_type_for_ext(&ext)));
             }
         }
     }
-    None
+
+    let mut candidates: Vec<(u8, String, PathBuf)> = Vec::new();
+    for (_, p) in by_lower {
+        let ext = match p.extension() {
+            Some(x) => x.to_string_lossy().into_owned(),
+            None => continue,
+        };
+        if !(ext.eq_ignore_ascii_case("jpg")
+            || ext.eq_ignore_ascii_case("jpeg")
+            || ext.eq_ignore_ascii_case("png")
+            || ext.eq_ignore_ascii_case("webp"))
+        {
+            continue;
+        }
+        if !folder_cover_file_size_ok(&p) {
+            continue;
+        }
+        let base = p.file_stem()?.to_string_lossy().into_owned();
+        let pri = folder_cover_scan_priority(&base);
+        candidates.push((pri, base.to_lowercase(), p));
+    }
+    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let (_, _, p) = candidates.into_iter().next()?;
+    let ext = p.extension()?.to_string_lossy().into_owned();
+    let ct = image_content_type_for_ext(&ext);
+    tracing::debug!(
+        "{} folder cover scan path={:?} content_type={}",
+        crate::log_tags::EVO_ALBUMART,
+        p,
+        ct
+    );
+    Some((p, ct))
 }
 
 /// Check personal art: albumart_root/personal/album/artist/album/ or artist/artist/
