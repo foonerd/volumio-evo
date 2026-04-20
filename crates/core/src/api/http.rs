@@ -11,6 +11,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use socketioxide::SocketIo;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -462,6 +463,17 @@ pub fn router(
     let nm_boot = network_mounts.clone();
     tokio::spawn(async move {
         nm_boot.mount_all_at_boot(cfg_nas).await;
+    });
+
+    let cfg_remount = state.clone();
+    let nm_remount = network_mounts.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(4 * 60)).await;
+            nm_remount
+                .remount_unmounted_shares_best_effort(cfg_remount.as_ref(), "periodic")
+                .await;
+        }
     });
 
     let music_root = state.music_sources.music_root.clone();

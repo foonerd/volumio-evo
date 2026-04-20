@@ -1,7 +1,15 @@
 //! NAS / SMB / NFS mounts (stock Volumio `system_controller/networkfs` behaviour).
 //! Shares persist under `settings/mounts/shares.toml`; mount points match Node: `/mnt/NAS/<sanitized_alias>`.
+//!
+//! **Boot:** [`NetworkMounts::mount_all_at_boot`] waits until NetworkManager reports usable L3 (**full**
+//! / **limited** connectivity, or global **STATE=connected** — the latter suits slow Wi‑Fi where the
+//! captive/connectivity probe lags DHCP), then retries transient “network unreachable” errors once.
+//!
+//! **Runtime:** A background task periodically calls [`NetworkMounts::remount_unmounted_shares_best_effort`]
+//! so shares come online after the user changes network or moves the device (no reboot).
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -110,6 +118,125 @@ fn merge_vers_into_options(options: &mut String, vers: &str) {
     } else {
         *options = format!("{cleaned},vers={vers}");
     }
+}
+
+/// `nmcli -t -f STATE general` → `connected` / `disconnected` / …
+async fn nm_general_state() -> Option<String> {
+    let out = Command::new("nmcli")
+        .args(["-t", "-f", "STATE", "general"])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line)
+    }
+}
+
+/// `nmcli -t -f CONNECTIVITY general` → `full` / `limited` / …
+async fn nm_connectivity_state() -> Option<String> {
+    let out = Command::new("nmcli")
+        .args(["-t", "-f", "CONNECTIVITY", "general"])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line)
+    }
+}
+
+/// **full** / **limited**: good. **STATE=connected**: NM has brought up a profile (Wi‑Fi often reaches
+/// this before `CONNECTIVITY` becomes `full` on slow links / Pi 2-class hardware).
+fn nm_reports_ready_for_nas(connectivity: Option<&str>, general_state: Option<&str>) -> bool {
+    if matches!(
+        connectivity,
+        Some(c) if c == "full" || c == "limited"
+    ) {
+        return true;
+    }
+    matches!(general_state, Some(s) if s == "connected")
+}
+
+/// Wait until NetworkManager reports a state where LAN access is plausible, or timeout.
+/// Avoids mounting NFS/CIFS while the stack still has **no route** (daemon often starts before DHCP).
+async fn wait_for_network_before_nas_mounts() {
+    // Pi 2 + Wi‑Fi: association + DHCP + slow connectivity checks can exceed 90s.
+    const MAX_WAIT: Duration = Duration::from_secs(180);
+    const POLL: Duration = Duration::from_millis(500);
+
+    let nmcli_ok = Command::new("nmcli")
+        .args(["-t", "-f", "CONNECTIVITY", "general"])
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !nmcli_ok {
+        tracing::warn!(
+            "{} boot: nmcli unavailable; waiting 10s before NAS mounts",
+            crate::log_tags::EVO_UI
+        );
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        return;
+    }
+
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() >= MAX_WAIT {
+            tracing::warn!(
+                "{} boot: NM not ready (full/limited or state=connected) after {:?}; attempting NAS mounts anyway",
+                crate::log_tags::EVO_UI,
+                MAX_WAIT
+            );
+            return;
+        }
+        let conn = nm_connectivity_state().await;
+        let st = nm_general_state().await;
+        let conn_s = conn.as_deref();
+        let st_s = st.as_deref();
+        if nm_reports_ready_for_nas(conn_s, st_s) {
+            tracing::info!(
+                "{} boot: network ready for NAS (CONNECTIVITY={:?} STATE={:?})",
+                crate::log_tags::EVO_UI,
+                conn_s,
+                st_s
+            );
+            return;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// Errors that usually clear once L3 routing exists (same boot window as “Network is unreachable”).
+fn mount_error_likely_transient_network(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("network is unreachable")
+        || m.contains("no route to host")
+        || m.contains("name or service not known")
+        || m.contains("couldn't resolve host")
+        || m.contains("connection timed out")
+        || m.contains("resource temporarily unavailable")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -781,13 +908,22 @@ impl NetworkMounts {
     }
 
     /// Boot: mount every persisted share (best-effort).
+    ///
+    /// Waits until NetworkManager reports **full**/**limited** connectivity or global **STATE=connected**
+    /// before mounting so NFS/CIFS does not hit “Network is unreachable” while Ethernet/Wi‑Fi is still
+    /// configuring. Transient failures get one delayed retry (~20s) for slow links or late DHCP.
     pub async fn mount_all_at_boot(&self, cfg: std::sync::Arc<Config>) {
+        wait_for_network_before_nas_mounts().await;
+
         let Ok(file) = self.load().await else {
             return;
         };
-        for (i, sh) in file.shares.iter().enumerate() {
+        let shares = file.shares.clone();
+        let mut transient_retry: Vec<ShareRecord> = Vec::new();
+
+        for (i, sh) in shares.iter().enumerate() {
             if i > 0 {
-                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                tokio::time::sleep(Duration::from_millis(400)).await;
             }
             match self.mount_share_record(&cfg, sh).await {
                 Ok(MountOutcome::Success) => {
@@ -805,16 +941,133 @@ impl NetworkMounts {
                     );
                 }
                 Ok(MountOutcome::Fail(r)) => {
+                    if mount_error_likely_transient_network(&r) {
+                        tracing::info!(
+                            "{} boot: mount {:?} deferred (transient: {}); will retry",
+                            crate::log_tags::EVO_UI,
+                            sh.name,
+                            r
+                        );
+                        transient_retry.push(sh.clone());
+                    } else {
+                        tracing::warn!(
+                            "{} boot: mount {:?} failed: {}",
+                            crate::log_tags::EVO_UI,
+                            sh.name,
+                            r
+                        );
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    "{} boot: mount {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    sh.name,
+                    e
+                ),
+            }
+        }
+
+        if transient_retry.is_empty() {
+            return;
+        }
+        tracing::info!(
+            "{} boot: retrying {} NAS mount(s) after 20s (transient network)",
+            crate::log_tags::EVO_UI,
+            transient_retry.len()
+        );
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
+        for sh in transient_retry {
+            match self.mount_share_record(&cfg, &sh).await {
+                Ok(MountOutcome::Success) => {
+                    tracing::info!(
+                        "{} boot: mounted NAS share {:?} (retry)",
+                        crate::log_tags::EVO_UI,
+                        sh.name
+                    );
+                }
+                Ok(MountOutcome::PermissionDenied) => {
+                    tracing::info!(
+                        "{} boot: {:?} needs credentials (skipped, retry)",
+                        crate::log_tags::EVO_UI,
+                        sh.name
+                    );
+                }
+                Ok(MountOutcome::Fail(r)) => {
                     tracing::warn!(
-                        "{} boot: mount {:?} failed: {}",
+                        "{} boot: mount {:?} failed after retry: {}",
                         crate::log_tags::EVO_UI,
                         sh.name,
                         r
                     );
                 }
                 Err(e) => tracing::warn!(
-                    "{} boot: mount {:?}: {}",
+                    "{} boot: mount {:?} (retry): {}",
                     crate::log_tags::EVO_UI,
+                    sh.name,
+                    e
+                ),
+            }
+        }
+    }
+
+    /// Mount every persisted share that is currently **not** mounted (best-effort).
+    ///
+    /// Intended for periodic runs after network changes (new SSID/LAN/NAS reachable again). Skips shares
+    /// whose mount points are already active; does **not** wait minutes for NM (only runs when a quick
+    /// connectivity/state check says the stack is up).
+    pub async fn remount_unmounted_shares_best_effort(&self, cfg: &Config, reason: &'static str) {
+        let conn = nm_connectivity_state().await;
+        let st = nm_general_state().await;
+        if !nm_reports_ready_for_nas(conn.as_deref(), st.as_deref()) {
+            tracing::trace!(
+                "{} {}: skip NAS remount (CONNECTIVITY={:?} STATE={:?})",
+                crate::log_tags::EVO_UI,
+                reason,
+                conn.as_deref(),
+                st.as_deref()
+            );
+            return;
+        }
+
+        let Ok(file) = self.load().await else {
+            return;
+        };
+        for sh in &file.shares {
+            let mp = Self::mountpoint_for_name(&sh.name);
+            if Self::is_mounted(&mp) {
+                continue;
+            }
+            match self.mount_share_record(cfg, sh).await {
+                Ok(MountOutcome::Success) => {
+                    tracing::info!(
+                        "{} {}: mounted NAS {:?}",
+                        crate::log_tags::EVO_UI,
+                        reason,
+                        sh.name
+                    );
+                }
+                Ok(MountOutcome::PermissionDenied) => {
+                    tracing::debug!(
+                        "{} {}: {:?} needs credentials (skipped)",
+                        crate::log_tags::EVO_UI,
+                        reason,
+                        sh.name
+                    );
+                }
+                Ok(MountOutcome::Fail(r)) => {
+                    tracing::debug!(
+                        "{} {}: {:?} not mountable yet: {}",
+                        crate::log_tags::EVO_UI,
+                        reason,
+                        sh.name,
+                        r
+                    );
+                }
+                Err(e) => tracing::debug!(
+                    "{} {}: {:?}: {}",
+                    crate::log_tags::EVO_UI,
+                    reason,
                     sh.name,
                     e
                 ),
