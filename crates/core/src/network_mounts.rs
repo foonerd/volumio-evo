@@ -447,7 +447,7 @@ impl NetworkMounts {
         opts: &str,
     ) -> Result<MountOutcome, String> {
         let out = Command::new("sudo")
-            .args(["/usr/bin/mount", "-t", "cifs", source])
+            .args(["-n", "/usr/bin/mount", "-t", "cifs", source])
             .arg(mp)
             .args(["-o", opts])
             .output()
@@ -548,7 +548,7 @@ impl NetworkMounts {
             opts.push_str(rec.options.trim());
         }
         let out = Command::new("sudo")
-            .args(["/usr/bin/mount", "-t", "nfs", &remote])
+            .args(["-n", "/usr/bin/mount", "-t", "nfs", &remote])
             .arg(mp)
             .args(["-o", &opts])
             .output()
@@ -603,7 +603,7 @@ impl NetworkMounts {
 
         async fn umount_output(args: &[&str], target: &str) -> (bool, String) {
             let mut cmd = Command::new("sudo");
-            cmd.arg("/usr/bin/umount");
+            cmd.args(["-n", "/usr/bin/umount"]);
             for a in args {
                 cmd.arg(a);
             }

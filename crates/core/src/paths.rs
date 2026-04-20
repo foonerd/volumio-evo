@@ -90,6 +90,18 @@ pub fn boot_branding_run_script_path() -> PathBuf {
         .unwrap_or_else(|_| evo_repo_dir().join("layer").join("install").join("run-boot-branding.sh"))
 }
 
+/// Repo script run as **`sudo -n … --apply-ui-only`** so nginx **`root`** tracks **`[ui] active_layout`**.
+/// **`VOLUMIO_EVO_BOOTSTRAP_SCRIPT`** overrides **`$EVO_REPO_DIR/scripts/bootstrap-volumio-evo-player.sh`** and must match **`/etc/sudoers.d/volumio-evo-ui-bootstrap`** on non-root installs.
+pub fn bootstrap_player_script_path() -> PathBuf {
+    if let Ok(p) = std::env::var("VOLUMIO_EVO_BOOTSTRAP_SCRIPT") {
+        let pb = PathBuf::from(p);
+        if !pb.as_os_str().is_empty() {
+            return pb;
+        }
+    }
+    evo_repo_dir().join("scripts").join("bootstrap-volumio-evo-player.sh")
+}
+
 /// Root install script invoked by [`boot_branding_run_script_path`] (ships under **`repo/layer/install/`**).
 pub fn boot_branding_install_script_path() -> PathBuf {
     evo_repo_dir()

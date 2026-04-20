@@ -17,18 +17,10 @@ pub async fn apply_active_layout_change(state: &AppState, layout_name: &str) -> 
 
 /// Run packaged bootstrap script so nginx **`root`** matches **`config.toml`** **`[ui] active_layout`**.
 pub async fn run_apply_ui_bootstrap() {
-    let script = std::env::var("VOLUMIO_EVO_BOOTSTRAP_SCRIPT")
-        .ok()
-        .map(std::path::PathBuf::from)
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| {
-            crate::paths::evo_repo_dir()
-                .join("scripts")
-                .join("bootstrap-volumio-evo-player.sh")
-        });
+    let script = crate::paths::bootstrap_player_script_path();
     if !script.is_file() {
         tracing::warn!(
-            "{} bootstrap script missing {:?} — set VOLUMIO_EVO_BOOTSTRAP_SCRIPT or install repo under {}",
+            "{} bootstrap script missing {:?} — set VOLUMIO_EVO_BOOTSTRAP_SCRIPT or ensure repo at {}",
             crate::log_tags::EVO_UI,
             script,
             crate::paths::evo_repo_dir().display()

@@ -117,7 +117,9 @@ impl LogLevel {
         match self {
             Self::Error => "error",
             Self::Warn => "warn",
-            Self::Info => "info",
+            // mpd_protocol logs every TCP connect at INFO ("connected successfully"), which floods
+            // journald during pushState (~2 s) / queue polls — clamp to WARN unless RUST_LOG overrides.
+            Self::Info => "info,mpd_protocol=warn",
             // Evo code at debug; custom targets use `volumio_evo::`; crate modules use `volumio_evo_core::`.
             Self::Verbose => {
                 "info,volumio_evo_core=debug,volumio_evo=debug,mpd_protocol=info,socketioxide=info,axum=info,tower_http=info,h2=info,hyper=info"

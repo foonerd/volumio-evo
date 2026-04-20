@@ -74,6 +74,8 @@ EVO_INSTALL_POWER_SUDOERS="${EVO_INSTALL_POWER_SUDOERS:-1}"
 EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 # 1: /etc/sudoers.d/volumio-evo-boot-branding — sudo -n run-boot-branding.sh (see docs/BRANDED_BOOT.md).
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
+# 1: /etc/sudoers.d/volumio-evo-ui-bootstrap — sudo -n bootstrap-volumio-evo-player.sh --apply-ui-only (nginx UI roots).
+EVO_INSTALL_UI_BOOTSTRAP_SUDOERS="${EVO_INSTALL_UI_BOOTSTRAP_SUDOERS:-1}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
 # 1: apt install SMB server (smbd+nmbd when split packages exist, else samba without recommends) — Settings -> Network.
@@ -140,6 +142,7 @@ Environment (common):
   EVO_INSTALL_RTCWAKE_SUDOERS=1            # 0 to skip sudoers for sudo -n rtcwake (RTC wake from suspend; see docs/ALARM_WAKE.md)
   EVO_INSTALL_POWER_SUDOERS=1             # 0 to skip sudoers for systemctl reboot/poweroff + fallback paths (Settings / modal Restart)
   EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
+  EVO_INSTALL_UI_BOOTSTRAP_SUDOERS=1       # 0 to skip sudoers for sudo -n bootstrap-volumio-evo-player.sh --apply-ui-only (Appearance layout)
   EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
   EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
   EVO_INSTALL_SAMBA_SERVER_PKGS=1      # 0 to skip apt SMB server install (Settings -> Network SMB)
@@ -218,6 +221,7 @@ configure_evo_runtime_user() {
   local rtcwake_sudoers="/etc/sudoers.d/volumio-evo-rtcwake"
   local boot_branding_sudoers="/etc/sudoers.d/volumio-evo-boot-branding"
   local power_sudoers="/etc/sudoers.d/volumio-evo-power"
+  local ui_bootstrap_sudoers="/etc/sudoers.d/volumio-evo-ui-bootstrap"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -232,6 +236,7 @@ configure_evo_runtime_user() {
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
     rm -f "${power_sudoers}" 2>/dev/null || true
+    rm -f "${ui_bootstrap_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-samba" 2>/dev/null || true
     return 0
@@ -297,6 +302,13 @@ configure_evo_runtime_user() {
     shutdown_bin="/sbin/shutdown"
   fi
 
+  # Canonical path for nginx UI refresh — must match `volumio-evo-ui-bootstrap` sudoers and Rust `ui_bootstrap.rs`.
+  local bootstrap_script
+  bootstrap_script="${EVO_REPO_DIR}/scripts/bootstrap-volumio-evo-player.sh"
+  if [[ -f "${bootstrap_script}" ]]; then
+    bootstrap_script="$(readlink -f "${bootstrap_script}")"
+  fi
+
   if ! id -u "${u}" >/dev/null 2>&1; then
     echo "ERROR: EVO_SERVICE_USER='${u}' is not a valid login on this system. Create the user or fix EVO_SERVICE_USER."
     exit 1
@@ -327,6 +339,7 @@ Environment=VOLUMIO_EVO_TIMEDATECTL=${timedatectl_bin}
 Environment=VOLUMIO_EVO_RTCWAKE=${rtcwake_bin}
 Environment=VOLUMIO_EVO_REBOOT_BIN=${reboot_bin}
 Environment=VOLUMIO_EVO_SHUTDOWN_BIN=${shutdown_bin}
+Environment=VOLUMIO_EVO_BOOTSTRAP_SCRIPT=${bootstrap_script}
 EOF
   if [[ "${EVO_SOURCE_AVAILABLE:-0}" == "1" ]]; then
     {
@@ -506,6 +519,31 @@ EOF
     rm -f "${tmp_rw}"
   else
     rm -f "${rtcwake_sudoers}" 2>/dev/null || true
+  fi
+
+  # nginx UI roots: Evo runs `sudo -n <this-script> --apply-ui-only` after saving [ui] active_layout (non-root).
+  if [[ "${EVO_INSTALL_UI_BOOTSTRAP_SUDOERS:-1}" == "1" ]]; then
+    if [[ -f "${bootstrap_script}" ]]; then
+      local tmp_ub
+      tmp_ub="$(mktemp)"
+      cat > "${tmp_ub}" <<EOF
+# volumio-evo: refresh nginx server roots when Appearance layout changes — narrow args only.
+# Managed by bootstrap; must match Environment=VOLUMIO_EVO_BOOTSTRAP_SCRIPT and crates/core/src/ui_bootstrap.rs.
+${u} ALL=(root) NOPASSWD: ${bootstrap_script} --apply-ui-only
+EOF
+      if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_ub}" 2>/dev/null; then
+        install -m 0440 "${tmp_ub}" "${ui_bootstrap_sudoers}"
+        echo "Installed ${ui_bootstrap_sudoers} (bootstrap --apply-ui-only NOPASSWD for ${u})."
+      else
+        echo "WARN: visudo check failed or visudo missing; not installing ${ui_bootstrap_sudoers}."
+      fi
+      rm -f "${tmp_ub}"
+    else
+      echo "WARN: bootstrap script missing at ${bootstrap_script} — skipping ${ui_bootstrap_sudoers}. Layout changes may fail until bootstrap path exists."
+      rm -f "${ui_bootstrap_sudoers}" 2>/dev/null || true
+    fi
+  else
+    rm -f "${ui_bootstrap_sudoers}" 2>/dev/null || true
   fi
 
   # Narrow NOPASSWD: install merged config from pending path → /etc/volumio-evo/config.toml
