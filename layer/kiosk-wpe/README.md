@@ -87,7 +87,7 @@ Environment equivalent:
 
     sudo EVO_WITH_KIOSK=wpe ./scripts/bootstrap-volumio-evo-player.sh --upgrade-evo
 
-The kiosk flags are off by default. When set on **full**/**reset**, `layer/kiosk-wpe/install.sh` runs after the Evo stack validates: installs packages (**labwc**, **`libgtk-4-1`**, **`libwebkitgtk-6.0-1`**, dev headers only if **`install_kiosk_browser_binary`** must compile — prefer checked-in **`layer/binaries/<triple>/volumio-evo-kiosk-browser`**), squeekboard, wvkbd, wtype, **`bubblewrap`**, **`xdg-dbus-proxy`**, copies units and shell helpers, installs **`volumio-evo-kiosk-browser`** to **`/usr/local/bin/`**, seeds **`/etc/volumio-evo/kiosk.toml`** and **`/etc/volumio-evo/labwc/rc.xml`**, **`systemctl daemon-reload`**. It does **not** enable **`volumio-evo-kiosk.service`** — **Settings → System → Kiosk** (`kiosk_enabled`) is the runtime switch. When the operator enables the kiosk from the UI and the layer has never been installed (or **`installKioskLayer`** is invoked), the backend runs **`sudo -n …/run-kiosk-wpe-install.sh`** first — see **`docs/KIOSK.md`** and **`docs/OS_PRIVILEGE_MODEL.md`**.
+The kiosk flags are off by default. When set on **full**/**reset**, `layer/kiosk-wpe/install.sh` runs after the Evo stack validates: installs packages (**labwc**, **`libgtk-4-1`**, **`libwebkitgtk-6.0-4`** (or **`libwebkitgtk-6.0-1`** on some distros), dev headers only if **`install_kiosk_browser_binary`** must compile — prefer checked-in **`layer/binaries/<triple>/volumio-evo-kiosk-browser`**), squeekboard, wvkbd, wtype, **`bubblewrap`**, **`xdg-dbus-proxy`**, copies units and shell helpers, installs **`volumio-evo-kiosk-browser`** to **`/usr/local/bin/`**, seeds **`/etc/volumio-evo/kiosk.toml`** and **`/etc/volumio-evo/labwc/rc.xml`**, **`systemctl daemon-reload`**. It does **not** enable **`volumio-evo-kiosk.service`** — **Settings → System → Kiosk** (`kiosk_enabled`) is the runtime switch. When the operator enables the kiosk from the UI and the layer has never been installed (or **`installKioskLayer`** is invoked), the backend runs **`sudo -n …/run-kiosk-wpe-install.sh`** first — see **`docs/KIOSK.md`** and **`docs/OS_PRIVILEGE_MODEL.md`**.
 
 ## Hardware matrix
 
@@ -101,7 +101,7 @@ index (`apt-cache show`). Names that are missing on your mirror or
 suite (for example optional fonts, GStreamer plugins, or VA drivers)
 are skipped with a warning instead of failing the whole run. The
 following packages are hard-required and the installer stops if any
-are unavailable (runtime): `labwc`, `libgtk-4-1`, `libwebkitgtk-6.0-1`;
+are unavailable (runtime): `labwc`, `libgtk-4-1`, `libwebkitgtk-6.0-4` (Debian) or `libwebkitgtk-6.0-1` (some Ubuntu);
 (build headers + **`pkg-config`** are also required when **`install.sh`** must invoke **`cargo build`** because no prebuilt **`volumio-evo-kiosk-browser`** exists for this arch).
 
 Conditional packages:
@@ -283,7 +283,7 @@ This component uninstalls by:
     sudo rm -f /etc/sudoers.d/volumio-evo-kiosk-control
     sudo systemctl daemon-reload
 
-The apt packages (labwc, libgtk-4-1, libwebkitgtk-6.0-1, GTK/WebKit **-dev** if installed,
+The apt packages (labwc, libgtk-4-1, libwebkitgtk-6.0-4 / libwebkitgtk-6.0-1, GTK/WebKit **-dev** if installed,
 squeekboard, wvkbd, …) remain installed; remove them with apt if
 desired. Persisted settings under `/var/lib/volumio-evo/settings/kiosk/`
 and `/etc/volumio-evo/kiosk.toml` are left in place.

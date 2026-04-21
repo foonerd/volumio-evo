@@ -178,7 +178,8 @@ install_packages() {
   #   labwc                  - wlroots stacking compositor (layer-shell, xdg-shell)
   #   wlr-randr              - used by session script to apply output scale
   #   libgtk-4-1             - GTK 4 runtime
-  #   libwebkitgtk-6.0-1     - WebKit 6 / webkit2gtk 6.0 runtime
+  #   libwebkitgtk-6.0-4 or  - WebKit 6 / webkit2gtk 6.0 runtime (Debian uses -4;
+  #   libwebkitgtk-6.0-1       Ubuntu often -1 — filter picks whichever exists)
   #   libsoup-3.0-0          - HTTP stack used by WebKit 6
   #   libgtk-4-dev           - build-time headers for crates/kiosk-browser
   #   libwebkitgtk-6.0-dev   - build-time headers for crates/kiosk-browser
@@ -201,6 +202,7 @@ install_packages() {
     labwc
     wlr-randr
     libgtk-4-1
+    libwebkitgtk-6.0-4
     libwebkitgtk-6.0-1
     libsoup-3.0-0
     libgtk-4-dev
@@ -278,7 +280,7 @@ install_packages() {
   for q in "${resolved[@]}"; do
     [[ "${q}" == "labwc" ]] && has_labwc=1
     [[ "${q}" == "libgtk-4-1" ]] && has_gtk4_rt=1
-    [[ "${q}" == "libwebkitgtk-6.0-1" ]] && has_webkit_rt=1
+    [[ "${q}" == "libwebkitgtk-6.0-1" || "${q}" == "libwebkitgtk-6.0-4" ]] && has_webkit_rt=1
     [[ "${q}" == "libgtk-4-dev" ]] && has_gtk4_dev=1
     [[ "${q}" == "libwebkitgtk-6.0-dev" ]] && has_webkit_dev=1
     [[ "${q}" == "pkg-config" ]] && has_pkgc=1
@@ -287,7 +289,7 @@ install_packages() {
     fail "Required package 'labwc' not available from apt. Enable Debian main / Ubuntu universe. See docs/KIOSK.md."
   fi
   if [[ "${has_gtk4_rt}" != "1" || "${has_webkit_rt}" != "1" ]]; then
-    fail "Required runtime libraries missing (libgtk-4-1, libwebkitgtk-6.0-1). Install from Debian Trixie main. See docs/KIOSK.md."
+    fail "Required runtime libraries missing (libgtk-4-1, libwebkitgtk-6.0-4 or libwebkitgtk-6.0-1). Install from Debian main / security. See docs/KIOSK.md."
   fi
   if [[ "${has_gtk4_dev}" != "1" || "${has_webkit_dev}" != "1" || "${has_pkgc}" != "1" ]]; then
     fail "Required build headers missing (libgtk-4-dev, libwebkitgtk-6.0-dev, pkg-config). Needed to compile crates/kiosk-browser."
