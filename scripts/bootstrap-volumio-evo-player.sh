@@ -69,6 +69,8 @@ EVO_BINARY_PATH="${EVO_BINARY_PATH:-/usr/local/bin/volumio-evo}"
 EVO_INSTALL_MOUNT_SUDOERS="${EVO_INSTALL_MOUNT_SUDOERS:-1}"
 # 1: install /etc/sudoers.d/volumio-evo-mpd so non-root Evo can `sudo -n systemctl restart mpd` after fragment writes.
 EVO_INSTALL_MPD_SUDOERS="${EVO_INSTALL_MPD_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-boot-config — sudo -n tee/cat boot config + modules-load.d (I2S dtoverlay; crates/core/src/i2s.rs).
+EVO_INSTALL_BOOT_CONFIG_SUDOERS="${EVO_INSTALL_BOOT_CONFIG_SUDOERS:-1}"
 # 1: install /etc/sudoers.d/volumio-evo-power — sudo -n systemctl reboot/poweroff + fallback reboot/shutdown (Socket.IO; modal Restart).
 EVO_INSTALL_POWER_SUDOERS="${EVO_INSTALL_POWER_SUDOERS:-1}"
 EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
@@ -163,6 +165,7 @@ Environment (common):
   EVO_SERVICE_USER=
   EVO_INSTALL_MOUNT_SUDOERS=1
   EVO_INSTALL_MPD_SUDOERS=1
+  EVO_INSTALL_BOOT_CONFIG_SUDOERS=1
   EVO_INSTALL_RFKILL_SUDOERS=1
   EVO_INSTALL_NMCLI_SUDOERS=1
   EVO_INSTALL_IW_SUDOERS=1
@@ -250,6 +253,7 @@ configure_evo_runtime_user() {
   local boot_branding_sudoers="/etc/sudoers.d/volumio-evo-boot-branding"
   local power_sudoers="/etc/sudoers.d/volumio-evo-power"
   local ui_bootstrap_sudoers="/etc/sudoers.d/volumio-evo-ui-bootstrap"
+  local boot_config_sudoers="/etc/sudoers.d/volumio-evo-boot-config"
 
   if [[ -z "${u}" ]]; then
     echo "Evo service user: (none) — volumio-evo runs as root (default)."
@@ -268,6 +272,7 @@ configure_evo_runtime_user() {
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-samba" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-kiosk-control" 2>/dev/null || true
+    rm -f "${boot_config_sudoers}" 2>/dev/null || true
     return 0
   fi
 
@@ -276,6 +281,17 @@ configure_evo_runtime_user() {
   systemctl_bin="$(command -v systemctl 2>/dev/null || true)"
   if [[ -z "${systemctl_bin}" || ! -x "${systemctl_bin}" ]]; then
     systemctl_bin="/usr/bin/systemctl"
+  fi
+
+  # Must match sudoers for I2S boot config writes (crates/core/src/i2s.rs: sudo -n tee/cat).
+  local tee_bin cat_bin
+  tee_bin="$(command -v tee 2>/dev/null || true)"
+  if [[ -z "${tee_bin}" || ! -x "${tee_bin}" ]]; then
+    tee_bin="/usr/bin/tee"
+  fi
+  cat_bin="$(command -v cat 2>/dev/null || true)"
+  if [[ -z "${cat_bin}" || ! -x "${cat_bin}" ]]; then
+    cat_bin="/bin/cat"
   fi
 
   # Must match sudoers for `rfkill unblock wifi` and Environment=VOLUMIO_EVO_RFKILL (see EVO_INSTALL_RFKILL_SUDOERS).
@@ -428,6 +444,30 @@ EOF
     rm -f "${tmp_mpd}"
   else
     rm -f "${mpd_sudoers}" 2>/dev/null || true
+  fi
+
+  # Pi /boot dtoverlay + modules-load.d — Playback → saveAlsaOptions (I2S). Same paths as i2s::resolved_boot_config_path + PI_I2C_DEV_MODULES_FILE.
+  if [[ "${EVO_INSTALL_BOOT_CONFIG_SUDOERS:-1}" == "1" ]]; then
+    local tmp_bc
+    tmp_bc="$(mktemp)"
+    cat > "${tmp_bc}" <<EOF
+# volumio-evo: non-root service writes Pi boot config for I2S DAC dtoverlay (sudo -n tee) and reads via sudo -n cat if unreadable.
+# Managed by bootstrap; must match crates/core/src/i2s.rs.
+${u} ALL=(root) NOPASSWD: ${tee_bin} /boot/firmware/config.txt
+${u} ALL=(root) NOPASSWD: ${tee_bin} /boot/config.txt
+${u} ALL=(root) NOPASSWD: ${tee_bin} /etc/modules-load.d/volumio-evo-i2c-dev.conf
+${u} ALL=(root) NOPASSWD: ${cat_bin} /boot/firmware/config.txt
+${u} ALL=(root) NOPASSWD: ${cat_bin} /boot/config.txt
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_bc}" 2>/dev/null; then
+      install -m 0440 "${tmp_bc}" "${boot_config_sudoers}"
+      echo "Installed ${boot_config_sudoers} (boot config tee/cat NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${boot_config_sudoers}. I2S saves may prompt for password."
+    fi
+    rm -f "${tmp_bc}"
+  else
+    rm -f "${boot_config_sudoers}" 2>/dev/null || true
   fi
 
   if [[ "${EVO_INSTALL_POWER_SUDOERS:-1}" == "1" ]]; then

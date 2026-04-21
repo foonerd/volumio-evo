@@ -4,10 +4,8 @@
 //! active (stock images often leave them commented), and installs a **`modules-load.d`** drop-in for
 //! **`i2c-dev`** so `/dev/i2c-*` exists (Pi OS Trixie+ no longer auto-loads it with `dtparam=i2c_arm=on` alone).
 //!
-//! Reads prefer **`fs::read_to_string`** when `/boot/...` is world-readable (usual on Pi). Writes use
-//! **`sudo -n tee`** when non-root (matches Volumio `volumio-user` sudoers: `NOPASSWD` for **`tee`**), or
-//! direct **`fs::write`** when **`euid == 0`**. Runtime **`modprobe i2c-dev`** runs only as root — the
-//! service user skips it and relies on **`modules-load.d`** at boot (avoid **`sudo modprobe`** without NOPASSWD).
+//! Reads prefer **`fs::read_to_string`** when `/boot/...` is world-readable (usual on Pi); else **`sudo -n cat`**
+//! (**`/etc/sudoers.d/volumio-evo-boot-config`** from bootstrap). Writes use **`sudo -n tee`** when non-root — same sudoers (**narrow paths**: boot `config.txt` variants + **`/etc/modules-load.d/volumio-evo-i2c-dev.conf`**), or direct **`fs::write`** when **`euid == 0`**. Runtime **`modprobe i2c-dev`** runs only as root — the service user skips it and relies on **`modules-load.d`** at boot (avoid **`sudo modprobe`** without NOPASSWD).
 
 use std::path::Path;
 use std::process::{Command, Stdio};
