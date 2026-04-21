@@ -1,29 +1,27 @@
 #!/bin/sh
 # volumio-evo-kiosk-session - labwc session command (Wayland client context).
 #
-# labwc spawns this script as its --session (-S) client after
-# creating its Wayland socket. By the time this script runs:
+# labwc spawns this script as its --session (-S) client after creating
+# its Wayland socket. By the time this script runs:
 #   - WAYLAND_DISPLAY is set (by labwc) -> Wayland clients can connect
 #   - XDG_RUNTIME_DIR is set (by pam_systemd) -> /run/user/<uid>/
 #
 # Responsibilities:
-#   1. Start the on-screen keyboard (squeekboard, wvkbd, or none).
-#   2. If cursor=hide, fire HideCursor via wtype (keybind in rc.xml).
+#   1. Start the on-screen keyboard (squeekboard | wvkbd | none).
+#   2. If cursor=hide, fire HideCursor via wtype (F24 keybind in rc.xml).
 #   3. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
-#   4. Exec cog as the only browser client.
+#   4. Exec the kiosk browser (/usr/local/bin/volumio-evo-kiosk-browser),
+#      which is a GTK4 + WebKit 6.0 (webkit2gtk) shell - see that script
+#      for the rationale (WPE input-dispatch bug + OSK layering).
 #
-# When cog exits, this script exits, labwc exits (because it was started
-# with --session <this-script>), systemd restarts the volumio-evo-kiosk unit.
+# When the browser exits, this script exits, labwc exits (because it was
+# started with --session <this-script>), systemd restarts the whole unit.
 #
 # Environment variables expected from volumio-evo-kiosk-launch:
-#   KIOSK_URL        URL cog loads (resolved from overlay/TOML)
+#   KIOSK_URL        URL to load (resolved from overlay / TOML)
 #   OSK              "squeekboard" | "wvkbd" | "none"
-#   OSK_FORCE_SHOW   "true" | "false"  (debug: make squeekboard visible on launch)
+#   OSK_FORCE_SHOW   "true" | "false"   (debug: force OSK visible on launch)
 #   KIOSK_CURSOR     "auto" | "show" | "hide"
-#
-# Fullscreen is NOT a cog CLI flag - no such option exists. cog reads
-# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 from the unit Environment= and
-# requests xdg_toplevel.set_fullscreen at window map, which labwc honors.
 
 set -eu
 
@@ -43,8 +41,10 @@ start_squeekboard() {
     log "squeekboard not installed; skipping OSK"
     return
   fi
-  # GNOME a11y key must be true or squeekboard hides itself immediately.
-  # Harmless on systems without gsettings.
+  # Master enable key. Without this squeekboard never shows regardless
+  # of text-input-v3 events. With it, squeekboard follows focus events
+  # (show on editable-focus, hide on blur). Harmless on systems without
+  # gsettings.
   if command -v gsettings >/dev/null 2>&1; then
     gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled true 2>/dev/null || true
   fi
@@ -85,9 +85,11 @@ if [ "${KIOSK_CURSOR}" = "hide" ] && command -v wtype >/dev/null 2>&1; then
   log "Scheduled HideCursor keybind (KIOSK_CURSOR=hide)"
 fi
 
-# Debug aid: force squeekboard visible ~2 seconds after its DBus service is
-# up. Only meaningful when OSK=squeekboard. busctl --user uses the user bus
-# at $XDG_RUNTIME_DIR/bus which pam_systemd provisions for this session.
+# Debug aid: force squeekboard visible ~2 seconds after its DBus service
+# is up. Only meaningful when OSK=squeekboard. busctl --user uses the
+# user bus at $XDG_RUNTIME_DIR/bus which pam_systemd provisions for this
+# session. The TOML default is false; toggle via the overlay for a single
+# session debug.
 if [ "${OSK_FORCE_SHOW}" = "true" ] && [ "${OSK}" = "squeekboard" ] && command -v busctl >/dev/null 2>&1; then
   (
     sleep 2
@@ -96,7 +98,7 @@ if [ "${OSK_FORCE_SHOW}" = "true" ] && [ "${OSK}" = "squeekboard" ] && command -
   log "Scheduled squeekboard SetVisible true (OSK_FORCE_SHOW=true)"
 fi
 
-# --------------------------- Exec cog ------------------------------------
+# --------------------------- Exec browser --------------------------------
 
-log "exec cog --platform=wl ${KIOSK_URL}"
-exec cog --platform=wl "${KIOSK_URL}"
+log "exec volumio-evo-kiosk-browser ${KIOSK_URL}"
+exec /usr/local/bin/volumio-evo-kiosk-browser "${KIOSK_URL}"

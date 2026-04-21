@@ -6,3 +6,5 @@ Cargo.lock
 *.img
 .env
 *.wasm
+__pycache__/
+*.py[cod]

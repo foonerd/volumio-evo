@@ -1,32 +1,35 @@
 <?xml version="1.0" ?>
 <!--
-  Volumio Evo kiosk - labwc compositor config.
+  Volumio Evo kiosk labwc config.
 
-  Minimal config: server-side decorations off (cog draws no chrome
-  anyway; this removes any titlebar/border labwc might otherwise add)
-  and F24 bound to the HideCursor action. The session script fires
-  F24 via wtype when the operator sets cursor=hide (overlay file).
+  Minimal config: server-side decorations off, F24 bound to HideCursor.
+  The session script fires F24 via wtype when the operator sets
+  cursor=hide (overlay file).
 
-  Fullscreen is handled by cog itself: the unit file sets
-  COG_PLATFORM_FDO_VIEW_FULLSCREEN=1, which causes cog to issue
-  xdg_toplevel.set_fullscreen at window map time. labwc honors this
-  request as a standards-compliant xdg-shell compositor.
+  IMPORTANT: no windowRule for fullscreen. The kiosk browser requests
+  xdg_toplevel.set_maximized (see /usr/local/bin/volumio-evo-kiosk-browser
+  and its doc-comment). Maximized keeps the client on the regular window
+  layer so wlr_layer_shell surfaces (squeekboard OSK on LAYER_TOP)
+  render above the kiosk. An earlier revision had a windowRule
+  matchOnce="true" ToggleFullscreen catch-all; that forced the client
+  onto the wlroots "fullscreen" layer which sits above LAYER_TOP and
+  hid the OSK. Removed.
 
   Installed to /etc/volumio-evo/labwc/rc.xml by
   layer/kiosk-wpe/install.sh -> install_labwc_config(). Used via
     labwc --config-dir /etc/volumio-evo/labwc
   invoked from /usr/local/bin/volumio-evo-kiosk-launch.
 
-  Do not edit /etc/volumio-evo/labwc/rc.xml in place - it is
-  overwritten on every install. Edit the source at
-  layer/kiosk-wpe/etc/labwc/rc.xml in the repo.
+  Do not edit /etc/volumio-evo/labwc/rc.xml in place; it is overwritten
+  on every install. Edit the source at layer/kiosk-wpe/etc/labwc/rc.xml
+  in the repo.
 -->
 <labwc_config>
 
   <core>
     <!-- Client-side decorations: labwc draws nothing around client
-         windows. cog does not draw its own chrome for kiosk content
-         so the net effect is a clean, borderless surface. -->
+         windows. The kiosk browser draws no chrome of its own, so the
+         net effect is a clean, borderless surface. -->
     <decoration>client</decoration>
   </core>
 

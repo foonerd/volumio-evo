@@ -22,7 +22,7 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | Playback timer / queue UI contract | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) |
 | External `.cue` files (normalize, browse, MPD `load`) | [CUE_SHEETS.md](CUE_SHEETS.md) |
 | Runtime user / mount helpers | [RUNTIME_USER.md](RUNTIME_USER.md) |
-| WPE kiosk concept and wiring | [KIOSK.md](KIOSK.md); implementation in `layer/kiosk-wpe/` + `crates/core/src/kiosk.rs` |
+| Wayland kiosk concept and wiring | [KIOSK.md](KIOSK.md); implementation in `layer/kiosk-wpe/` + `crates/core/src/kiosk.rs` |
 
 ## Every markdown file under `docs/`
 
@@ -74,7 +74,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | Wi-Fi list + NM apply (`nmcli`) | [NETWORK_NM.md](NETWORK_NM.md), [PORTING.md](PORTING.md) Phase 3 |
 | **`callMethod`**: ALSA/MPD saves (**`saveAlsaOptions`** may **`openModal`** reboot after I2S **`dtoverlay`**), **system_controller/system** saves, **`installBootBranding`** | `socketio.rs`; parity [PORTING.md](PORTING.md) 3.1 Playback/ALSA; boot stack [BRANDED_BOOT.md](BRANDED_BOOT.md), [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
 | Plymouth theme **`layer/plymouth/`**, **`vol-branding-v1-*`** units | [BRANDED_BOOT.md](BRANDED_BOOT.md) |
-| WPE kiosk (layer component + Rust wiring) | `layer/kiosk-wpe/`, `crates/core/src/kiosk.rs`, [KIOSK.md](KIOSK.md). `GET /api/v1/kiosk/status`; Settings -> System -> WPE Kiosk drives the unit via sudoers drop-in. |
+| Wayland kiosk (layer + Rust wiring) | `layer/kiosk-wpe/`, `crates/core/src/kiosk.rs`, [KIOSK.md](KIOSK.md). `GET /api/v1/kiosk/status`; Settings -> System kiosk drives the unit via sudoers drop-in. |
 | WASM plugin host | arm64/x86_64 ([PLUGIN_ABI.md](PLUGIN_ABI.md)); armhf core only |
 
 ## Not ported / outside this repo

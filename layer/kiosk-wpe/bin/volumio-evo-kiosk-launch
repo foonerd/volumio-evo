@@ -1,22 +1,25 @@
 #!/bin/sh
 # volumio-evo-kiosk-launch - compositor launcher (system-level setup).
 #
-# Unit file sets TTYPath=/dev/tty1, Wayland env, RuntimeDirectory, and
-# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1. Preflight only probes DRM.
+# Unit file sets TTYPath=/dev/tty1, Wayland env, RuntimeDirectory. Preflight
+# only probes DRM.
 #
 # This script resolves user settings (from overlay files + kiosk.toml),
 # exports wlroots environment for the compositor, and execs labwc with
 # the session script as labwc's --session client. labwc -S <cmd> (not -s)
-# runs <cmd> and terminates the compositor when <cmd> exits — the kiosk
-# lifecycle (systemd restarts the whole unit on exit). -s alone only
-# autostarts a background command; the compositor would outlive cog.
+# runs <cmd> and terminates the compositor when <cmd> exits - the kiosk
+# lifecycle is driven by systemd which restarts the whole unit on exit.
+# -s alone only autostarts a background command; the compositor would
+# outlive the browser.
 #
-# Design history: an earlier revision used cage as the compositor. cage
-# is insufficient for this use case - it does not implement
-# wlr_layer_shell_v1 (breaks on-screen keyboard) and its wl_pointer
-# button delivery does not reach WPE WebKit's DOM (breaks clicks). labwc
-# fixes both, supports the same WLR_* env vars we already set, and is
-# the current default on Raspberry Pi OS with desktop.
+# Design history: earlier revisions used cage as the compositor and cog
+# + WPE WebKit as the browser. Both were replaced: cage lacks
+# wlr_layer_shell_v1 (breaks on-screen keyboard) and its input delivery
+# to WPE was unreliable on Pi hardware; cog + WPE 2.48.3 on Trixie does
+# not deliver pointer button events to the DOM on Pi 5 class hardware.
+# Current stack: labwc (stacking wlroots compositor with layer-shell)
+# + /usr/local/bin/volumio-evo-kiosk-browser (custom GTK4 + webkit2gtk
+# shell). See layer/kiosk-wpe/README.md and docs/KIOSK.md.
 #
 # The OSK is NOT started here. It is a Wayland client and needs the
 # compositor's Wayland socket to already exist, which is only true after
@@ -118,8 +121,8 @@ AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
 XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
 ROT_RAW=$(resolve rotation rotation 0)
 
-# Rotation: overlay > TOML > 0. Variable name WLR_ROT (was CAGE_ROT in the
-# cage era) to match the actual consumer - wlroots env vars read by labwc.
+# Rotation: overlay > TOML > 0. Variable name WLR_ROT matches the
+# consumer - wlroots env vars read by labwc.
 case "${ROT_RAW}" in
   0)   WLR_ROT=normal ;;
   90)  WLR_ROT=90 ;;
@@ -141,9 +144,9 @@ log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${WLR_ROT} osk=${
 # Keyboard layout (read by wlroots at compositor start).
 export WLR_XKB_LAYOUT="${XKB_LAYOUT}"
 
-# Rotation via WLR env (wlroots reads this; works identically for cage and
-# labwc). Only set when non-normal so we do not override the compositor
-# default on fresh installs.
+# Rotation via WLR env (wlroots reads this; labwc honors it). Only set
+# when non-normal so we do not override the compositor default on fresh
+# installs.
 if [ "${WLR_ROT}" != "normal" ]; then
   if [ -n "${KIOSK_OUTPUT}" ]; then
     # Preferred form: per-output transform. wlroots key format:
@@ -181,8 +184,8 @@ if [ ! -r "${LABWC_CONFIG_DIR}/rc.xml" ]; then
   exit 1
 fi
 
-# Exec labwc --session (-S): when the session script exits (cog exited),
-# labwc exits so systemd can restart the unit. Do not use -s/--startup here;
-# that keeps labwc running after cog dies.
+# Exec labwc --session (-S): when the session script exits (browser
+# exited), labwc exits so systemd can restart the unit. Do not use
+# -s/--startup here; that keeps labwc running after the browser dies.
 log "exec labwc --config-dir ${LABWC_CONFIG_DIR} --session ${SESSION_BIN}"
 exec labwc --config-dir "${LABWC_CONFIG_DIR}" --session "${SESSION_BIN}"

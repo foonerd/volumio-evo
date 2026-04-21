@@ -121,7 +121,8 @@ Modes (default: full):
   --build             Compile volumio-evo on the device with cargo (installs rustup). Default is
                       to install the prebuilt binary from layer/binaries/<arch-triple>/ only.
   --with-kiosk=wpe    After a full or reset install, invoke layer/kiosk-wpe/install.sh to set up
-                      the WPE Wayland kiosk (Cog + Cage + squeekboard + wvkbd). Off by default.
+                      the Wayland kiosk (labwc + webkit2gtk shell, squeekboard/wvkbd). Flag name is
+                      historical (not WPE-based). Off by default.
                       Env equivalent: KIOSK=wpe.
 
 Requires a git checkout at EVO_REPO_DIR (default /opt/volumio/volumio-evo) with layer/web/ or
@@ -640,7 +641,7 @@ EOF
     rm -f "${samba_sudoers}" 2>/dev/null || true
   fi
 
-  # WPE kiosk control (Settings -> System -> WPE Kiosk). Narrow commands only.
+  # Wayland kiosk control (Settings -> System kiosk). Narrow commands only.
   # Only installed when --with-kiosk=wpe so non-kiosk hosts do not carry the sudoers.
   local kiosk_ctrl_sudoers="/etc/sudoers.d/volumio-evo-kiosk-control"
   if [[ "${EVO_WITH_KIOSK:-}" == "wpe" && "${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}" == "1" ]]; then

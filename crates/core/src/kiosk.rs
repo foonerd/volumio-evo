@@ -1,7 +1,7 @@
-//! **WPE kiosk control plane.**
+//! **Wayland kiosk control plane** (layer uses labwc + GTK/WebKit shell, not WPE).
 //!
 //! This module is the minimum Rust wiring that turns the existing
-//! Settings -> System -> WPE Kiosk toggle (see `crate::system_settings::SystemSettings`
+//! Settings -> System kiosk toggle (see `crate::system_settings::SystemSettings`
 //! fields `kiosk_enabled`, `primary_display`, `kiosk_rotation`, `kiosk_auto_rotate`,
 //! `kiosk_osk`, `kiosk_cursor`) into actual side effects on the layer component at
 //! `layer/kiosk-wpe/`.
@@ -268,10 +268,17 @@ pub async fn apply_kiosk_settings(
 ) -> ApplyOutcome {
     let sys = state.system_settings.read().await.clone();
 
-    // Overlay writes first - harmless even if the unit is inactive.
-    if let Err(e) = apply_primary_display(&sys.primary_display) {
-        tracing::warn!("{} primary_display overlay: {}", EVO_KIOSK, e);
-    }
+    // Overlay writes first - harmless even if the unit is inactive. We
+    // capture the "changed" bool from each apply_* so the running
+    // kiosk can be restarted when any one of them differs from disk
+    // (same mechanism the UI toggles depend on to take effect).
+    let primary_display_changed = match apply_primary_display(&sys.primary_display) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} primary_display overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
     let rotation_changed = match apply_rotation(sys.kiosk_rotation) {
         Ok(v) => v,
         Err(e) => {
@@ -279,15 +286,32 @@ pub async fn apply_kiosk_settings(
             false
         }
     };
-    if let Err(e) = apply_osk(&sys.kiosk_osk) {
-        tracing::warn!("{} osk overlay: {}", EVO_KIOSK, e);
-    }
-    if let Err(e) = apply_cursor(&sys.kiosk_cursor) {
-        tracing::warn!("{} cursor overlay: {}", EVO_KIOSK, e);
-    }
-    if let Err(e) = apply_auto_rotate_overlay(sys.kiosk_auto_rotate) {
-        tracing::warn!("{} auto_rotate overlay: {}", EVO_KIOSK, e);
-    }
+    let osk_changed = match apply_osk(&sys.kiosk_osk) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} osk overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
+    let cursor_changed = match apply_cursor(&sys.kiosk_cursor) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} cursor overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
+    let auto_rotate_changed = match apply_auto_rotate_overlay(sys.kiosk_auto_rotate) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} auto_rotate overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
+    let any_overlay_changed = primary_display_changed
+        || rotation_changed
+        || osk_changed
+        || cursor_changed
+        || auto_rotate_changed;
 
     // Desired state:
     //   kiosk_enabled=true  + DRM present + non-root user -> unit active
@@ -316,8 +340,20 @@ pub async fn apply_kiosk_settings(
 
         let active = unit_is_active(KIOSK_UNIT);
         let op_ok = if active {
-            if rotation_changed {
-                tracing::info!("{} live rotation change; restarting kiosk unit", EVO_KIOSK);
+            if any_overlay_changed {
+                // Running kiosk reads overlays at launcher start; any
+                // change requires a unit restart so the running browser
+                // picks up the new values (OSK selection, rotation,
+                // cursor policy, primary display, auto-rotate).
+                tracing::info!(
+                    "{} live kiosk settings change (rotation={} osk={} cursor={} primary_display={} auto_rotate={}); restarting kiosk unit",
+                    EVO_KIOSK,
+                    rotation_changed,
+                    osk_changed,
+                    cursor_changed,
+                    primary_display_changed,
+                    auto_rotate_changed,
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 restart_kiosk_unit().map_err(|e| {
                     tracing::warn!("{} restart_kiosk_unit: {}", EVO_KIOSK, e);

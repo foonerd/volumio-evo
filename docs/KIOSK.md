@@ -1,4 +1,32 @@
-# Volumio Evo - Kiosk concept (WPE reference path)
+# Volumio Evo - Kiosk concept and implementation record
+
+**Status:** Implemented (April 2026). `layer/kiosk-wpe/` is live on the `kiosk-wpe` branch and has been validated on Pi 5 arm64 with Trixie Lite. The authoritative reference for what actually installs is [`layer/kiosk-wpe/README.md`](../layer/kiosk-wpe/README.md). The sections below describe the original design concept and the deviations the implementation took from it.
+
+The directory and the bootstrap flag (`--with-kiosk=wpe`) keep the historical name for continuity; the implementation is no longer WPE-based.
+
+## 0. Implementation update (read first)
+
+The original concept in this document chose **cog + WPE WebKit + cage** as the reference stack. During bring-up on Pi 5 / Trixie three upstream issues forced deviations from that plan. The implementation that ships on `kiosk-wpe` now is:
+
+| Role | Concept said | Implementation uses | Why |
+|------|--------------|---------------------|-----|
+| Compositor | cage | **labwc** | cage lacks `wlr_layer_shell_v1` so squeekboard cannot render. labwc is a wlroots stacking compositor with layer-shell; it is the current default on Raspberry Pi OS. |
+| Browser | cog (WPE) | **purpose-built GTK 4 + webkit2gtk 6.0 shell** (`/usr/local/bin/volumio-evo-kiosk-browser`, ~100 lines of Python) | WPE WebKit 2.48.3 as packaged in Trixie does not dispatch pointer button or keyboard events to the DOM on Pi 5 class hardware. libinput delivers events at the kernel layer; WPE's `wl` and `fdo` platform plugins drop them before reaching WebCore. webkit2gtk (same engine family, GTK platform path) delivers every event correctly. Epiphany in `--application-mode` was also tried; it requires `xdg-desktop-portal` access to `/proc/<pid>/root` which is denied in a PAM-login systemd session. |
+| Fullscreen mode | xdg `set_fullscreen` | **xdg `set_maximized`** | squeekboard is hardcoded to `ZWLR_LAYER_SHELL_V1_LAYER_TOP`. wlroots' layer ordering places "fullscreen windows" above `LAYER_TOP`, so a true-fullscreen kiosk client covers the OSK. Maximized xdg_toplevels live on the regular window layer, below `LAYER_TOP`; the OSK renders above them. Combined with `<decoration>client</decoration>` and no panel, maximized is visually identical to fullscreen. References: [labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926), [raspberrypi-ui/squeekboard#13](https://github.com/raspberrypi-ui/squeekboard/issues/13). |
+
+Other concept-to-implementation mappings:
+
+- **Chromium** was rejected on memory grounds (~250-400 MB RSS is too much for Pi 1 / 2 / Zero class targets).
+- **Midori** is no longer in Debian main.
+- **surf** (suckless webkit2gtk) ships in Trixie but its `-K` kiosk flag blocks only keystrokes and right-click, not `window.open` / `target=_blank`.
+- **cog-settings.ini** example file removed; cog is not installed.
+- `COG_PLATFORM_FDO_VIEW_FULLSCREEN` and `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS` removed from the unit; neither applies to the webkit2gtk shell.
+
+The sections that follow (original design from late 2025 / early 2026) are retained as historical context. Where they say "cog" / "cage" / "WPE" / "fullscreen", refer to the table above for the actual shipped choice.
+
+---
+
+# Volumio Evo - Kiosk concept (original WPE reference path, historical)
 
 **Roadmap:** **Deferred.** This document is a **design reference for a future layer component**, not something you need for day-to-day Evo development today. Treat kiosk work as **after the Node backend is fully replaced** by the Rust core (playback, browse, REST/Socket.IO parity, installer story) so the on-device browser shell targets a **stable API and UI**. Do not block backend porting milestones on kiosk.
 

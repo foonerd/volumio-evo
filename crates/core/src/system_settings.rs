@@ -266,7 +266,7 @@ impl SystemSettings {
         changed
     }
 
-    /// Merge the Settings -> System -> WPE Kiosk form data. Returns `true` if
+    /// Merge the Settings -> System kiosk form data. Returns `true` if
     /// anything changed. Caller is responsible for persisting and running
     /// [`crate::kiosk::apply_kiosk_settings`].
     pub fn merge_kiosk_payload(&mut self, data: &Value) -> bool {

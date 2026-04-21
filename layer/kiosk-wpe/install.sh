@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# volumio-evo: WPE kiosk layer installer.
+# volumio-evo: kiosk layer installer.
 #
 # Called by scripts/bootstrap-volumio-evo-player.sh when --with-kiosk=wpe
-# (or KIOSK=wpe) is set. May also be invoked directly after a full bootstrap.
-# Idempotent: re-running refreshes packages and redeploys unit/helper files.
+# (or KIOSK=wpe) is set. May also be invoked directly after a full
+# bootstrap. Idempotent: re-running refreshes packages and redeploys
+# unit / helper files.
 #
 # Design: docs/KIOSK.md; runtime overlays: layer/kiosk-wpe/README.md.
+# Stack: labwc (Wayland compositor) + volumio-evo-kiosk-browser (GTK4 +
+# webkit2gtk 6.0 kiosk shell). cog / WPE / cage were evaluated and
+# rejected - see README.md for the full rationale. The repo path is
+# still named kiosk-wpe for historical continuity; --with-kiosk=wpe is
+# the bootstrap flag.
+#
 # NEVER enables the kiosk unit here - the backend switch drives state
-# (crates/core/src/kiosk.rs + Settings -> System -> WPE Kiosk).
+# (crates/core/src/kiosk.rs + Settings -> System -> Kiosk).
 
 set -euo pipefail
 
@@ -136,7 +143,7 @@ filter_apt_packages() {
     if pkg_in_apt_index "${p}"; then
       _out+=("${p}")
     else
-      warn "Package '${p}' not in apt index — skipping (add repo or see docs/KIOSK.md)."
+      warn "Package '${p}' not in apt index - skipping (add repo or see docs/KIOSK.md)."
     fi
   done
 }
@@ -151,25 +158,32 @@ install_packages() {
   accel="$(detect_accelerometer)"
   log "Arch: ${arch}; accelerometer present: ${accel}"
 
-  # Core browser/compositor: `cog` pulls libwpewebkit / libwpebackend-fdo with
-  # correct SONAME for this release — do not pin libwpewebkit-* here (names
-  # change across Debian versions and break minimal/custom mirrors).
-  #
-  # Compositor note: labwc is the active compositor (as of the cage→labwc
-  # swap). cage is kept in the list as a one-commit rollback fallback; it is
-  # not started by the launcher. wtype is used by the session script to fire
-  # a HideCursor keybind into labwc when cursor=hide is set.
+  # Core stack:
+  #   labwc         - wlroots-based stacking compositor (layer-shell, xdg-shell)
+  #   python3-gi    - GObject-Introspection bindings for Python (kiosk browser)
+  #   gir1.2-gtk-4.0       - GTK 4 bindings   (kiosk browser)
+  #   gir1.2-webkit-6.0    - WebKit 6 bindings (kiosk browser, pulls webkit2gtk)
+  #   squeekboard   - on-screen keyboard (text-input-v3 driven)
+  #   wvkbd         - fallback on-screen keyboard
+  #   wtype         - virtual-keyboard-v1 client used by the session script
+  #                   to fire the HideCursor keybind when cursor=hide
+  #   xkb-data      - XKB layouts (wlroots reads WLR_XKB_LAYOUT at start)
+  #   fonts-*       - base CJK-free font set
+  #   libinput-tools — libinput debug-events etc. for field diagnostics
+  #   xdg-user-dirs - standard user dirs (profile cache path resolution)
+  #   gstreamer*    - WebKit media backend
   local -a pkgs=(
-    cog
     labwc
-    cage
-    wtype
+    python3-gi
+    gir1.2-gtk-4.0
+    gir1.2-webkit-6.0
     squeekboard
     wvkbd
+    wtype
     xkb-data
     fonts-dejavu-core
     fonts-noto-core
-    libinput-bin
+    libinput-tools
     xdg-user-dirs
     gstreamer1.0-plugins-base
     gstreamer1.0-plugins-good
@@ -220,29 +234,33 @@ install_packages() {
 
   apt-get update
 
-  # Heal half-configured/broken dpkg state before a large install (common on
-  # interrupted apt runs or minimal images).
+  # Heal half-configured/broken dpkg state before a large install (common
+  # on interrupted apt runs or minimal images).
   dpkg --configure -a 2>/dev/null || true
   apt-get -y -f install 2>/dev/null || true
 
   local -a resolved=()
   filter_apt_packages resolved "${pkgs[@]}"
 
-  local has_cog has_labwc has_cage
-  has_cog=0
+  # Hard-required core: the kiosk cannot function without labwc or the
+  # Python + WebKit bindings the browser depends on.
+  local has_labwc has_pygi has_gtk4 has_webkit6
   has_labwc=0
-  has_cage=0
+  has_pygi=0
+  has_gtk4=0
+  has_webkit6=0
   local q
   for q in "${resolved[@]}"; do
-    [[ "${q}" == "cog" ]] && has_cog=1
     [[ "${q}" == "labwc" ]] && has_labwc=1
-    [[ "${q}" == "cage" ]] && has_cage=1
+    [[ "${q}" == "python3-gi" ]] && has_pygi=1
+    [[ "${q}" == "gir1.2-gtk-4.0" ]] && has_gtk4=1
+    [[ "${q}" == "gir1.2-webkit-6.0" ]] && has_webkit6=1
   done
-  if [[ "${has_cog}" != "1" || "${has_labwc}" != "1" ]]; then
-    fail "Required packages 'cog' and/or 'labwc' are not available from apt. On Ubuntu enable the 'universe' repository; on Debian use main. See docs/KIOSK.md."
+  if [[ "${has_labwc}" != "1" ]]; then
+    fail "Required package 'labwc' not available from apt. On Ubuntu enable 'universe'; on Debian use main. See docs/KIOSK.md."
   fi
-  if [[ "${has_cage}" != "1" ]]; then
-    log "Note: 'cage' fallback package not available from apt; labwc is the active compositor (cage is rollback-only)."
+  if [[ "${has_pygi}" != "1" || "${has_gtk4}" != "1" || "${has_webkit6}" != "1" ]]; then
+    fail "Required kiosk-browser runtime missing (python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0). Install from Debian Trixie main / Ubuntu main. See docs/KIOSK.md."
   fi
 
   log "Installing ${#resolved[@]} package(s) (filtered to index-available names)."
@@ -321,7 +339,7 @@ EOF
 
 install_helper_scripts() {
   local bin
-  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-session volumio-evo-kiosk-autorotate; do
+  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-session volumio-evo-kiosk-browser volumio-evo-kiosk-autorotate; do
     local src="${SCRIPT_DIR}/bin/${bin}"
     local dst="/usr/local/bin/${bin}"
     [[ -f "${src}" ]] || fail "Missing helper ${src}"
@@ -340,13 +358,6 @@ seed_etc_kiosk_toml() {
     install -m 0644 "${src}" "${dst}"
     log "Seeded ${dst}"
   fi
-  # Example cog settings - user may edit later; never overwrite.
-  local cog_src="${SCRIPT_DIR}/etc/cog-settings.ini.example"
-  local cog_dst="/etc/volumio-evo/cog-settings.ini"
-  if [[ -f "${cog_src}" && ! -f "${cog_dst}" ]]; then
-    install -m 0644 "${cog_src}" "${cog_dst}"
-    log "Seeded ${cog_dst}"
-  fi
 }
 
 install_labwc_config() {
@@ -354,7 +365,10 @@ install_labwc_config() {
   # /etc/xdg/labwc that other packages might drop. The launcher invokes
   # labwc with --config-dir /etc/volumio-evo/labwc so only this file is
   # used. Contents: server-side decorations off, F24 bound to HideCursor
-  # (the session script fires F24 via wtype when cursor=hide).
+  # (the session script fires F24 via wtype when cursor=hide). No
+  # windowRule for fullscreen is set - the kiosk browser requests
+  # xdg_toplevel.set_maximized so layer-shell surfaces (squeekboard OSK)
+  # render above it.
   local src="${SCRIPT_DIR}/etc/labwc/rc.xml"
   local dir="/etc/volumio-evo/labwc"
   local dst="${dir}/rc.xml"
@@ -374,20 +388,6 @@ ensure_settings_dir() {
     chown -R "${u}:${g}" "${dir}" 2>/dev/null || true
   fi
   log "Ensured ${dir}"
-}
-
-ensure_runtime_dir_stub() {
-  # Not strictly needed: preflight creates it, but seed permissions so a
-  # non-root kiosk can write to /run/volumio-evo-kiosk via tmpfiles if the
-  # admin wants to persist across reboots.
-  cat > /etc/tmpfiles.d/volumio-evo-kiosk.conf <<'EOF'
-# volumio-evo kiosk: runtime preflight env dir; recreated on every boot.
-d /run/volumio-evo-kiosk 0755 root root -
-EOF
-  if command -v systemd-tmpfiles >/dev/null 2>&1; then
-    systemd-tmpfiles --create /etc/tmpfiles.d/volumio-evo-kiosk.conf 2>/dev/null || true
-  fi
-  log "Installed /etc/tmpfiles.d/volumio-evo-kiosk.conf"
 }
 
 drm_present() {
@@ -413,7 +413,7 @@ print_status() {
   else
     log "  sudoers         : not installed (root service user; enable via KIOSK_ALLOW_ROOT=1 and re-run)"
   fi
-  log "  backend toggle  : Settings -> System -> WPE Kiosk (enable/disable)"
+  log "  backend toggle  : Settings -> System -> Kiosk (enable/disable)"
   log "  logs            : journalctl -u volumio-evo-kiosk -n 100 --no-pager"
 }
 
@@ -425,7 +425,7 @@ main() {
   arch="$(detect_arch)"
   user="$(resolve_kiosk_user)"
 
-  log "Starting WPE kiosk install on ${distro} (${arch})"
+  log "Starting kiosk install on ${distro} (${arch})"
 
   if [[ -z "${user}" && "${KIOSK_ALLOW_ROOT}" != "1" ]]; then
     warn "No non-root service user resolved. Kiosk will be installed but"
@@ -441,14 +441,13 @@ main() {
   seed_etc_kiosk_toml
   install_labwc_config
   ensure_settings_dir "${user}"
-  ensure_runtime_dir_stub
 
   systemctl daemon-reload
 
   if ! drm_present; then
     warn "No DRM device (/dev/dri/card*) found. Kiosk files installed but"
     warn "the unit will not be started. Connect a display and flip the"
-    warn "toggle in Settings -> System -> WPE Kiosk."
+    warn "toggle in Settings -> System -> Kiosk."
   fi
 
   if [[ "${KIOSK_FORCE_ENABLE}" == "1" && -n "${user}" ]]; then

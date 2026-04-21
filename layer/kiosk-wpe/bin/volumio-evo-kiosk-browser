@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+# volumio-evo-kiosk-browser - purpose-built WebKit kiosk shell.
+#
+# One maximized, undecorated window, one WebView, one URL. Blocks all
+# new-window requests (window.open, target=_blank, middle-click), all
+# context menus, all popups. WebProcess crashes trigger a reload.
+#
+# Why maximize() and not fullscreen():
+#
+# Squeekboard's layer-shell surface lives on ZWLR_LAYER_SHELL_V1_LAYER_TOP.
+# xdg_toplevel.set_fullscreen() puts the client on wlroots' "fullscreen"
+# layer, which sits ABOVE LAYER_TOP. Under labwc + any wlroots compositor
+# this means a true-fullscreen kiosk client covers the OSK entirely. The
+# labwc-maintainer-recommended workaround is to maximize (not fullscreen),
+# which keeps the client on the regular window layer. See:
+#   - labwc issue #2926 (Jul 2025)
+#   - raspberrypi-ui/squeekboard issue #13 (Sep 2025)
+#
+# Maximized + set_decorated(False) + labwc <decoration>client</decoration>
+# + no panel is visually identical to fullscreen, and additionally labwc
+# resizes the maximized window when the OSK claims an exclusive zone,
+# so the focused text field remains visible.
+#
+# Why webkit2gtk and not WPE:
+#
+# WPE WebKit 2.48.3 as packaged on Debian Trixie does not dispatch
+# pointer button or keyboard events to the DOM on Pi 5 class hardware.
+# libinput delivers the events at the kernel layer (verified with
+# `libinput debug-events`), but WPE's wl/fdo platform plugins drop
+# them before reaching WebCore. webkit2gtk (same engine family, GTK
+# platform path) delivers every event correctly on the same hardware.
+# We therefore build the kiosk on webkit2gtk via the WebKit 6.0 /
+# GTK 4 bindings. See docs/KIOSK.md for the full rationale.
+#
+# OSK behaviour:
+#
+# GTK's GtkIMContext on Wayland emits text-input-v3 enable on editable
+# DOM focus and disable on blur, provided the WebView holds GTK focus.
+# We call grab_focus() on the WebView after the window is realized.
+# squeekboard (launched separately by volumio-evo-kiosk-session) shows
+# and hides itself in response to those events.
+#
+# Invoked by /usr/local/bin/volumio-evo-kiosk-session as:
+#   exec volumio-evo-kiosk-browser http://127.0.0.1/
+#
+# Requires: python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0
+# (webkit2gtk 2.50.x on Debian Trixie).
+
+import sys
+import gi
+
+gi.require_version('Gtk', '4.0')
+gi.require_version('WebKit', '6.0')
+
+from gi.repository import Gio, Gtk, WebKit, GLib  # noqa: E402
+
+
+def log(msg):
+    print('[kiosk-browser] {}'.format(msg), flush=True)
+
+
+class KioskApp(Gtk.Application):
+
+    def __init__(self, url):
+        # NON_UNIQUE avoids D-Bus registration; systemd already guarantees
+        # single instance, and registration can fail in the PAM-login
+        # session context where the user session bus is minimal.
+        super().__init__(
+            application_id='io.volumio.evo.kiosk',
+            flags=Gio.ApplicationFlags.NON_UNIQUE,
+        )
+        self._url = url
+        self._webview = None
+        self._window = None
+        self.connect('activate', self._on_activate)
+
+    def _on_activate(self, _app):
+        window = Gtk.ApplicationWindow(application=self)
+        window.set_decorated(False)
+        window.set_title('Volumio')
+        # Fallback size so labwc has something to map us at before
+        # maximize lands.
+        window.set_default_size(1280, 720)
+
+        webview = WebKit.WebView()
+        # Without expand=True the WebView renders at its minimum-content
+        # size and the window ends up a small rectangle.
+        webview.set_hexpand(True)
+        webview.set_vexpand(True)
+        # GTK focus is required for GtkIMContext -> text-input-v3 -> OSK.
+        webview.set_focusable(True)
+        webview.load_uri(self._url)
+
+        # Block every new-window request. Popups, target=_blank, and
+        # window.open all go through this signal. Returning None refuses.
+        webview.connect('create', self._on_create)
+        # Suppress the browser-default context menu on right-click.
+        webview.connect('context-menu', self._on_context_menu)
+        # Reload the page if the WebProcess dies (GPU reset, OOM, etc).
+        webview.connect(
+            'web-process-terminated',
+            self._on_web_process_terminated,
+        )
+
+        window.set_child(webview)
+
+        self._window = window
+        self._webview = webview
+
+        window.present()
+
+        # xdg_toplevel.set_maximized only takes effect after the surface
+        # is mapped. Defer one event-loop tick.
+        GLib.idle_add(self._go_maximized)
+        # GTK focus must be on the WebView widget itself so keyboard
+        # events and IM state traverse through WebKit's input path.
+        GLib.idle_add(self._grab_webview_focus)
+
+        # Belt-and-braces: monitor state and re-assert maximize if the
+        # compositor unmaximizes us (external display hotplug etc.).
+        window.connect('notify::maximized', self._on_maximized_changed)
+
+    def _go_maximized(self):
+        if self._window is not None:
+            log('requesting maximize')
+            self._window.maximize()
+        return False
+
+    def _grab_webview_focus(self):
+        if self._webview is not None:
+            log('granting GTK focus to WebView')
+            self._webview.grab_focus()
+        return False
+
+    def _on_maximized_changed(self, window, _pspec):
+        if not window.is_maximized():
+            log('window unmaximized; re-requesting')
+            GLib.timeout_add(200, self._go_maximized)
+
+    def _on_create(self, *_args):
+        log('blocked create (popup / target=_blank / window.open)')
+        return None
+
+    def _on_context_menu(self, *_args):
+        return True
+
+    def _on_web_process_terminated(self, _webview, reason):
+        log('WebProcess terminated (reason={}); reloading in 1s'.format(reason))
+        GLib.timeout_add(1000, self._reload_webview)
+
+    def _reload_webview(self):
+        if self._webview is not None:
+            self._webview.load_uri(self._url)
+        return False
+
+
+def main(argv):
+    if len(argv) < 2:
+        print('usage: volumio-evo-kiosk-browser URL', file=sys.stderr)
+        return 2
+    url = argv[1]
+    log('starting; url={}'.format(url))
+    app = KioskApp(url)
+    # Pass only argv[0] to GApplication so it does not try to parse
+    # our URL as a GApplication command-line option.
+    return app.run([argv[0]])
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

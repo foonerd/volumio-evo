@@ -27,7 +27,8 @@ output = ""
 rotation = "normal"
 
 # Cursor policy. auto -> show when a pointer device is present, hide on
-# pure-touch. hide -> always hide (cage -d). show -> always show.
+# pure-touch (fires the labwc HideCursor keybind via wtype). show ->
+# always show.
 # Overlay file: settings/kiosk/cursor.
 cursor = "auto"
 
@@ -35,8 +36,11 @@ cursor = "auto"
 # Overlay file: settings/kiosk/osk.
 osk = "squeekboard"
 
-# Debug: force the OSK visible on launch (squeekboard DBus). Use briefly to
-# verify the OSK is actually wired to the compositor.
+# Debug: force the OSK visible on launch via squeekboard DBus SetVisible.
+# Normal operation leaves this false; squeekboard follows text-input-v3
+# focus events driven by the WebView. Flip to true only to verify the
+# OSK is wired up (the session script will call busctl SetVisible b true
+# ~2s after launch). Has no effect when osk != "squeekboard".
 osk_force_show = false
 
 # Accelerometer-driven rotation. Requires iio-sensor-proxy (installed by
@@ -47,10 +51,11 @@ auto_rotate = false
 # Color depth hint. "auto" lets the compositor pick.
 color_depth = "auto"
 
-# XKB layout passed to cage via WLR_XKB_LAYOUT. Examples: us, de, fr, gb.
+# XKB layout passed to wlroots via WLR_XKB_LAYOUT. Examples: us, de, fr, gb.
 xkb_layout = "us"
 
-# Extra env passed through to cage + cog. Free-form string keys.
+# Extra env passed through to labwc and the kiosk browser. Free-form
+# string keys. Useful for WebKit debug flags during investigation; the
+# kiosk browser inherits the unit's environment.
 [env]
 # WEBKIT_DEBUG = "LayerCompositing"
-# COG_PLATFORM_FDO_VIEW_FULLSCREEN = "1"

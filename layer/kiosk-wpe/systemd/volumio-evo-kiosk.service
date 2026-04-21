@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Volumio Evo WPE kiosk session. User= is provided by a drop-in written by
+# Volumio Evo Kiosk session. User= is provided by a drop-in written by
 # layer/kiosk-wpe/install.sh (/etc/systemd/system/volumio-evo-kiosk.service.d/10-user.conf).
 #
 # Design note (why the static TTYPath below):
@@ -12,17 +12,25 @@
 # the same slot a desktop display manager claims). RuntimeDirectory= manages
 # /run/volumio-evo-kiosk with correct ownership. Preflight now only probes DRM.
 #
-# This unit is NEVER enabled by install.sh. The backend toggle drives start/
-# stop (crates/core/src/kiosk.rs + Settings -> System -> WPE Kiosk).
+# Browser: custom GTK4 + webkit2gtk 6.0 shell at /usr/local/bin/volumio-evo-kiosk-browser.
+# See the layer README and docs/KIOSK.md for why WPE / cog was abandoned
+# (WPE 2.48.3 does not deliver pointer button events to the DOM on Pi
+# hardware) and why we use xdg_toplevel.set_maximized() rather than
+# set_fullscreen() (squeekboard LAYER_TOP is covered by the wlroots
+# "fullscreen" layer).
+#
+# This unit is NEVER enabled by install.sh. The backend toggle drives
+# start/stop (crates/core/src/kiosk.rs + Settings -> System -> Kiosk).
 
 [Unit]
-Description=Volumio Evo Kiosk (WPE)
+Description=Volumio Evo Kiosk
 Documentation=file:/usr/share/volumio-evo/repo/docs/KIOSK.md
 After=network-online.target systemd-user-sessions.service volumio-evo.service
 Wants=network-online.target volumio-evo.service
 # When the kiosk runs it owns /dev/tty1. getty@tty1 stands down the same way
-# it stands down when a display manager (gdm, sddm, lightdm) runs on a desktop
-# Debian install. Stopping the kiosk lets getty@tty1 come back on its own.
+# it stands down when a display manager (gdm, sddm, lightdm) runs on a
+# desktop Debian install. Stopping the kiosk lets getty@tty1 come back on
+# its own.
 Conflicts=getty@tty1.service
 ConditionPathExistsGlob=/dev/dri/card*
 
@@ -30,7 +38,7 @@ ConditionPathExistsGlob=/dev/dri/card*
 Type=simple
 PAMName=login
 # Static VT assignment. tty1 is the first console VT on every Linux system
-# and the slot used by graphical sessions on minimal/Lite Debian targets.
+# and the slot used by graphical sessions on minimal / Lite Debian targets.
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal
@@ -38,17 +46,12 @@ StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
-# Managed by systemd: creates /run/volumio-evo-kiosk at unit start owned by
-# User= from the 10-user.conf drop-in, cleans up at unit stop. Replaces the
-# tmpfiles.d hack from earlier revisions (which created the dir root:root 0755
-# and blocked the non-root unit from writing to it).
+# Managed by systemd: creates /run/volumio-evo-kiosk at unit start owned
+# by User= from the 10-user.conf drop-in, cleans up at unit stop.
 RuntimeDirectory=volumio-evo-kiosk
 Environment=XDG_SESSION_TYPE=wayland
 Environment=GDK_BACKEND=wayland
-Environment=COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
 Environment=WLR_LIBINPUT_NO_DEVICES=0
-# Dedicated appliance UI on trusted LAN; sandbox can break GPU/WPE under compositor restart.
-Environment=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 ExecStartPre=/usr/local/bin/volumio-evo-kiosk-preflight
 ExecStart=/usr/local/bin/volumio-evo-kiosk-launch
 Restart=always
