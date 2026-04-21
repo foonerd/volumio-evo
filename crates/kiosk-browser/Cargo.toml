@@ -1,6 +1,6 @@
 [package]
 name = "volumio-evo-kiosk-browser"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 description = "Volumio Evo on-device WebKit kiosk shell (GTK 4 + webkit2gtk 6.0)"
 
