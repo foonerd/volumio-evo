@@ -51,6 +51,15 @@ Mesa / VA-API userspace. Verified target is Pi 5 arm64; install.sh is
 best-effort universal across arm64, armhf, and amd64. armv6 (Pi 0/1) is out
 of scope (see docs/KIOSK.md Section 5).
 
+Install (`install.sh`) only requests packages that appear in the current apt
+index (`apt-cache show`). Names that are missing on your mirror or suite (for
+example optional fonts, GStreamer plugins, or VA drivers) are skipped with a
+warning instead of failing the whole run. **`cog` pulls in the correct
+`libwpewebkit-*` / `libwpebackend-fdo-*` SONAME for your release** — those
+libraries are no longer pinned by name in the installer. **`cog` and `cage`**
+must both be available or the install stops with an error (on Ubuntu, enable
+the **universe** repository).
+
 Conditional packages:
 
   - iio-sensor-proxy - only installed when /sys/bus/iio/devices/iio:device*

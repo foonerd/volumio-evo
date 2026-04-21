@@ -118,6 +118,29 @@ detect_accelerometer() {
   echo "no"
 }
 
+# True if apt knows this binary package name (index has a candidate).
+pkg_in_apt_index() {
+  local p="$1"
+  [[ -n "${p}" ]] || return 1
+  apt-cache show "${p}" >/dev/null 2>&1
+}
+
+# Keep only names that exist in the configured apt sources (avoids one missing
+# package failing the whole apt-get install line).
+filter_apt_packages() {
+  local -n _out="$1"
+  shift
+  local p
+  _out=()
+  for p in "$@"; do
+    if pkg_in_apt_index "${p}"; then
+      _out+=("${p}")
+    else
+      warn "Package '${p}' not in apt index — skipping (add repo or see docs/KIOSK.md)."
+    fi
+  done
+}
+
 install_packages() {
   if [[ "${KIOSK_INSTALL_PACKAGES}" != "1" ]]; then
     log "Skipping apt install (KIOSK_INSTALL_PACKAGES=0)."
@@ -128,10 +151,11 @@ install_packages() {
   accel="$(detect_accelerometer)"
   log "Arch: ${arch}; accelerometer present: ${accel}"
 
+  # Core browser/compositor: `cog` pulls libwpewebkit / libwpebackend-fdo with
+  # correct SONAME for this release — do not pin libwpewebkit-* here (names
+  # change across Debian versions and break minimal/custom mirrors).
   local -a pkgs=(
     cog
-    libwpewebkit-2.0-1
-    libwpebackend-fdo-1.0-1
     cage
     squeekboard
     wvkbd
@@ -149,18 +173,21 @@ install_packages() {
 
   case "${arch}" in
     arm64|armhf)
-      pkgs+=(libgl1-mesa-dri libgles2-mesa libegl1 libdrm2)
+      # libgles2-mesa dropped in Mesa 23.1.4-1 (Aug 2023); Trixie uses libgles2 (GLVND).
+      pkgs+=(libgl1-mesa-dri libgles2 libegl1 libdrm2)
       ;;
     amd64)
-      pkgs+=(libgl1-mesa-dri libegl1)
+      # Match arm64/armhf GLES/DRM baseline; mesa pulls these transitively but
+      # explicit installs avoid silent breakage if Debian ever splits deps.
+      pkgs+=(libgl1-mesa-dri libgles2 libegl1 libdrm2)
       gpu="$(detect_amd64_gpu_vendor)"
       case "${gpu}" in
         intel)
           # Best-effort: prefer intel-media on Gen8+, fall back to i965 shaders.
-          if apt-cache show intel-media-va-driver >/dev/null 2>&1; then
+          if pkg_in_apt_index intel-media-va-driver; then
             pkgs+=(intel-media-va-driver)
           fi
-          if apt-cache show i965-va-driver-shaders >/dev/null 2>&1; then
+          if pkg_in_apt_index i965-va-driver-shaders; then
             pkgs+=(i965-va-driver-shaders)
           fi
           ;;
@@ -182,8 +209,38 @@ install_packages() {
   fi
 
   export DEBIAN_FRONTEND=noninteractive
+  export APT_LISTCHANGES_FRONTEND=none
+
   apt-get update
-  apt-get install -y --no-install-recommends "${pkgs[@]}"
+
+  # Heal half-configured/broken dpkg state before a large install (common on
+  # interrupted apt runs or minimal images).
+  dpkg --configure -a 2>/dev/null || true
+  apt-get -y -f install 2>/dev/null || true
+
+  local -a resolved=()
+  filter_apt_packages resolved "${pkgs[@]}"
+
+  local has_cog has_cage
+  has_cog=0
+  has_cage=0
+  local q
+  for q in "${resolved[@]}"; do
+    [[ "${q}" == "cog" ]] && has_cog=1
+    [[ "${q}" == "cage" ]] && has_cage=1
+  done
+  if [[ "${has_cog}" != "1" || "${has_cage}" != "1" ]]; then
+    fail "Required packages 'cog' and/or 'cage' are not available from apt. On Ubuntu enable the 'universe' repository; on Debian use main. See docs/KIOSK.md."
+  fi
+
+  log "Installing ${#resolved[@]} package(s) (filtered to index-available names)."
+  apt-get install -y --no-install-recommends "${resolved[@]}"
+
+  apt-get -y -f install
+
+  if ! printf '%s\n' "${resolved[@]}" | grep -qx 'squeekboard'; then
+    warn "squeekboard was not installed (not in apt index). Use on-screen keyboard 'wvkbd' in Settings or install squeekboard manually."
+  fi
 }
 
 ensure_kiosk_user_groups() {
