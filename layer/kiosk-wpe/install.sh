@@ -163,13 +163,19 @@ install_packages() {
   #   python3-gi    - GObject-Introspection bindings for Python (kiosk browser)
   #   gir1.2-gtk-4.0       - GTK 4 bindings   (kiosk browser)
   #   gir1.2-webkit-6.0    - WebKit 6 bindings (kiosk browser, pulls webkit2gtk)
+  #   bubblewrap + xdg-dbus-proxy - required by the webkit2gtk sandbox.
+  #                 The unit currently sets WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+  #                 (see systemd/volumio-evo-kiosk.service for why) so these
+  #                 are not on the critical path today, but installing them
+  #                 ahead of time means flipping the sandbox env later is
+  #                 just an env-var change with no apt churn.
   #   squeekboard   - on-screen keyboard (text-input-v3 driven)
   #   wvkbd         - fallback on-screen keyboard
   #   wtype         - virtual-keyboard-v1 client used by the session script
   #                   to fire the HideCursor keybind when cursor=hide
   #   xkb-data      - XKB layouts (wlroots reads WLR_XKB_LAYOUT at start)
   #   fonts-*       - base CJK-free font set
-  #   libinput-tools — libinput debug-events etc. for field diagnostics
+  #   libinput-tools - libinput debug-events etc. for field diagnostics
   #   xdg-user-dirs - standard user dirs (profile cache path resolution)
   #   gstreamer*    - WebKit media backend
   local -a pkgs=(
@@ -177,6 +183,8 @@ install_packages() {
     python3-gi
     gir1.2-gtk-4.0
     gir1.2-webkit-6.0
+    bubblewrap
+    xdg-dbus-proxy
     squeekboard
     wvkbd
     wtype

@@ -52,6 +52,20 @@ RuntimeDirectory=volumio-evo-kiosk
 Environment=XDG_SESSION_TYPE=wayland
 Environment=GDK_BACKEND=wayland
 Environment=WLR_LIBINPUT_NO_DEVICES=0
+# webkit2gtk (and WPE) use a bubblewrap-based sandbox by default. On
+# Debian Trixie Lite the sandbox fails to initialise under the
+# PAM-login systemd unit context: bwrap reports "Unexpected
+# capabilities but not setuid, old file caps config?" and the
+# xdg-dbus-proxy launcher exits non-zero, after which WebKit kills
+# its own WebProcess with SIGTRAP and the whole client dies. This
+# was masked during the cog/WPE era because the unit had this env
+# set; removing it during the webkit2gtk rewrite regressed startup.
+# For a kiosk that only loads http://127.0.0.1/ (our own nginx front
+# for Evo), the sandbox buys no security - there is no untrusted
+# content. Leave disabled. Do not remove without a validated
+# replacement for bubblewrap and xdg-dbus-proxy provisioning on
+# minimal Trixie images.
+Environment=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 ExecStartPre=/usr/local/bin/volumio-evo-kiosk-preflight
 ExecStart=/usr/local/bin/volumio-evo-kiosk-launch
 Restart=always

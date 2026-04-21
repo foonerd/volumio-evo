@@ -16,13 +16,18 @@
   hid the OSK. Removed.
 
   Installed to /etc/volumio-evo/labwc/rc.xml by
-  layer/kiosk-wpe/install.sh -> install_labwc_config(). Used via
-    labwc --config-dir /etc/volumio-evo/labwc
-  invoked from /usr/local/bin/volumio-evo-kiosk-launch.
+  layer/kiosk-wpe/install.sh (install_labwc_config). Consumed by labwc
+  via its -C flag (short form of the config-dir option) pointing at
+  /etc/volumio-evo/labwc, invoked from
+  /usr/local/bin/volumio-evo-kiosk-launch.
 
   Do not edit /etc/volumio-evo/labwc/rc.xml in place; it is overwritten
   on every install. Edit the source at layer/kiosk-wpe/etc/labwc/rc.xml
   in the repo.
+
+  Note: XML comments cannot contain a doubled hyphen sequence, so this
+  block avoids CLI flag syntax that would produce one. Use prose or the
+  single-letter short form when describing flags here.
 -->
 <labwc_config>
 
