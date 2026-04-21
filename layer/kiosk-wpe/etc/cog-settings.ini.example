@@ -1,0 +1,14 @@
+; Volumio Evo - cog settings (optional).
+; Installed to /etc/volumio-evo/cog-settings.ini on first run. NEVER overwritten.
+;
+; Current default cog flags are passed on the command line by
+; /usr/local/bin/volumio-evo-kiosk-launch. This file exists for forward-
+; compatibility with future cog features that expect an INI (user agent
+; override, permission policy, etc). Leave commented until needed.
+
+[General]
+; user_agent = "Mozilla/5.0 (Volumio Evo kiosk) AppleWebKit/605.1.15"
+
+[Permissions]
+; allow_notifications = false
+; allow_media_playback = true

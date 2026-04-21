@@ -145,7 +145,7 @@ fn timezone_value_label(tz: &str) -> Value {
 
 fn boot_branding_rotation_value_label(deg: u16) -> Value {
     let d = normalize_plymouth_rotation(deg);
-    json!({ "value": d, "label": format!("{d}°") })
+    json!({ "value": d, "label": format!("{d}\u{00B0}") })
 }
 
 fn volumio3_ui_options_array() -> Value {
@@ -266,7 +266,14 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], ac
           },
           "saveButton": {
             "label": "TRANSLATE.COMMON.SAVE",
-            "data": [ "kiosk_enabled", "primary_display" ]
+            "data": [
+              "kiosk_enabled",
+              "primary_display",
+              "kiosk_rotation",
+              "kiosk_auto_rotate",
+              "kiosk_osk",
+              "kiosk_cursor"
+            ]
           },
           "content": [
             {
@@ -290,6 +297,59 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], ac
                 { "value": "hdmi", "label": "HDMI" },
                 { "value": "dsi", "label": "DSI / touchscreen" },
                 { "value": "wayland-default", "label": "Wayland default" }
+              ]
+            },
+            {
+              "id": "kiosk_rotation",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_ROTATION",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_ROTATION_DOC",
+              "value": {
+                "value": settings.kiosk_rotation,
+                "label": format!("{}\u{00B0}", settings.kiosk_rotation)
+              },
+              "options": [
+                { "value":   0, "label":   "0\u{00B0}" },
+                { "value":  90, "label":  "90\u{00B0}" },
+                { "value": 180, "label": "180\u{00B0}" },
+                { "value": 270, "label": "270\u{00B0}" }
+              ]
+            },
+            {
+              "id": "kiosk_auto_rotate",
+              "element": "switch",
+              "label": "TRANSLATE.SYSTEM.KIOSK_AUTO_ROTATE",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_AUTO_ROTATE_DOC",
+              "value": settings.kiosk_auto_rotate
+            },
+            {
+              "id": "kiosk_osk",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_OSK",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_OSK_DOC",
+              "value": {
+                "value": settings.kiosk_osk.clone(),
+                "label": settings.kiosk_osk.clone()
+              },
+              "options": [
+                { "value": "squeekboard", "label": "Squeekboard (default)" },
+                { "value": "wvkbd",       "label": "wvkbd (fallback)" },
+                { "value": "none",        "label": "None" }
+              ]
+            },
+            {
+              "id": "kiosk_cursor",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_CURSOR",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_CURSOR_DOC",
+              "value": {
+                "value": settings.kiosk_cursor.clone(),
+                "label": settings.kiosk_cursor.clone()
+              },
+              "options": [
+                { "value": "auto", "label": "auto" },
+                { "value": "hide", "label": "hide" },
+                { "value": "show", "label": "show" }
               ]
             }
           ]
@@ -316,10 +376,10 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], ac
               "label": "TRANSLATE.SYSTEM.BOOT_BRANDING_ROTATION",
               "value": boot_branding_rotation_value_label(settings.boot_branding_plymouth_rotation),
               "options": [
-                { "value": 0, "label": "0°" },
-                { "value": 90, "label": "90°" },
-                { "value": 180, "label": "180°" },
-                { "value": 270, "label": "270°" }
+                { "value": 0,   "label": "0\u{00B0}" },
+                { "value": 90,  "label": "90\u{00B0}" },
+                { "value": 180, "label": "180\u{00B0}" },
+                { "value": 270, "label": "270\u{00B0}" }
               ]
             }
           ]

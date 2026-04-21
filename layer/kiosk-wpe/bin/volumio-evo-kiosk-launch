@@ -1,0 +1,214 @@
+#!/bin/sh
+# volumio-evo-kiosk-launch - spawn OSK + exec cage+cog.
+#
+# Environment set by volumio-evo-kiosk-preflight via EnvironmentFile=-:
+#   TTYPath, KIOSK_PRIMARY_DISPLAY, KIOSK_OUTPUT, KIOSK_ROTATION,
+#   KIOSK_URL, KIOSK_TOML, KIOSK_SETTINGS_DIR, DRM_PRESENT
+#
+# Additional runtime config:
+#   - /etc/volumio-evo/kiosk.toml      (first-install defaults, never overwritten)
+#   - /var/lib/volumio-evo/settings/kiosk/*  (backend overlays - win over TOML)
+#
+# OSK selection order: overlay file -> kiosk.toml osk -> squeekboard.
+
+set -eu
+
+KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
+KIOSK_TOML="${KIOSK_TOML:-/etc/volumio-evo/kiosk.toml}"
+KIOSK_SETTINGS_DIR="${KIOSK_SETTINGS_DIR:-/var/lib/volumio-evo/settings/kiosk}"
+KIOSK_ROTATION="${KIOSK_ROTATION:-0}"
+KIOSK_OUTPUT="${KIOSK_OUTPUT:-}"
+
+log() {
+  printf '[kiosk-launch] %s\n' "$*"
+}
+
+# ------------------------------ TOML read ------------------------------
+
+# Minimal TOML accessor using python3 tomllib if available, else a sed-based
+# flat-key reader. Supports only top-level string/bool scalars we need.
+toml_get() {
+  key="$1"
+  default="$2"
+  if [ ! -r "${KIOSK_TOML}" ]; then
+    printf '%s' "${default}"
+    return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${KIOSK_TOML}" "${key}" "${default}" <<'PY' 2>/dev/null || printf '%s' "${default}"
+import sys
+try:
+    import tomllib
+except Exception:
+    sys.exit(1)
+path, key, default = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path, "rb") as f:
+        data = tomllib.load(f)
+except Exception:
+    print(default, end="")
+    sys.exit(0)
+val = data.get(key, default)
+if isinstance(val, bool):
+    print("true" if val else "false", end="")
+else:
+    print(str(val), end="")
+PY
+    return
+  fi
+  # Fallback parser (flat keys only, no sections).
+  awk -v k="${key}" -v d="${default}" '
+    /^[[:space:]]*#/ { next }
+    /^\[/ { next }
+    {
+      line=$0
+      sub(/#.*$/, "", line)
+      n=index(line, "=")
+      if (n == 0) next
+      lhs=substr(line,1,n-1); rhs=substr(line,n+1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", lhs)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", rhs)
+      gsub(/^"/, "", rhs); gsub(/"$/, "", rhs)
+      gsub(/^'\''/, "", rhs); gsub(/'\''$/, "", rhs)
+      if (lhs == k) { print rhs; exit }
+    }
+    END { if (!found) print d }
+  ' "${KIOSK_TOML}"
+}
+
+# Overlay wins over TOML. Empty overlay -> TOML -> hard default.
+resolve() {
+  key_overlay="$1"
+  key_toml="$2"
+  default="$3"
+  f="${KIOSK_SETTINGS_DIR}/${key_overlay}"
+  if [ -r "${f}" ]; then
+    v=$(head -1 "${f}" | tr -d '\r\n' || true)
+    if [ -n "${v}" ]; then
+      printf '%s' "${v}"
+      return
+    fi
+  fi
+  v=$(toml_get "${key_toml}" "${default}")
+  printf '%s' "${v}"
+}
+
+OSK=$(resolve osk osk squeekboard)
+CURSOR=$(resolve cursor cursor auto)
+OSK_FORCE_SHOW=$(resolve osk_force_show osk_force_show false)
+AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
+XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
+
+# Rotation: prefer the overlay (already parsed by preflight). Launcher only
+# uses it to build cage env.
+case "${KIOSK_ROTATION}" in
+  0)   CAGE_ROT=normal ;;
+  90)  CAGE_ROT=90 ;;
+  180) CAGE_ROT=180 ;;
+  270) CAGE_ROT=270 ;;
+  *)   CAGE_ROT=normal ;;
+esac
+
+# URL override via TOML, but overlay fixed to nginx root in P0.
+URL_FROM_TOML=$(toml_get url "${KIOSK_URL}")
+if [ -n "${URL_FROM_TOML}" ]; then
+  KIOSK_URL="${URL_FROM_TOML}"
+fi
+
+log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${CAGE_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE}"
+
+# --------------------------- OSK spawning ------------------------------
+
+OSK_PID=""
+
+start_squeekboard() {
+  if ! command -v squeekboard >/dev/null 2>&1; then
+    log "squeekboard not installed; skipping OSK"
+    return
+  fi
+  # Make sure the GNOME a11y key is set so squeekboard does not self-hide.
+  if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled true 2>/dev/null || true
+  fi
+  squeekboard &
+  OSK_PID=$!
+  log "Started squeekboard pid=${OSK_PID}"
+}
+
+start_wvkbd() {
+  if ! command -v wvkbd-mobintl >/dev/null 2>&1 && ! command -v wvkbd >/dev/null 2>&1; then
+    log "wvkbd not installed; skipping OSK"
+    return
+  fi
+  if command -v wvkbd-mobintl >/dev/null 2>&1; then
+    wvkbd-mobintl -L 280 &
+  else
+    wvkbd -L 280 &
+  fi
+  OSK_PID=$!
+  log "Started wvkbd pid=${OSK_PID}"
+}
+
+case "${OSK}" in
+  squeekboard) start_squeekboard ;;
+  wvkbd)       start_wvkbd ;;
+  none)        log "OSK disabled by config" ;;
+  *)           log "Unknown osk=${OSK}; defaulting to squeekboard"; start_squeekboard ;;
+esac
+
+cleanup() {
+  if [ -n "${OSK_PID}" ]; then
+    kill "${OSK_PID}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# ---------------------------- Cage + Cog -------------------------------
+
+# Cage takes -s (allow switching) and -d (hide cursor) plus a command after
+# `--`. We map CURSOR=hide -> -d. On CURSOR=show we leave the default.
+CAGE_ARGS="-s"
+case "${CURSOR}" in
+  hide)
+    # Cage 0.2.0 supports -d (no cursor). Older: fall back to transparent
+    # XCURSOR_THEME; we do not ship one in P0.
+    CAGE_ARGS="${CAGE_ARGS} -d"
+    ;;
+  show|auto|*) : ;;
+esac
+
+# Rotation via WLR env (wlroots reads this). Only set when non-normal so we
+# do not override the compositor default on fresh installs.
+export WLR_XKB_LAYOUT="${XKB_LAYOUT}"
+if [ "${CAGE_ROT}" != "normal" ]; then
+  if [ -n "${KIOSK_OUTPUT}" ]; then
+    # Preferred form: per-output transform. wlroots key format:
+    #   WLR_OUTPUT_<NAME_WITH_DASHES_REPLACED_BY_UNDERSCORES>_TRANSFORM
+    canon=$(printf '%s' "${KIOSK_OUTPUT}" | tr '-' '_')
+    varname="WLR_OUTPUT_${canon}_TRANSFORM"
+    # POSIX sh has no `export "${var}=val"`. Use env.
+    export "${varname}=${CAGE_ROT}" 2>/dev/null || eval "export ${varname}=${CAGE_ROT}"
+  else
+    export WLR_RENDER_NO_EXPLICIT_SYNC=1 2>/dev/null || true
+    # Global fallback (older wlroots).
+    export WLR_OUTPUT_TRANSFORM="${CAGE_ROT}"
+  fi
+fi
+
+if [ -n "${KIOSK_OUTPUT}" ]; then
+  export WLR_OUTPUTS="${KIOSK_OUTPUT}"
+fi
+
+# OSK_FORCE_SHOW is a debug aid: squeekboard can be forced visible via DBus.
+if [ "${OSK_FORCE_SHOW}" = "true" ] && command -v busctl >/dev/null 2>&1 && [ "${OSK}" = "squeekboard" ]; then
+  (
+    sleep 2
+    busctl call --user sm.puri.OSK0 /sm/puri/OSK0 sm.puri.OSK0 SetVisible b true 2>/dev/null || true
+  ) &
+fi
+
+# Exec cage. cog runs under cage as its only client. --platform=fdo binds to
+# libwpebackend-fdo-1.0; --fullscreen is the cog flag (COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
+# is set in the unit as well).
+log "exec cage ${CAGE_ARGS} -- cog --platform=fdo --fullscreen ${KIOSK_URL}"
+exec cage ${CAGE_ARGS} -- cog --platform=fdo --fullscreen "${KIOSK_URL}"

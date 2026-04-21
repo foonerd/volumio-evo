@@ -24,6 +24,7 @@ mod api;
 mod artist_normalize;
 mod config;
 mod cue_normalize;
+mod kiosk;
 mod metavolumio;
 mod mpd;
 mod samba_settings;
@@ -88,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(api::run_startup_samba_apply(state.clone()));
     tokio::spawn(api::run_startup_system_locale_apply(state.clone()));
     tokio::spawn(api::run_startup_alarm_schedule(state.clone()));
+    // WPE kiosk: reassert persisted state.toml -> systemctl on boot.
+    tokio::spawn(api::run_startup_kiosk_apply(state.clone()));
     if !std::env::var("VOLUMIO_EVO_SKIP_ALSA_HOTPLUG")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)

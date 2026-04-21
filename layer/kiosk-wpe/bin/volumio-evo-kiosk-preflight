@@ -1,0 +1,151 @@
+#!/bin/sh
+# volumio-evo-kiosk-preflight - VT + DRM + output discovery.
+# Runs as ExecStartPre for volumio-evo-kiosk.service. Writes environment
+# variables consumed by the unit (via EnvironmentFile=-) and the launcher.
+#
+# Policy: never fail the unit just for a missing optional capability. We
+# only exit non-zero when there is no DRM device at all (systemd will then
+# report the unit as failed, which is the right signal for the backend).
+
+set -eu
+
+RUNDIR=/run/volumio-evo-kiosk
+ENVFILE="${RUNDIR}/preflight.env"
+SETTINGS_DIR=/var/lib/volumio-evo/settings/kiosk
+KIOSK_TOML=/etc/volumio-evo/kiosk.toml
+
+mkdir -p "${RUNDIR}"
+: > "${ENVFILE}"
+
+log() {
+  printf '[kiosk-preflight] %s\n' "$*"
+}
+
+write_env() {
+  # $1 = KEY, $2 = VALUE. Writes KEY=VALUE (no export keyword - systemd parses
+  # the file as a sysvinit-style env file).
+  printf '%s=%s\n' "$1" "$2" >> "${ENVFILE}"
+}
+
+# ------------------------------- DRM ------------------------------------
+
+has_drm=0
+for c in /dev/dri/card*; do
+  if [ -c "${c}" ]; then
+    has_drm=1
+    break
+  fi
+done
+
+if [ "${has_drm}" -eq 0 ]; then
+  log "No /dev/dri/card* present; kiosk cannot start."
+  exit 1
+fi
+
+write_env DRM_PRESENT "yes"
+
+# ----------------------------- VT pick ---------------------------------
+
+pick_vt() {
+  # Prefer tty1, then tty2, then tty7. Skip any VT that has an enabled
+  # getty@ttyN.service (we do not want to race).
+  for n in 1 2 7; do
+    unit="getty@tty${n}.service"
+    if systemctl is-enabled --quiet "${unit}" 2>/dev/null; then
+      continue
+    fi
+    # If something else is currently active on that VT (e.g. a shell), avoid.
+    if [ -r "/sys/class/tty/tty${n}/active" ]; then
+      active=$(cat "/sys/class/tty/tty${n}/active" 2>/dev/null || true)
+      if [ -n "${active}" ] && [ "${active}" != "tty${n}" ]; then
+        continue
+      fi
+    fi
+    echo "${n}"
+    return
+  done
+  # Last resort.
+  echo "1"
+}
+
+vt=$(pick_vt)
+write_env TTYPath "/dev/tty${vt}"
+log "Selected /dev/tty${vt}"
+
+# ---------------------------- Output pick -------------------------------
+
+# Read primary_display overlay (backend-written) first, then fall back to
+# kiosk.toml output field (not parsed here - launcher handles toml). We
+# publish OUTPUT_HINT for the launcher to consume.
+
+primary_display="auto"
+if [ -r "${SETTINGS_DIR}/primary_display" ]; then
+  primary_display=$(head -1 "${SETTINGS_DIR}/primary_display" | tr -d '\r\n' || true)
+fi
+case "${primary_display}" in
+  auto|hdmi|dsi|wayland-default) : ;;
+  *) primary_display="auto" ;;
+esac
+write_env KIOSK_PRIMARY_DISPLAY "${primary_display}"
+
+# Enumerate connected outputs from /sys/class/drm to give the launcher hints.
+# Output names we see here are kernel-side (card0-HDMI-A-1), not wlroots-side
+# (HDMI-A-1). wlroots typically strips the "card0-" prefix.
+first_connected=""
+for conn in /sys/class/drm/card*-*/status; do
+  [ -r "${conn}" ] || continue
+  st=$(cat "${conn}" 2>/dev/null || true)
+  [ "${st}" = "connected" ] || continue
+  dir=${conn%/status}
+  name=$(basename "${dir}")
+  # Strip "cardN-" prefix.
+  name=${name#card[0-9]*-}
+  if [ -z "${first_connected}" ]; then
+    first_connected="${name}"
+  fi
+  case "${primary_display}" in
+    hdmi)
+      case "${name}" in
+        HDMI*) write_env KIOSK_OUTPUT "${name}"; break ;;
+      esac
+      ;;
+    dsi)
+      case "${name}" in
+        DSI*) write_env KIOSK_OUTPUT "${name}"; break ;;
+      esac
+      ;;
+  esac
+done
+
+# If the preferred output family was not found or primary_display is auto,
+# fall back to the first connected.
+if ! grep -q '^KIOSK_OUTPUT=' "${ENVFILE}" 2>/dev/null; then
+  if [ -n "${first_connected}" ]; then
+    write_env KIOSK_OUTPUT "${first_connected}"
+  else
+    write_env KIOSK_OUTPUT ""
+  fi
+fi
+
+# ---------------------------- Rotation ---------------------------------
+
+rotation="0"
+if [ -r "${SETTINGS_DIR}/rotation" ]; then
+  rotation=$(head -1 "${SETTINGS_DIR}/rotation" | tr -d '\r\n' || true)
+fi
+case "${rotation}" in
+  0|90|180|270) : ;;
+  *) rotation="0" ;;
+esac
+write_env KIOSK_ROTATION "${rotation}"
+
+# ---------------------------- URL + misc --------------------------------
+
+# Launcher will also parse kiosk.toml; we just provide a safe default.
+write_env KIOSK_URL "http://127.0.0.1/"
+write_env KIOSK_TOML "${KIOSK_TOML}"
+write_env KIOSK_SETTINGS_DIR "${SETTINGS_DIR}"
+
+chmod 0644 "${ENVFILE}"
+log "Wrote ${ENVFILE}"
+exit 0

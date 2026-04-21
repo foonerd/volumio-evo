@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Volumio Evo WPE kiosk session. User= is provided by a drop-in written by
+# layer/kiosk-wpe/install.sh (/etc/systemd/system/volumio-evo-kiosk.service.d/10-user.conf).
+# TTYPath is discovered at runtime by ExecStartPre (preflight) and exported
+# via /run/volumio-evo-kiosk/preflight.env (EnvironmentFile below).
+#
+# This unit is NEVER enabled by install.sh. The backend toggle drives start/
+# stop (crates/core/src/kiosk.rs + Settings -> System -> WPE Kiosk).
+
+[Unit]
+Description=Volumio Evo Kiosk (WPE)
+Documentation=file:/usr/share/volumio-evo/repo/docs/KIOSK.md
+After=network-online.target systemd-user-sessions.service volumio-evo.service
+Wants=network-online.target volumio-evo.service
+ConditionPathExistsGlob=/dev/dri/card*
+
+[Service]
+Type=simple
+PAMName=login
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Environment=XDG_SESSION_TYPE=wayland
+Environment=GDK_BACKEND=wayland
+Environment=COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
+Environment=WLR_LIBINPUT_NO_DEVICES=0
+# Preflight writes TTYPath=..., KIOSK_URL=..., KIOSK_ROTATION=..., WLR_OUTPUT_*=...
+EnvironmentFile=-/run/volumio-evo-kiosk/preflight.env
+ExecStartPre=/usr/local/bin/volumio-evo-kiosk-preflight
+ExecStart=/usr/local/bin/volumio-evo-kiosk-launch
+Restart=always
+RestartSec=2
+# Do not put this unit on logind seat0 exclusively; logind + PAMName=login
+# creates the seat. Extra seat claims here just confuse cage.
+
+[Install]
+WantedBy=multi-user.target

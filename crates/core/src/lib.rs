@@ -14,6 +14,7 @@ pub mod backgrounds;
 pub mod ui_bootstrap;
 pub mod albumart;
 pub mod i2s;
+pub mod kiosk;
 pub mod api;
 pub mod artist_normalize;
 pub mod config;

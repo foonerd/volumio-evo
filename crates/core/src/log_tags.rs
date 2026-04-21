@@ -41,3 +41,5 @@ pub const EVO_RTC: &str = "EVO RTC -->";
 pub const EVO_DB: &str = "EVO DB -->";
 #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 pub const EVO_PLUGIN: &str = "EVO PLUGIN -->";
+/// WPE kiosk control plane (`journalctl | grep -F 'EVO KIOSK'`). See `crates/core/src/kiosk.rs`.
+pub const EVO_KIOSK: &str = "EVO KIOSK -->";

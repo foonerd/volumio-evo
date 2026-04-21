@@ -3618,23 +3618,109 @@ async fn call_method(
     if payload.endpoint.as_deref() == Some("system_controller/system")
         && payload.method.as_deref() == Some("saveKioskSettings")
     {
-        let mut sys = state.system_settings.write().await;
-        let changed = sys.merge_kiosk_payload(&payload.data);
-        if changed {
-            if let Err(e) = sys.save() {
-                tracing::warn!("{} saveKioskSettings: {}", crate::log_tags::EVO_UI, e);
+        // Capture the previous kiosk_enabled so we can revert on refusal.
+        let prev_enabled;
+        let changed;
+        {
+            let mut sys = state.system_settings.write().await;
+            prev_enabled = sys.kiosk_enabled;
+            changed = sys.merge_kiosk_payload(&payload.data);
+            if changed {
+                if let Err(e) = sys.save() {
+                    tracing::warn!(
+                        "{} saveKioskSettings persist: {}",
+                        crate::log_tags::EVO_KIOSK,
+                        e
+                    );
+                }
             }
-            drop(sys);
-            emit_system_ui_config(&s, &state).await;
-            let _ = s.emit(
-                "pushToastMessage",
-                &serde_json::json!({
-                    "type": "success",
-                    "title": "System",
-                    "message": "Display settings saved"
-                }),
-            );
         }
+        if !changed {
+            // No-op save; just re-emit so the UI reflects live unit state.
+            emit_system_ui_config(&s, &state).await;
+            return;
+        }
+
+        // Apply side effects (overlays + systemctl). On refusal, revert the
+        // kiosk_enabled flag and re-persist so the toggle shows the actual state.
+        let outcome = crate::kiosk::apply_kiosk_settings(&state).await;
+        match outcome {
+            crate::kiosk::ApplyOutcome::Running => {
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "success",
+                        "title": "Display",
+                        "message": "Kiosk started"
+                    }),
+                );
+            }
+            crate::kiosk::ApplyOutcome::Stopped => {
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "success",
+                        "title": "Display",
+                        "message": "Display settings saved"
+                    }),
+                );
+            }
+            crate::kiosk::ApplyOutcome::NoDrm => {
+                // Revert kiosk_enabled so the UI is honest about state.
+                {
+                    let mut sys = state.system_settings.write().await;
+                    sys.kiosk_enabled = prev_enabled;
+                    if let Err(e) = sys.save() {
+                        tracing::warn!(
+                            "{} saveKioskSettings revert: {}",
+                            crate::log_tags::EVO_KIOSK,
+                            e
+                        );
+                    }
+                }
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Display",
+                        "message": "No display detected. Connect HDMI or DSI and retry."
+                    }),
+                );
+            }
+            crate::kiosk::ApplyOutcome::RootUserRefused => {
+                {
+                    let mut sys = state.system_settings.write().await;
+                    sys.kiosk_enabled = prev_enabled;
+                    if let Err(e) = sys.save() {
+                        tracing::warn!(
+                            "{} saveKioskSettings revert (root refusal): {}",
+                            crate::log_tags::EVO_KIOSK,
+                            e
+                        );
+                    }
+                }
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "error",
+                        "title": "Display",
+                        "message": "Kiosk requires a non-root service user."
+                    }),
+                );
+            }
+            crate::kiosk::ApplyOutcome::PartialFailure => {
+                let _ = s.emit(
+                    "pushToastMessage",
+                    &serde_json::json!({
+                        "type": "warning",
+                        "title": "Display",
+                        "message": "Settings saved but kiosk did not change state. Check journalctl -u volumio-evo-kiosk."
+                    }),
+                );
+            }
+        }
+
+        emit_system_ui_config(&s, &state).await;
         return;
     }
 

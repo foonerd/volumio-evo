@@ -121,3 +121,38 @@ pub const SMB_SHARE_ALLOWED_ROOTS: &[&str] = &[
 
 /// Prefixes that are **never** exported, even if nested under [`SMB_SHARE_ALLOWED_ROOTS`].
 pub const SMB_SHARE_DENIED_PREFIXES: &[&str] = &["/var/lib/volumio-evo/settings"];
+
+// --- WPE kiosk overlays --------------------------------------------------------------------------
+// Single-line value files consumed by /usr/local/bin/volumio-evo-kiosk-launch
+// and crates/core/src/kiosk.rs. Overlay values WIN over /etc/volumio-evo/kiosk.toml.
+// See layer/kiosk-wpe/README.md for the key reference and precedence rules.
+
+/// Root of WPE kiosk overlay files (per-key one-line files).
+pub fn kiosk_state_dir() -> PathBuf {
+    settings_dir().join("kiosk")
+}
+
+/// `settings/kiosk/primary_display`: `auto` | `hdmi` | `dsi` | `wayland-default`.
+pub fn kiosk_primary_display_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("primary_display")
+}
+
+/// `settings/kiosk/rotation`: degrees `0` | `90` | `180` | `270`.
+pub fn kiosk_rotation_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("rotation")
+}
+
+/// `settings/kiosk/osk`: `squeekboard` | `wvkbd` | `none`.
+pub fn kiosk_osk_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("osk")
+}
+
+/// `settings/kiosk/cursor`: `auto` | `hide` | `show`.
+pub fn kiosk_cursor_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("cursor")
+}
+
+/// `settings/kiosk/auto_rotate`: `true` | `false`.
+pub fn kiosk_auto_rotate_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("auto_rotate")
+}

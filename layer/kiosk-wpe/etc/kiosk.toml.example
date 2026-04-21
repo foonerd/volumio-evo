@@ -1,0 +1,56 @@
+# Volumio Evo - kiosk runtime config.
+# Installed to /etc/volumio-evo/kiosk.toml on first run. NEVER overwritten.
+#
+# For keys that also have an overlay file under
+# /var/lib/volumio-evo/settings/kiosk/<key>, the overlay wins (the backend UI
+# writes to overlays on save). Edit this file for defaults that persist when
+# no overlay is set.
+#
+# Backing code:
+#   launcher : /usr/local/bin/volumio-evo-kiosk-launch
+#   backend  : crates/core/src/kiosk.rs
+#   schema   : layer/kiosk-wpe/README.md
+
+# URL the kiosk loads. In P0 this is fixed to the nginx root on loopback; the
+# nginx site proxies /api/host through to Evo on :3000 for Socket.IO.
+url = "http://127.0.0.1/"
+
+# Wlroots output name. Empty means "first connected". Examples:
+#   "HDMI-A-1"       (Pi 4/5 HDMI0)
+#   "HDMI-A-2"       (Pi 4/5 HDMI1)
+#   "DSI-1"          (official Pi 7 inch touchscreen)
+# Overlay file: settings/kiosk/primary_display (auto|hdmi|dsi|wayland-default).
+output = ""
+
+# Screen rotation. "normal" is 0 degrees. Valid: normal, 90, 180, 270.
+# Overlay file: settings/kiosk/rotation (0|90|180|270).
+rotation = "normal"
+
+# Cursor policy. auto -> show when a pointer device is present, hide on
+# pure-touch. hide -> always hide (cage -d). show -> always show.
+# Overlay file: settings/kiosk/cursor.
+cursor = "auto"
+
+# On-screen keyboard. Valid: squeekboard, wvkbd, none.
+# Overlay file: settings/kiosk/osk.
+osk = "squeekboard"
+
+# Debug: force the OSK visible on launch (squeekboard DBus). Use briefly to
+# verify the OSK is actually wired to the compositor.
+osk_force_show = false
+
+# Accelerometer-driven rotation. Requires iio-sensor-proxy (installed by
+# layer/kiosk-wpe/install.sh only when an accelerometer is detected).
+# Overlay file: settings/kiosk/auto_rotate.
+auto_rotate = false
+
+# Color depth hint. "auto" lets the compositor pick.
+color_depth = "auto"
+
+# XKB layout passed to cage via WLR_XKB_LAYOUT. Examples: us, de, fr, gb.
+xkb_layout = "us"
+
+# Extra env passed through to cage + cog. Free-form string keys.
+[env]
+# WEBKIT_DEBUG = "LayerCompositing"
+# COG_PLATFORM_FDO_VIEW_FULLSCREEN = "1"
