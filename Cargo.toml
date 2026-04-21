@@ -1,6 +1,22 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/plugin-sdk", "plugins/example"]
+members = [
+    "crates/core",
+    "crates/plugin-sdk",
+    "crates/kiosk-browser",
+    "plugins/example",
+]
+
+# Default members excludes kiosk-browser: plain `cargo build --release` at the
+# workspace root produces only the regular Evo artefacts and does not require
+# the GTK 4 + webkit2gtk 6.0 + libsoup 3 C headers. The kiosk binary is built
+# on demand by `layer/kiosk-wpe/install.sh` (when --with-kiosk=wpe is passed
+# to bootstrap) via `cargo build -p volumio-evo-kiosk-browser --release`.
+default-members = [
+    "crates/core",
+    "crates/plugin-sdk",
+    "plugins/example",
+]
 
 # WASM plugin needs panic=abort (no unwinding without std); safe for all members
 [profile.release]

@@ -558,7 +558,21 @@
     "KIOSK_WPE_DOC": "Δεσμευμένο για το κέλυφος Wayland/WPE στη συσκευή· δείτε docs/KIOSK.md.",
     "LOCALE_REGION": "Γλώσσα, περιοχή και ζώνη ώρας",
     "PRIMARY_DISPLAY": "Κύρια οθόνη",
-    "PRIMARY_DISPLAY_DOC": "Ποια έξοδος εμφανίζει πλήρη οθόνη όταν το κιόσκι είναι ενεργό."
+    "PRIMARY_DISPLAY_DOC": "Ποια έξοδος εμφανίζει πλήρη οθόνη όταν το κιόσκι είναι ενεργό.",
+    "KIOSK_ROTATION": "Περιστροφή οθόνης",
+    "KIOSK_ROTATION_DOC": "Περιστρέφει τη διεπαφή kiosk στο framebuffer (0°, 90°, 180° ή 270°).",
+    "KIOSK_AUTO_ROTATE": "Αυτόματη περιστροφή",
+    "KIOSK_AUTO_ROTATE_DOC": "Προσαρμόζει την περιστροφή όταν η οθόνη αναφέρει αλλαγή προσανατολισμού.",
+    "KIOSK_OSK": "Πληκτρολόγιο οθόνης",
+    "KIOSK_OSK_DOC": "Εικονικό πληκτρολόγιο αφής (Squeekboard, wvkbd ή κανένα).",
+    "KIOSK_CURSOR": "Δείκτης",
+    "KIOSK_CURSOR_DOC": "Εμφάνιση ή απόκρυψη δείκτη ποντικιού ή προεπιλογή.",
+    "KIOSK_ZOOM": "Εστίαση ιστού",
+    "KIOSK_ZOOM_DOC": "Επίπεδο εστίασης του ενσωματωμένου περιηγητή kiosk.",
+    "KIOSK_SCALE": "Κλίμακα διεπαφής",
+    "KIOSK_SCALE_DOC": "Συνολική κλιμάκωση του kiosk shell.",
+    "KIOSK_OSK_LAYOUT": "Διάταξη πληκτρολογίου",
+    "KIOSK_OSK_LAYOUT_DOC": "Διάταξη ή γλώσσα για το πληκτρολόγιο οθόνης."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "",

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Accelerometer-driven screen rotation for the kiosk. Installed disabled;
+# the backend auto-rotate switch flips it (crates/core/src/kiosk.rs).
+# Depends on iio-sensor-proxy (D-Bus net.hadess.SensorProxy) which install.sh
+# only pulls in when an accelerometer is detected at install time.
+
+[Unit]
+Description=Volumio Evo Kiosk auto-rotate (iio-sensor-proxy)
+Documentation=file:/usr/share/volumio-evo/repo/docs/KIOSK.md
+After=iio-sensor-proxy.service volumio-evo-kiosk.service
+Wants=iio-sensor-proxy.service
+BindsTo=volumio-evo-kiosk.service
+ConditionPathExists=/usr/bin/busctl
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/volumio-evo-kiosk-autorotate
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

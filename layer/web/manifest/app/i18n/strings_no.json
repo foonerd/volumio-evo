@@ -563,7 +563,21 @@
     "KIOSK_WPE_DOC": "Reservert til Wayland/WPE-skall på enheten; se docs/KIOSK.md.",
     "LOCALE_REGION": "Språk, region og tidssone",
     "PRIMARY_DISPLAY": "Primær skjerm",
-    "PRIMARY_DISPLAY_DOC": "Hvilken utgang viser fullskjerms-UI når kiosk er på."
+    "PRIMARY_DISPLAY_DOC": "Hvilken utgang viser fullskjerms-UI når kiosk er på.",
+    "KIOSK_ROTATION": "Skjermrotasjon",
+    "KIOSK_ROTATION_DOC": "Roterer kiosk-grensesnittet i framebuffer (0°, 90°, 180° eller 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatisk rotasjon",
+    "KIOSK_AUTO_ROTATE_DOC": "Tilpasser rotasjon når skjermen melder endret orientering.",
+    "KIOSK_OSK": "Skjermtastatur",
+    "KIOSK_OSK_DOC": "Virtuelt tastatur for berøring (Squeekboard, wvkbd eller ingen).",
+    "KIOSK_CURSOR": "Peker",
+    "KIOSK_CURSOR_DOC": "Vis eller skjul musepeker eller bruk standard.",
+    "KIOSK_ZOOM": "Web-zoom",
+    "KIOSK_ZOOM_DOC": "Zoomnivå for den innebygde kiosk-nettleseren.",
+    "KIOSK_SCALE": "Grensesnitt­skala",
+    "KIOSK_SCALE_DOC": "Samlet skalering av kiosk-skall.",
+    "KIOSK_OSK_LAYOUT": "Tastatur­layout",
+    "KIOSK_OSK_LAYOUT_DOC": "Layout- eller språkhint for skjermtastatur."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "",

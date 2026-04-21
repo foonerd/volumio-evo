@@ -631,7 +631,21 @@
     "KIOSK_WPE_DOC": "預留給裝置上的 Wayland/WPE 殼層；見 docs/KIOSK.md。",
     "LOCALE_REGION": "語言、地區與時區",
     "PRIMARY_DISPLAY": "主顯示器",
-    "PRIMARY_DISPLAY_DOC": "展場開啟時由哪個輸出顯示全螢幕介面。"
+    "PRIMARY_DISPLAY_DOC": "展場開啟時由哪個輸出顯示全螢幕介面。",
+    "KIOSK_ROTATION": "螢幕旋轉",
+    "KIOSK_ROTATION_DOC": "在影格緩衝區旋轉展場介面（0°、90°、180° 或 270°）。",
+    "KIOSK_AUTO_ROTATE": "自動旋轉",
+    "KIOSK_AUTO_ROTATE_DOC": "顯示器回報方向變更時套用對應旋轉。",
+    "KIOSK_OSK": "螢幕鍵盤",
+    "KIOSK_OSK_DOC": "觸控用虛擬鍵盤（Squeekboard、wvkbd 或無）。",
+    "KIOSK_CURSOR": "游標",
+    "KIOSK_CURSOR_DOC": "顯示或隱藏滑鼠游標，或使用預設。",
+    "KIOSK_ZOOM": "網頁縮放",
+    "KIOSK_ZOOM_DOC": "內嵌展場瀏覽器的縮放等級。",
+    "KIOSK_SCALE": "介面縮放",
+    "KIOSK_SCALE_DOC": "展場殼層的整體縮放。",
+    "KIOSK_OSK_LAYOUT": "鍵盤配置",
+    "KIOSK_OSK_LAYOUT_DOC": "螢幕鍵盤的配置或語言提示。"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "",

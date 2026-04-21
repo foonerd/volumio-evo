@@ -1,0 +1,37 @@
+# Ubuntu 24.04 armhf sysdeps for cross-build from x86_64 (armv7-unknown-linux-gnueabihf).
+#
+# Same apt layout as aarch64: amd64 → archive/security, armhf → ports.ubuntu.com.
+# Noble ships no arm-linux-gnueabihf-pkg-config shim; gtk-rs uses native pkg-config
+# with PKG_CONFIG_ALLOW_CROSS + PKG_CONFIG_PATH pointing at armhf .pc files.
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN rm -f /etc/apt/sources.list.d/ubuntu.sources \
+    && printf '%s\n' \
+        'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse' \
+        'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse' \
+        'deb [arch=amd64] http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse' \
+        > /etc/apt/sources.list \
+    && dpkg --add-architecture armhf \
+    && printf '%s\n' \
+        'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse' \
+        'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse' \
+        'deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' \
+        >> /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git \
+        build-essential pkg-config \
+        gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+        libgtk-4-dev:armhf \
+        libwebkitgtk-6.0-dev:armhf \
+        libsoup-3.0-dev:armhf \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc \
+    AR_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-ar \
+    CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc \
+    CXX_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-g++ \
+    PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig

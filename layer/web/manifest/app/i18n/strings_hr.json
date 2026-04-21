@@ -815,7 +815,21 @@
     "KIOSK_WPE_DOC": "Rezervirano za Wayland/WPE ljusku na uređaju; vidi docs/KIOSK.md.",
     "LOCALE_REGION": "Jezik, regija i vremenska zona",
     "PRIMARY_DISPLAY": "Primarni zaslon",
-    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje sučelje preko cijelog zaslona kad je kiosk uključen."
+    "PRIMARY_DISPLAY_DOC": "Koji izlaz prikazuje sučelje preko cijelog zaslona kad je kiosk uključen.",
+    "KIOSK_ROTATION": "Rotacija zaslona",
+    "KIOSK_ROTATION_DOC": "Rotira kiosk sučelje u framebufferu (0°, 90°, 180° ili 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatska rotacija",
+    "KIOSK_AUTO_ROTATE_DOC": "Prilagođava rotaciju kada zaslon prijavi promjenu orijentacije.",
+    "KIOSK_OSK": "Tipkovnica na zaslonu",
+    "KIOSK_OSK_DOC": "Virtualna tipkovnica za dodir (Squeekboard, wvkbd ili ništa).",
+    "KIOSK_CURSOR": "Pokazivač",
+    "KIOSK_CURSOR_DOC": "Prikaži ili sakrij pokazivač miša ili zadano.",
+    "KIOSK_ZOOM": "Web zum",
+    "KIOSK_ZOOM_DOC": "Razina zumiranja ugrađenog kiosk preglednika.",
+    "KIOSK_SCALE": "Mjerilo sučelja",
+    "KIOSK_SCALE_DOC": "Skaliranje kiosk ljuske.",
+    "KIOSK_OSK_LAYOUT": "Raspored tipkovnice",
+    "KIOSK_OSK_LAYOUT_DOC": "Raspored ili jezik za tipkovnicu na zaslonu."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Najbolje radio postaje",

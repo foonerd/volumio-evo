@@ -1011,7 +1011,21 @@
     "KIOSK_WPE_DOC": "オンデバイスの Wayland/WPE シェル用 (詳細は docs/KIOSK.md)。",
     "LOCALE_REGION": "言語・地域・タイムゾーン",
     "PRIMARY_DISPLAY": "プライマリディスプレイ",
-    "PRIMARY_DISPLAY_DOC": "キオスク有効時に全画面 UI を表示する出力。"
+    "PRIMARY_DISPLAY_DOC": "キオスク有効時に全画面 UI を表示する出力。",
+    "KIOSK_ROTATION": "画面の向き",
+    "KIOSK_ROTATION_DOC": "フレームバッファ上でキオスク UI を回転します（0°、90°、180°、270°）。",
+    "KIOSK_AUTO_ROTATE": "自動回転",
+    "KIOSK_AUTO_ROTATE_DOC": "ディスプレイの向き変更に合わせて回転します。",
+    "KIOSK_OSK": "オンスクリーンキーボード",
+    "KIOSK_OSK_DOC": "タッチ入力用の仮想キーボード（Squeekboard、wvkbd、またはなし）。",
+    "KIOSK_CURSOR": "ポインター",
+    "KIOSK_CURSOR_DOC": "マウスポインターの表示／非表示または既定に従う。",
+    "KIOSK_ZOOM": "Web のズーム",
+    "KIOSK_ZOOM_DOC": "組み込みキオスクブラウザーのズームレベル。",
+    "KIOSK_SCALE": "インターフェースのスケール",
+    "KIOSK_SCALE_DOC": "キオスクシェル全体のスケーリング。",
+    "KIOSK_OSK_LAYOUT": "キーボードレイアウト",
+    "KIOSK_OSK_LAYOUT_DOC": "オンスクリーンキーボードのレイアウトまたは言語のヒント。"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "ベストラジオ",

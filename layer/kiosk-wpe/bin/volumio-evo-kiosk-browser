@@ -1,0 +1,12 @@
+#!/bin/sh
+# DEPRECATED: this file was the Python + PyGObject kiosk shell.
+#
+# The Rust crate at crates/kiosk-browser/ replaces it. layer/kiosk-wpe/install.sh
+# now builds that crate and installs the compiled binary directly at
+# /usr/local/bin/volumio-evo-kiosk-browser, so this source file is no longer
+# copied into the install path.
+#
+# `git rm` this file to remove it from the tree. It exists only to keep the
+# path stable for in-flight branches; nothing in the repo should exec it.
+echo "ERROR: this Python shell is deprecated; the Rust kiosk-browser binary should have been installed instead." >&2
+exit 127

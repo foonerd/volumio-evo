@@ -1,0 +1,40 @@
+# Ubuntu 24.04 arm64 sysdeps for cross-build from x86_64.
+#
+# Default Ubuntu Docker sources enable arm64 indexes on archive.ubuntu.com (404).
+# Restrict amd64 to archive + arm64 to ports.ubuntu.com (multiarch).
+#
+# Toolchain: aarch64-linux-gnu-gcc + aarch64-linux-gnu-pkg-config for gtk-rs.
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN rm -f /etc/apt/sources.list.d/ubuntu.sources \
+    && printf '%s\n' \
+        'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse' \
+        'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse' \
+        'deb [arch=amd64] http://security.ubuntu.com/ubuntu noble-security main restricted universe multiverse' \
+        > /etc/apt/sources.list \
+    && dpkg --add-architecture arm64 \
+    && printf '%s\n' \
+        'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse' \
+        'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse' \
+        'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse' \
+        >> /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git \
+        build-essential pkg-config \
+        gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+        libgtk-4-dev:arm64 \
+        libwebkitgtk-6.0-dev:arm64 \
+        libsoup-3.0-dev:arm64 \
+    && rm -rf /var/lib/apt/lists/*
+
+# gtk-rs / -sys build scripts and rustc use the target cross-tools.
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+    AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
+    PKG_CONFIG_ALLOW_CROSS=1 \
+    PKG_CONFIG=aarch64-linux-gnu-pkg-config \
+    PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig

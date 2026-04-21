@@ -1,0 +1,43 @@
+#!/bin/sh
+# volumio-evo-kiosk-preflight - DRM probe.
+#
+# Exits 0 if at least one /dev/dri/card* exists, 1 otherwise. Runs as
+# ExecStartPre for volumio-evo-kiosk.service so "no display attached" is a
+# distinct systemd signal (unit fails at ExecStartPre) from "kiosk died at
+# runtime" (unit fails at ExecStart).
+#
+# Design note: an earlier revision of this script also handled VT selection,
+# output enumeration, rotation, and URL resolution, writing everything to
+# /run/volumio-evo-kiosk/preflight.env for the unit to pick up via
+# EnvironmentFile=-. That pattern is structurally broken (systemd reads
+# EnvironmentFile at unit activation, before ExecStartPre runs) and is not
+# reintroduced. All dynamic configuration is read directly by
+# /usr/local/bin/volumio-evo-kiosk-launch from overlay files under
+# /var/lib/volumio-evo/settings/kiosk/. See layer/kiosk-wpe/README.md for
+# the overlay schema and precedence rules.
+#
+# Policy: never fail the unit just for a missing optional capability. The
+# only fatal condition is absence of any DRM device. The unit itself also
+# carries ConditionPathExistsGlob=/dev/dri/card* which handles the same
+# case at systemd level; this script is belt-and-braces for the race where
+# /dev/dri/card* existed at unit activation but vanished before ExecStart.
+
+set -eu
+
+log() {
+  printf '[kiosk-preflight] %s\n' "$*"
+}
+
+# Exit 0 as soon as we see any /dev/dri/card*; exit 1 when none exist.
+# When the glob matches nothing, POSIX shells leave the literal pattern as
+# the loop variable, so [ -c "${c}" ] evaluates false and we fall through
+# to exit 1 cleanly.
+for c in /dev/dri/card*; do
+  if [ -c "${c}" ]; then
+    log "DRM device present: ${c}"
+    exit 0
+  fi
+done
+
+log "No /dev/dri/card* present; kiosk cannot start."
+exit 1

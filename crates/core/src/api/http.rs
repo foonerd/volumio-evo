@@ -531,6 +531,8 @@ pub fn router(
             "/network/nm/intent",
             get(v1::network_nm_intent_get).put(v1::network_nm_intent_put),
         )
+        // New: WPE kiosk status snapshot (crates/core/src/kiosk.rs).
+        .route("/kiosk/status", get(v1::kiosk_status))
         .route("/replaceAndPlay", post(v1::replace_and_play))
         .route("/pluginEndpoint", post(v1::plugin_endpoint))
         .with_state(router_state.clone());

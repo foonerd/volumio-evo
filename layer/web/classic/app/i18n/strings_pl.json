@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "Zarezerwowane dla powłoki Wayland/WPE na urządzeniu; zob. docs/KIOSK.md.",
     "LOCALE_REGION": "Język, region i strefa czasowa",
     "PRIMARY_DISPLAY": "Główny ekran",
-    "PRIMARY_DISPLAY_DOC": "Które wyjście pokazuje pełnoekranowy interfejs przy włączonym kiosku."
+    "PRIMARY_DISPLAY_DOC": "Które wyjście pokazuje pełnoekranowy interfejs przy włączonym kiosku.",
+    "KIOSK_ROTATION": "Obrót ekranu",
+    "KIOSK_ROTATION_DOC": "Obraca interfejs kiosku w buforze ramki (0°, 90°, 180° lub 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatyczny obrót",
+    "KIOSK_AUTO_ROTATE_DOC": "Dopasowuje obrót, gdy wyświetlacz zgłasza zmianę orientacji.",
+    "KIOSK_OSK": "Klawiatura ekranowa",
+    "KIOSK_OSK_DOC": "Klawiatura wirtualna dotykowa (Squeekboard, wvkbd lub brak).",
+    "KIOSK_CURSOR": "Wskaźnik",
+    "KIOSK_CURSOR_DOC": "Pokaż lub ukryj kursor lub użyj ustawień domyślnych.",
+    "KIOSK_ZOOM": "Powiększenie WWW",
+    "KIOSK_ZOOM_DOC": "Poziom powiększenia wbudowanej przeglądarki kiosku.",
+    "KIOSK_SCALE": "Skala interfejsu",
+    "KIOSK_SCALE_DOC": "Ogólne skalowanie powłoki kiosku.",
+    "KIOSK_OSK_LAYOUT": "Układ klawiatury",
+    "KIOSK_OSK_LAYOUT_DOC": "Układ lub język podpowiedzi dla klawiatury ekranowej."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Najlepsze stacje radiowe",

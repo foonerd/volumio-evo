@@ -76,6 +76,13 @@ EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
 # 1: /etc/sudoers.d/volumio-evo-ui-bootstrap — sudo -n bootstrap-volumio-evo-player.sh --apply-ui-only (nginx UI roots).
 EVO_INSTALL_UI_BOOTSTRAP_SUDOERS="${EVO_INSTALL_UI_BOOTSTRAP_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-kiosk-control — sudo -n systemctl start/stop/restart/enable/disable
+# volumio-evo-kiosk*.service (Settings → System → Kiosk). Independent of --with-kiosk=wpe.
+EVO_INSTALL_KIOSK_CONTROL_SUDOERS="${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-kiosk-layer-install — sudo -n run-kiosk-wpe-install.sh (same as --with-kiosk=wpe).
+EVO_INSTALL_KIOSK_LAYER_SUDOERS="${EVO_INSTALL_KIOSK_LAYER_SUDOERS:-1}"
+# WPE kiosk layer install opt-in. Set via --with-kiosk=wpe or KIOSK=wpe.
+EVO_WITH_KIOSK="${EVO_WITH_KIOSK:-${KIOSK:-}}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
 EVO_INSTALL_NETWORK_STORAGE_PKGS="${EVO_INSTALL_NETWORK_STORAGE_PKGS:-1}"
 # 1: apt install SMB server (smbd+nmbd when split packages exist, else samba without recommends) — Settings -> Network.
@@ -95,6 +102,13 @@ EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
 # Clone/fetch depth: default 1 (shallow) so Pi / slow Wi-Fi pulls ~current tree only (~100MB-class vs full ~1GB+).
 # Set 0 for full history (git troubleshooting, bisect); updates then use non-shallow fetch for that branch only.
 EVO_REPO_DEPTH="${EVO_REPO_DEPTH:-1}"
+# merge: try merge --ff-only FETCH_HEAD first; if that fails and EVO_REPO_RESET_IF_MERGE_FAILS=1,
+# reset --hard (local commits on device are discarded when tracking origin).
+EVO_REPO_RESET_IF_MERGE_FAILS="${EVO_REPO_RESET_IF_MERGE_FAILS:-1}"
+# Default reset: after fetch, align HEAD to FETCH_HEAD (same as ff-only merge when fast-forward possible;
+# avoids 'unrelated histories' after force-push — and updates files including this script).
+# merge: ff-only merge + optional reset on failure (development checkouts with local commits).
+EVO_REPO_UPDATE_STRATEGY="${EVO_REPO_UPDATE_STRATEGY:-reset}"
 # Optional branch to clone/track (default: remote HEAD). Export EVO_REPO_BRANCH=main if needed.
 EVO_REPO_BRANCH="${EVO_REPO_BRANCH:-}"
 # 1: if git clone fails, use pre-installed EVO_BINARY_PATH only (no layer/web — not recommended).
@@ -105,7 +119,7 @@ BOOTSTRAP_MODE="full"
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./scripts/bootstrap-volumio-evo-player.sh [MODE]
+  sudo ./scripts/bootstrap-volumio-evo-player.sh [MODE] [--with-kiosk=wpe] [--kiosk-wpe]
 
 Modes (default: full):
   (none) | --full     Full install: clone/update repo, backend, static UI, MPD, nginx, validate.
@@ -115,6 +129,11 @@ Modes (default: full):
 
   --build             Compile volumio-evo on the device with cargo (installs rustup). Default is
                       to install the prebuilt binary from layer/binaries/<arch-triple>/ only.
+  --with-kiosk=wpe    After a full or reset install, invoke layer/kiosk-wpe/install.sh to set up
+                      the Wayland kiosk (labwc + webkit2gtk shell, squeekboard/wvkbd). Flag name is
+                      historical (not WPE-based). Off by default.
+                      Env equivalent: KIOSK=wpe.
+  --kiosk-wpe         Same as --with-kiosk=wpe (shorter alias).
 
 Requires a git checkout at EVO_REPO_DIR (default /opt/volumio/volumio-evo) with layer/web/ or
 UI_DIST_SOURCE, and (unless --build) layer/binaries/<triple>/volumio-evo for this machine.
@@ -124,50 +143,52 @@ Environment (common):
   EVO_REPO_URL=https://github.com/foonerd/volumio-evo.git
   EVO_REPO_DIR=/opt/volumio/volumio-evo
   EVO_REPO_UPDATE=1
-  EVO_REPO_DEPTH=1               # shallow clone/fetch (set 0 for full git history — much larger download)
-  EVO_REPO_BRANCH=               # optional: e.g. main — else remote default branch
-  EVO_ALLOW_BINARY_FALLBACK=0   # set 1 only for air-gapped + pre-placed binary (no layer/web)
+  EVO_REPO_DEPTH=1
+  EVO_REPO_BRANCH=
+  EVO_REPO_UPDATE_STRATEGY=reset    # reset | merge — reset tracks origin after fetch (recommended on devices)
+  EVO_REPO_RESET_IF_MERGE_FAILS=1   # with merge strategy: reset to FETCH_HEAD when ff-only fails
+  EVO_ALLOW_BINARY_FALLBACK=0
   UI_DIST_SOURCE=/path/to/single/dist
   BACKEND_URL=http://<device-ip>:3000
   EVO_HTTP_PORT=3000
-  EVO_BACKEND_WAIT_SECS=60   # max wait for /api/health after systemctl restart (slow Pi / first start)
+  EVO_BACKEND_WAIT_SECS=60
   UI_DIST_OVERRIDE=
   UI_ROOT_MANIFEST=/srv/volumio-ui-manifest
   UI_ROOT_CONTEMPORARY=/srv/volumio-ui
   UI_ROOT_CLASSIC=/srv/volumio-ui-classic
   MUSIC_ROOT=/var/lib/volumio-evo/music
-  EVO_MPD_FRAGMENT=/etc/volumio-evo/mpd.conf   # Evo-owned MPD snippet; bootstrap ensures include_optional in /etc/mpd.conf
+  EVO_MPD_FRAGMENT=/etc/volumio-evo/mpd.conf
   EVO_BINARY_PATH=/usr/local/bin/volumio-evo
-  EVO_BUILD_FROM_SOURCE=0   # or 1 to force cargo like --build
-  EVO_SERVICE_USER=          # omit: use session user (SUDO_USER / USER / logname); empty: run service as root
-  EVO_INSTALL_MOUNT_SUDOERS=1           # 0 to skip sudoers drop-in for mount/umount
-  EVO_INSTALL_MPD_SUDOERS=1             # 0 to skip sudoers for systemctl restart mpd (non-root service)
-  EVO_INSTALL_RFKILL_SUDOERS=1          # 0 to skip sudoers for sudo -n rfkill unblock wifi (Wi-Fi soft block)
-  EVO_INSTALL_NMCLI_SUDOERS=1           # 0 to skip sudoers for sudo -n nmcli (NetworkManager; non-root service)
-  EVO_INSTALL_IW_SUDOERS=1              # 0 to skip sudoers for sudo -n iw (AP vif + phy capability; non-root service)
-  EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1  # 0 to skip sudoers for sudo -n hostnamectl/timedatectl (Settings → System)
-  EVO_INSTALL_RTCWAKE_SUDOERS=1            # 0 to skip sudoers for sudo -n rtcwake (RTC wake from suspend; see docs/ALARM_WAKE.md)
-  EVO_INSTALL_POWER_SUDOERS=1             # 0 to skip sudoers for systemctl reboot/poweroff + fallback paths (Settings / modal Restart)
-  EVO_INSTALL_BOOT_BRANDING_SUDOERS=1      # 0 to skip sudoers for sudo -n run-boot-branding.sh (Settings → System → Boot branding)
-  EVO_INSTALL_UI_BOOTSTRAP_SUDOERS=1       # 0 to skip sudoers for sudo -n bootstrap-volumio-evo-player.sh --apply-ui-only (Appearance layout)
-  EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1  # 0 to skip sudoers for sudo -n install (merge preferred wifi_iface → /etc/volumio-evo/config.toml)
-  EVO_INSTALL_NETWORK_STORAGE_PKGS=1    # 0 to skip cifs-utils nfs-common smbclient avahi-utils
-  EVO_INSTALL_SAMBA_SERVER_PKGS=1      # 0 to skip apt SMB server install (Settings -> Network SMB)
-  EVO_INSTALL_SAMBA_SUDOERS=1          # 0 to skip sudoers for SMB (smb.conf install, smbd/nmbd, user-sync script)
-  EVO_INSTALL_NETWORK_MANAGER=1         # 0 to skip network-manager (nmcli); Evo network stack uses NM
-  EVO_STOCK_BACKGROUNDS_SOURCE=         # optional: override path to stock jpg/thumbnail-* (default: EVO_REPO_DIR/layer/stock-backgrounds)
+  EVO_BUILD_FROM_SOURCE=0
+  EVO_SERVICE_USER=
+  EVO_INSTALL_MOUNT_SUDOERS=1
+  EVO_INSTALL_MPD_SUDOERS=1
+  EVO_INSTALL_RFKILL_SUDOERS=1
+  EVO_INSTALL_NMCLI_SUDOERS=1
+  EVO_INSTALL_IW_SUDOERS=1
+  EVO_INSTALL_HOSTNAME_TIMEDATE_SUDOERS=1
+  EVO_INSTALL_RTCWAKE_SUDOERS=1
+  EVO_INSTALL_POWER_SUDOERS=1
+  EVO_INSTALL_BOOT_BRANDING_SUDOERS=1
+  EVO_INSTALL_UI_BOOTSTRAP_SUDOERS=1
+  EVO_INSTALL_CONFIG_INSTALL_SUDOERS=1
+  EVO_INSTALL_NETWORK_STORAGE_PKGS=1
+  EVO_INSTALL_SAMBA_SERVER_PKGS=1
+  EVO_INSTALL_SAMBA_SUDOERS=1
+  EVO_INSTALL_NETWORK_MANAGER=1
+  EVO_INSTALL_KIOSK_CONTROL_SUDOERS=1
+  EVO_INSTALL_KIOSK_LAYER_SUDOERS=1
+  EVO_STOCK_BACKGROUNDS_SOURCE=
+  KIOSK=                          # set to "wpe" to enable kiosk install after --full / --reset
+  KIOSK_ALLOW_ROOT=0               # 1 to permit enabling kiosk when service runs as root
+  KIOSK_FORCE_ENABLE=0             # 1 to systemctl enable+start the kiosk unit during install
 
 Example:
   sudo BASE_DIR=/opt/volumio ./scripts/bootstrap-volumio-evo-player.sh
   sudo ./scripts/bootstrap-volumio-evo-player.sh --upgrade-evo
-  sudo ./scripts/bootstrap-volumio-evo-player.sh --full --build   # compile on device instead of layer/binaries
-
-  Run Evo as your SSH/sudo user (default when EVO_SERVICE_USER is unset):
-  sudo ./scripts/bootstrap-volumio-evo-player.sh
-  # or explicit:
-  sudo EVO_SERVICE_USER=andrew ./scripts/bootstrap-volumio-evo-player.sh
-  # force root service user:
-  sudo EVO_SERVICE_USER= ./scripts/bootstrap-volumio-evo-player.sh
+  sudo ./scripts/bootstrap-volumio-evo-player.sh --full --build
+  sudo ./scripts/bootstrap-volumio-evo-player.sh --full --with-kiosk=wpe
+  sudo KIOSK=wpe ./scripts/bootstrap-volumio-evo-player.sh
 EOF
 }
 
@@ -246,6 +267,7 @@ configure_evo_runtime_user() {
     rm -f "${ui_bootstrap_sudoers}" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-config-install" 2>/dev/null || true
     rm -f "/etc/sudoers.d/volumio-evo-samba" 2>/dev/null || true
+    rm -f "/etc/sudoers.d/volumio-evo-kiosk-control" 2>/dev/null || true
     return 0
   fi
 
@@ -347,6 +369,7 @@ Environment=VOLUMIO_EVO_RTCWAKE=${rtcwake_bin}
 Environment=VOLUMIO_EVO_REBOOT_BIN=${reboot_bin}
 Environment=VOLUMIO_EVO_SHUTDOWN_BIN=${shutdown_bin}
 Environment=VOLUMIO_EVO_BOOTSTRAP_SCRIPT=${bootstrap_script}
+Environment=VOLUMIO_EVO_KIOSK_SYSTEMCTL=${systemctl_bin}
 EOF
   if [[ "${EVO_SOURCE_AVAILABLE:-0}" == "1" ]]; then
     {
@@ -598,6 +621,26 @@ EOF
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
   fi
 
+  # Wayland kiosk layer (Settings → System → Kiosk): sudo -n run-kiosk-wpe-install.sh — same as bootstrap --with-kiosk=wpe.
+  local kiosk_layer_sudoers="/etc/sudoers.d/volumio-evo-kiosk-layer-install"
+  if [[ "${EVO_INSTALL_KIOSK_LAYER_SUDOERS:-1}" == "1" ]]; then
+    local tmp_kl
+    tmp_kl="$(mktemp)"
+    cat > "${tmp_kl}" <<EOF
+# volumio-evo: kiosk layer installer (narrow path; managed by bootstrap). Must match crates/core kiosk_wpe_install_run_script_path().
+${u} ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/layer/install/run-kiosk-wpe-install.sh
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_kl}" 2>/dev/null; then
+      install -m 0440 "${tmp_kl}" "${kiosk_layer_sudoers}"
+      echo "Installed ${kiosk_layer_sudoers} (kiosk layer install NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${kiosk_layer_sudoers}."
+    fi
+    rm -f "${tmp_kl}"
+  else
+    rm -f "${kiosk_layer_sudoers}" 2>/dev/null || true
+  fi
+
   # SMB file server (Settings → Network): generated smb.conf install, smbd/nmbd, narrow user-sync script.
   local samba_sudoers="/etc/sudoers.d/volumio-evo-samba"
   local smb_conf_gen="/var/lib/volumio-evo/settings/samba/smb.conf.generated"
@@ -629,6 +672,37 @@ EOF
     rm -f "${tmp_smb}"
   else
     rm -f "${samba_sudoers}" 2>/dev/null || true
+  fi
+
+  # Wayland kiosk control (Settings -> System kiosk). Narrow commands only.
+  local kiosk_ctrl_sudoers="/etc/sudoers.d/volumio-evo-kiosk-control"
+  if [[ "${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}" == "1" ]]; then
+    local tmp_kc
+    tmp_kc="$(mktemp)"
+    cat > "${tmp_kc}" <<EOF
+# volumio-evo: start/stop/restart/enable/disable the kiosk + autorotate units
+# from the non-root service user (backend saveKioskSettings side-effects,
+# crates/core/src/kiosk.rs). Managed by bootstrap; must match
+# Environment=VOLUMIO_EVO_KIOSK_SYSTEMCTL in 10-runtime-user.conf.
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} start volumio-evo-kiosk.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} stop volumio-evo-kiosk.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} restart volumio-evo-kiosk.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} enable volumio-evo-kiosk.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} disable volumio-evo-kiosk.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} start volumio-evo-kiosk-autorotate.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} stop volumio-evo-kiosk-autorotate.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} enable volumio-evo-kiosk-autorotate.service
+${u} ALL=(root) NOPASSWD: ${systemctl_bin} disable volumio-evo-kiosk-autorotate.service
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_kc}" 2>/dev/null; then
+      install -m 0440 "${tmp_kc}" "${kiosk_ctrl_sudoers}"
+      echo "Installed ${kiosk_ctrl_sudoers} (kiosk systemctl NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${kiosk_ctrl_sudoers}."
+    fi
+    rm -f "${tmp_kc}"
+  else
+    rm -f "${kiosk_ctrl_sudoers}" 2>/dev/null || true
   fi
 }
 
@@ -839,6 +913,33 @@ install_packages() {
   ensure_raspberry_pi_i2c_dev_module
 }
 
+# WPE kiosk layer install (layer/kiosk-wpe/install.sh). Invoked after
+# validate_stack on --full / --reset when --with-kiosk=wpe (or KIOSK=wpe).
+# Additive only: absent flag => no side effects.
+run_kiosk_wpe_install() {
+  if [[ "${EVO_WITH_KIOSK:-}" != "wpe" ]]; then
+    return 0
+  fi
+  if [[ "${EVO_SOURCE_AVAILABLE:-0}" != "1" ]]; then
+    echo "WARN: kiosk install requested but repo tree not available; skipping."
+    return 0
+  fi
+  local kiosk_installer="${EVO_REPO_DIR}/layer/kiosk-wpe/install.sh"
+  if [[ ! -x "${kiosk_installer}" ]]; then
+    chmod 0755 "${kiosk_installer}" 2>/dev/null || true
+  fi
+  if [[ ! -f "${kiosk_installer}" ]]; then
+    echo "ERROR: ${kiosk_installer} not found (is kiosk-wpe branch merged?)."
+    exit 1
+  fi
+  echo "Starting WPE kiosk layer install: ${kiosk_installer}"
+  # Pass through the service user resolution + root/force flags.
+  KIOSK_SERVICE_USER="$(resolve_evo_service_user)" \
+  KIOSK_ALLOW_ROOT="${KIOSK_ALLOW_ROOT:-0}" \
+  KIOSK_FORCE_ENABLE="${KIOSK_FORCE_ENABLE:-0}" \
+    bash "${kiosk_installer}"
+}
+
 # Standalone SMB **file server** only (`smbd`/`nmbd`). Ubuntu often ships `smbd` + `nmbd` as separate
 # packages; Debian frequently does not — only `samba` exists in the index. Prefer split packages when
 # present to avoid pulling the full metapackage; otherwise use `samba` with `--no-install-recommends`
@@ -993,7 +1094,29 @@ clone_or_update_repo() {
     else
       git -C "${dir}" fetch --prune origin "${curr}" || return 1
     fi
-    git -C "${dir}" merge --ff-only FETCH_HEAD || return 1
+    # Prefer reset after fetch on devices: merge --ff-only breaks on unrelated histories after force-push,
+    # and this script lives inside the repo — merge failure prevents ever updating to a fix.
+    case "${EVO_REPO_UPDATE_STRATEGY:-reset}" in
+      merge)
+        if git -C "${dir}" merge --ff-only FETCH_HEAD 2>/dev/null; then
+          :
+        elif [[ "${EVO_REPO_RESET_IF_MERGE_FAILS:-1}" == "1" ]]; then
+          echo "WARN: git merge --ff-only failed for ${curr} (shallow clone, rewritten history, or unrelated histories)."
+          echo "WARN: Resetting ${dir} hard to FETCH_HEAD so this checkout matches origin/${curr} (see EVO_REPO_RESET_IF_MERGE_FAILS)."
+          git -C "${dir}" reset --hard FETCH_HEAD || return 1
+        else
+          echo "ERROR: git merge --ff-only FETCH_HEAD failed for ${curr}. Fix manually (e.g. git reset --hard FETCH_HEAD), set EVO_REPO_RESET_IF_MERGE_FAILS=1, or EVO_REPO_UPDATE_STRATEGY=reset."
+          return 1
+        fi
+        ;;
+      reset | "")
+        git -C "${dir}" reset --hard FETCH_HEAD || return 1
+        ;;
+      *)
+        echo "ERROR: EVO_REPO_UPDATE_STRATEGY must be reset or merge (got ${EVO_REPO_UPDATE_STRATEGY})."
+        return 1
+        ;;
+    esac
   else
     echo "Using existing repo without update: ${dir}"
   fi
@@ -1558,11 +1681,20 @@ main() {
   local -a mode_args=()
   local a
   for a in "$@"; do
-    if [[ "$a" == "--build" ]]; then
-      EVO_BOOTSTRAP_BUILD=1
-    else
-      mode_args+=("$a")
-    fi
+    case "${a}" in
+      --build)
+        EVO_BOOTSTRAP_BUILD=1
+        ;;
+      --with-kiosk=*)
+        EVO_WITH_KIOSK="${a#--with-kiosk=}"
+        ;;
+      --kiosk-wpe)
+        EVO_WITH_KIOSK="wpe"
+        ;;
+      *)
+        mode_args+=("${a}")
+        ;;
+    esac
   done
   parse_bootstrap_mode "${mode_args[0]:-}"
 
@@ -1613,6 +1745,7 @@ main() {
     ensure_raspberry_pi_i2c_dev_module
     build_and_install_evo
     validate_backend_only
+    run_kiosk_wpe_install
     exit 0
   fi
 
@@ -1623,6 +1756,9 @@ main() {
   ensure_nginx_access
   configure_nginx
   validate_stack
+
+  # Optional kiosk layer install. Off by default; --with-kiosk=wpe or KIOSK=wpe to enable.
+  run_kiosk_wpe_install
 }
 
 main "$@"

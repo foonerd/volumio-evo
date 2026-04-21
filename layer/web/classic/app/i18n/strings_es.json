@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "Reservado para el shell Wayland/WPE en el dispositivo; véase docs/KIOSK.md.",
     "LOCALE_REGION": "Idioma, región y zona horaria",
     "PRIMARY_DISPLAY": "Pantalla principal",
-    "PRIMARY_DISPLAY_DOC": "Qué salida muestra la interfaz a pantalla completa con el quiosco activado."
+    "PRIMARY_DISPLAY_DOC": "Qué salida muestra la interfaz a pantalla completa con el quiosco activado.",
+    "KIOSK_ROTATION": "Rotación de pantalla",
+    "KIOSK_ROTATION_DOC": "Gira la interfaz del quiosco en el framebuffer (0°, 90°, 180° u 270°).",
+    "KIOSK_AUTO_ROTATE": "Rotación automática",
+    "KIOSK_AUTO_ROTATE_DOC": "Ajusta la rotación cuando la pantalla informa cambios de orientación.",
+    "KIOSK_OSK": "Teclado en pantalla",
+    "KIOSK_OSK_DOC": "Teclado virtual táctil (Squeekboard, wvkbd o ninguno).",
+    "KIOSK_CURSOR": "Puntero",
+    "KIOSK_CURSOR_DOC": "Mostrar u ocultar el puntero del ratón o usar el valor predeterminado.",
+    "KIOSK_ZOOM": "Zoom web",
+    "KIOSK_ZOOM_DOC": "Nivel de zoom del navegador integrado del quiosco.",
+    "KIOSK_SCALE": "Escala de interfaz",
+    "KIOSK_SCALE_DOC": "Escalado general del shell del quiosco.",
+    "KIOSK_OSK_LAYOUT": "Distribución del teclado",
+    "KIOSK_OSK_LAYOUT_DOC": "Indicación de distribución o idioma del teclado en pantalla."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Mejores radios",

@@ -1097,7 +1097,21 @@
     "KIOSK_WPE_DOC": "Cihaz üzerinde Wayland/WPE kabuğu için ayrılmıştır; bkz. docs/KIOSK.md.",
     "LOCALE_REGION": "Dil, bölge ve saat dilimi",
     "PRIMARY_DISPLAY": "Birincil ekran",
-    "PRIMARY_DISPLAY_DOC": "Kiosk açıkken tam ekran arayüzü hangi çıkış gösterir."
+    "PRIMARY_DISPLAY_DOC": "Kiosk açıkken tam ekran arayüzü hangi çıkış gösterir.",
+    "KIOSK_ROTATION": "Ekran döndürme",
+    "KIOSK_ROTATION_DOC": "Kiosk arayüzünü framebuffer içinde döndürür (0°, 90°, 180° veya 270°).",
+    "KIOSK_AUTO_ROTATE": "Otomatik döndürme",
+    "KIOSK_AUTO_ROTATE_DOC": "Ekran yön değişikliği bildirdiğinde döndürmeyi uyarlar.",
+    "KIOSK_OSK": "Ekran klavyesi",
+    "KIOSK_OSK_DOC": "Dokunmatik için sanal klavye (Squeekboard, wvkbd veya yok).",
+    "KIOSK_CURSOR": "İmleç",
+    "KIOSK_CURSOR_DOC": "Fare imlecini göster, gizle veya varsayılanı kullan.",
+    "KIOSK_ZOOM": "Web yakınlaştırma",
+    "KIOSK_ZOOM_DOC": "Gömülü kiosk tarayıcısı için yakınlaştırma düzeyi.",
+    "KIOSK_SCALE": "Arayüz ölçeği",
+    "KIOSK_SCALE_DOC": "Kiosk kabuğu için genel ölçekleme.",
+    "KIOSK_OSK_LAYOUT": "Klavye düzeni",
+    "KIOSK_OSK_LAYOUT_DOC": "Ekran klavyesi için düzen veya dil ipucu."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "En iyi Radyolar",

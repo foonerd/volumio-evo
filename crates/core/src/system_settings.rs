@@ -4,6 +4,9 @@
 //! Stored at **`settings/system/state.toml`** under [`crate::paths::settings_dir`].
 //! On daemon startup, [`crate::api::run_startup_system_locale_apply`] reapplies timezone, **`iw reg set`**, and
 //! **`hostnamectl`** so the OS matches persisted values after reboot (same as saving the locale section).
+//! The kiosk fields (`kiosk_enabled`, `primary_display`, `kiosk_rotation`, `kiosk_auto_rotate`,
+//! `kiosk_osk`, `kiosk_cursor`) are reapplied by [`crate::api::run_startup_kiosk_apply`]
+//! via [`crate::kiosk::apply_kiosk_settings`].
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -44,38 +47,65 @@ pub struct SystemSettings {
     #[serde(default = "default_23")]
     pub automatic_updates_stop_hour: u8,
 
-    /// WPE / on-device shell (placeholder until kiosk layer lands).
+    /// WPE / on-device shell. True while the backend wants the kiosk unit
+    /// running (see [`crate::kiosk::apply_kiosk_settings`]).
     #[serde(default)]
     pub kiosk_enabled: bool,
+    /// One of: `auto` | `hdmi` | `dsi` | `wayland-default`. Written to the
+    /// `settings/kiosk/primary_display` overlay for the launcher.
     #[serde(default = "default_primary_display")]
     pub primary_display: String,
+    /// Screen rotation degrees: 0 | 90 | 180 | 270. Written to
+    /// `settings/kiosk/rotation`.
+    #[serde(default)]
+    pub kiosk_rotation: u16,
+    /// Accelerometer-driven rotation. Toggles `volumio-evo-kiosk-autorotate.service`.
+    #[serde(default)]
+    pub kiosk_auto_rotate: bool,
+    /// On-screen keyboard selection: `squeekboard` | `wvkbd` | `none`.
+    #[serde(default = "default_kiosk_osk")]
+    pub kiosk_osk: String,
+    /// Cursor policy: `auto` | `hide` | `show`.
+    #[serde(default = "default_kiosk_cursor")]
+    pub kiosk_cursor: String,
+    /// WebKit page zoom level as a float-in-string (e.g. `"1.2"`).
+    /// Matches Node `display_zoom`: 0.63..=1.7. Applied by the kiosk
+    /// browser via `webkit_web_view_set_zoom_level()`.
+    #[serde(default = "default_kiosk_zoom")]
+    pub kiosk_zoom: String,
+    /// Wayland output scale. `auto` (compositor default) or a float as
+    /// string (`1`, `1.25`, `1.5`, `2`, `3`). Applied by the session
+    /// script via `wlr-randr --scale`.
+    #[serde(default = "default_kiosk_scale")]
+    pub kiosk_scale: String,
+    /// On-screen keyboard layout. `auto` resolves to the OS
+    /// `language_code` at apply time; an explicit XKB code (`us`, `gb`,
+    /// `de`, ...) overrides. Written as a resolved code to the
+    /// `settings/kiosk/osk_layout` overlay.
+    #[serde(default = "default_kiosk_osk_layout")]
+    pub kiosk_osk_layout: String,
 
     /// Plymouth theme asset rotation (`plymouth=N` kernel parameter): **0**, **90**, **180**, or **270**.
     #[serde(default)]
     pub boot_branding_plymouth_rotation: u16,
 }
 
-fn default_device_name() -> String {
-    "volumio-evo".to_string()
-}
-fn default_language() -> String {
-    "en".to_string()
-}
-fn default_country() -> String {
-    "US".to_string()
-}
-fn default_timezone() -> String {
-    "UTC".to_string()
-}
-fn default_true() -> bool {
-    true
-}
-fn default_23() -> u8 {
-    23
-}
-fn default_primary_display() -> String {
-    "auto".to_string()
-}
+fn default_device_name() -> String { "volumio-evo".to_string() }
+fn default_language() -> String { "en".to_string() }
+fn default_country() -> String { "US".to_string() }
+fn default_timezone() -> String { "UTC".to_string() }
+fn default_true() -> bool { true }
+fn default_23() -> u8 { 23 }
+fn default_primary_display() -> String { "auto".to_string() }
+fn default_kiosk_osk() -> String { "squeekboard".to_string() }
+fn default_kiosk_cursor() -> String { "auto".to_string() }
+// Default zoom "1.2" matches the legacy Node kiosk default (Chromium
+// --force-device-scale-factor=1.2). WebKit's set_zoom_level has the same
+// CSS-viewport effect, so Bootstrap breakpoints on the Evo UI respond the
+// same way they do on the Node kiosk.
+fn default_kiosk_zoom() -> String { "1.2".to_string() }
+fn default_kiosk_scale() -> String { "auto".to_string() }
+fn default_kiosk_osk_layout() -> String { "auto".to_string() }
 
 impl Default for SystemSettings {
     fn default() -> Self {
@@ -90,6 +120,13 @@ impl Default for SystemSettings {
             automatic_updates_stop_hour: 23,
             kiosk_enabled: false,
             primary_display: default_primary_display(),
+            kiosk_rotation: 0,
+            kiosk_auto_rotate: false,
+            kiosk_osk: default_kiosk_osk(),
+            kiosk_cursor: default_kiosk_cursor(),
+            kiosk_zoom: default_kiosk_zoom(),
+            kiosk_scale: default_kiosk_scale(),
+            kiosk_osk_layout: default_kiosk_osk_layout(),
             boot_branding_plymouth_rotation: 0,
         }
     }
@@ -152,6 +189,15 @@ impl SystemSettings {
         self.automatic_updates_stop_hour = self.automatic_updates_stop_hour.min(23);
         self.boot_branding_plymouth_rotation =
             normalize_plymouth_rotation(self.boot_branding_plymouth_rotation);
+        // Kiosk normalization: mirror the helpers in crate::kiosk so callers
+        // of `SystemSettings::load` see canonical values.
+        self.kiosk_rotation = normalize_kiosk_rotation(self.kiosk_rotation);
+        self.primary_display = normalize_kiosk_primary_display(&self.primary_display);
+        self.kiosk_osk = normalize_kiosk_osk(&self.kiosk_osk);
+        self.kiosk_cursor = normalize_kiosk_cursor(&self.kiosk_cursor);
+        self.kiosk_zoom = normalize_kiosk_zoom(&self.kiosk_zoom);
+        self.kiosk_scale = normalize_kiosk_scale(&self.kiosk_scale);
+        self.kiosk_osk_layout = normalize_kiosk_osk_layout(&self.kiosk_osk_layout);
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -249,6 +295,9 @@ impl SystemSettings {
         changed
     }
 
+    /// Merge the Settings -> System kiosk form data. Returns `true` if
+    /// anything changed. Caller is responsible for persisting and running
+    /// [`crate::kiosk::apply_kiosk_settings`].
     pub fn merge_kiosk_payload(&mut self, data: &Value) -> bool {
         let mut changed = false;
         if let Some(v) = data.get("kiosk_enabled").and_then(|x| x.as_bool()) {
@@ -258,9 +307,56 @@ impl SystemSettings {
             }
         }
         if let Some(pd) = extract_select_value(data, "primary_display") {
-            let t = pd.trim();
+            let t = normalize_kiosk_primary_display(pd.trim());
             if !t.is_empty() && t != self.primary_display {
-                self.primary_display = t.to_string();
+                self.primary_display = t;
+                changed = true;
+            }
+        }
+        if let Some(r) = extract_kiosk_rotation(data) {
+            if r != self.kiosk_rotation {
+                self.kiosk_rotation = r;
+                changed = true;
+            }
+        }
+        if let Some(v) = data.get("kiosk_auto_rotate").and_then(|x| x.as_bool()) {
+            if v != self.kiosk_auto_rotate {
+                self.kiosk_auto_rotate = v;
+                changed = true;
+            }
+        }
+        if let Some(osk) = extract_select_value(data, "kiosk_osk") {
+            let t = normalize_kiosk_osk(osk.trim());
+            if !t.is_empty() && t != self.kiosk_osk {
+                self.kiosk_osk = t;
+                changed = true;
+            }
+        }
+        if let Some(cur) = extract_select_value(data, "kiosk_cursor") {
+            let t = normalize_kiosk_cursor(cur.trim());
+            if !t.is_empty() && t != self.kiosk_cursor {
+                self.kiosk_cursor = t;
+                changed = true;
+            }
+        }
+        if let Some(z) = extract_select_value(data, "kiosk_zoom") {
+            let t = normalize_kiosk_zoom(z.trim());
+            if !t.is_empty() && t != self.kiosk_zoom {
+                self.kiosk_zoom = t;
+                changed = true;
+            }
+        }
+        if let Some(s) = extract_select_value(data, "kiosk_scale") {
+            let t = normalize_kiosk_scale(s.trim());
+            if !t.is_empty() && t != self.kiosk_scale {
+                self.kiosk_scale = t;
+                changed = true;
+            }
+        }
+        if let Some(l) = extract_select_value(data, "kiosk_osk_layout") {
+            let t = normalize_kiosk_osk_layout(l.trim());
+            if !t.is_empty() && t != self.kiosk_osk_layout {
+                self.kiosk_osk_layout = t;
                 changed = true;
             }
         }
@@ -290,6 +386,120 @@ pub(crate) fn normalize_plymouth_rotation(deg: u16) -> u16 {
     }
 }
 
+/// Kiosk rotation mirror of [`normalize_plymouth_rotation`] - kept separate so
+/// the two rotation domains (Plymouth kernel cmdline, kiosk compositor) never
+/// collide on accidental refactor.
+pub(crate) fn normalize_kiosk_rotation(deg: u16) -> u16 {
+    match deg {
+        0 | 90 | 180 | 270 => deg,
+        _ => 0,
+    }
+}
+
+pub(crate) fn normalize_kiosk_primary_display(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "hdmi" => "hdmi".to_string(),
+        "dsi" => "dsi".to_string(),
+        "wayland-default" | "wayland_default" => "wayland-default".to_string(),
+        _ => "auto".to_string(),
+    }
+}
+
+pub(crate) fn normalize_kiosk_osk(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "wvkbd" => "wvkbd".to_string(),
+        "none" | "off" | "disabled" => "none".to_string(),
+        _ => "squeekboard".to_string(),
+    }
+}
+
+pub(crate) fn normalize_kiosk_cursor(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "hide" => "hide".to_string(),
+        "show" => "show".to_string(),
+        _ => "auto".to_string(),
+    }
+}
+
+/// Clamp + canonicalise zoom level. Accepts any positive float, snaps to
+/// the Node `display_zoom` option ladder (0.63, 0.7, 0.8, 0.9, 1.0, 1.1,
+/// 1.2, 1.3, 1.4, 1.5, 1.6, 1.7) so UI + TOML + overlay stay in a single
+/// canonical vocabulary. Parse failures collapse to the default (1.2).
+pub(crate) fn normalize_kiosk_zoom(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default_kiosk_zoom();
+    }
+    let parsed: f64 = match trimmed.parse::<f64>() {
+        Ok(v) if v.is_finite() && v > 0.0 => v,
+        _ => return default_kiosk_zoom(),
+    };
+    const LADDER: &[f64] = &[
+        0.63, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.40, 1.50, 1.60, 1.70,
+    ];
+    let mut best = LADDER[0];
+    let mut best_delta = (parsed - best).abs();
+    for &candidate in LADDER.iter().skip(1) {
+        let d = (parsed - candidate).abs();
+        if d < best_delta {
+            best_delta = d;
+            best = candidate;
+        }
+    }
+    // Format to 2 decimals for < 1.0 / ladder precision, strip trailing zero
+    // for whole numbers so overlays contain short strings like "1" / "1.2".
+    let s = format!("{best:.2}");
+    let trimmed_s = s.trim_end_matches('0').trim_end_matches('.');
+    if trimmed_s.is_empty() { "1".to_string() } else { trimmed_s.to_string() }
+}
+
+/// Canonicalise scale. `auto` (default) or one of the documented ladder
+/// values (1, 1.25, 1.5, 2, 3). Everything else falls back to `auto`.
+pub(crate) fn normalize_kiosk_scale(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed == "auto" {
+        return "auto".to_string();
+    }
+    let parsed: f64 = match trimmed.parse::<f64>() {
+        Ok(v) if v.is_finite() && v > 0.0 => v,
+        _ => return "auto".to_string(),
+    };
+    const LADDER: &[f64] = &[1.0, 1.25, 1.5, 2.0, 3.0];
+    let mut best = LADDER[0];
+    let mut best_delta = (parsed - best).abs();
+    for &candidate in LADDER.iter().skip(1) {
+        let d = (parsed - candidate).abs();
+        if d < best_delta {
+            best_delta = d;
+            best = candidate;
+        }
+    }
+    let s = format!("{best:.2}");
+    let trimmed_s = s.trim_end_matches('0').trim_end_matches('.');
+    if trimmed_s.is_empty() { "1".to_string() } else { trimmed_s.to_string() }
+}
+
+/// XKB layout for the on-screen keyboard. `auto` means "resolve from the
+/// system language_code at apply time"; anything else is taken as a raw
+/// XKB layout code (lowercased, restricted to `[a-z0-9_-]{1,16}`). Unknown
+/// / malformed values collapse to `auto`.
+pub(crate) fn normalize_kiosk_osk_layout(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed == "auto" {
+        return "auto".to_string();
+    }
+    if trimmed.len() > 16 {
+        return "auto".to_string();
+    }
+    let ok = trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    if !ok {
+        return "auto".to_string();
+    }
+    trimmed
+}
+
 fn extract_boot_branding_rotation(data: &Value) -> Option<u16> {
     let v = data.get("boot_branding_rotation")?;
     let n = if let Some(i) = v.as_u64() {
@@ -313,6 +523,33 @@ fn extract_boot_branding_rotation(data: &Value) -> Option<u16> {
         return None;
     };
     Some(normalize_plymouth_rotation(n))
+}
+
+/// Extract the `kiosk_rotation` form value. Accepts raw integer, raw string
+/// ("0"/"90"/...), or select object `{"value": N}`. Normalized to 0/90/180/270.
+fn extract_kiosk_rotation(data: &Value) -> Option<u16> {
+    let v = data.get("kiosk_rotation")?;
+    let n = if let Some(i) = v.as_u64() {
+        i as u16
+    } else if let Some(i) = v.as_i64() {
+        i.clamp(0, 65535) as u16
+    } else if let Some(o) = v.as_object() {
+        let raw = o.get("value")?;
+        if let Some(u) = raw.as_u64() {
+            u as u16
+        } else if let Some(i) = raw.as_i64() {
+            i.clamp(0, 65535) as u16
+        } else if let Some(s) = raw.as_str() {
+            s.parse().ok()?
+        } else {
+            return None;
+        }
+    } else if let Some(s) = v.as_str() {
+        s.parse().ok()?
+    } else {
+        return None;
+    };
+    Some(normalize_kiosk_rotation(n))
 }
 
 fn extract_hour_select(data: &Value, key: &str) -> Option<u8> {
@@ -431,7 +668,7 @@ pub fn apply_timezone(tz: &str) -> Result<(), std::io::Error> {
     }
 }
 
-/// `iw reg set <CC>` — country must be ISO 3166-1 alpha-2.
+/// `iw reg set <CC>` -- country must be ISO 3166-1 alpha-2.
 pub fn apply_reg_domain(country_alpha2: &str) -> Result<(), std::io::Error> {
     let cc = country_alpha2.trim().to_uppercase();
     if cc.len() != 2 {

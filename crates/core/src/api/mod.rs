@@ -2,6 +2,7 @@
 
 mod alsa_hotplug;
 mod boot_branding;
+mod kiosk_install;
 mod http;
 mod network_ui;
 pub(crate) mod system_power;
@@ -574,5 +575,34 @@ pub async fn run_startup_alarm_schedule(state: AppState) {
     tracing::debug!(
         "{} run_startup_alarm_schedule done",
         crate::log_tags::EVO_ALARM
+    );
+}
+
+/// After boot, apply persisted kiosk settings (`settings/system/state.toml`) via
+/// [`crate::kiosk::apply_kiosk_settings`] so the `volumio-evo-kiosk.service`
+/// unit tracks `kiosk_enabled` across reboots.
+/// Set `VOLUMIO_EVO_SKIP_STARTUP_KIOSK_APPLY=1` to disable.
+pub async fn run_startup_kiosk_apply(state: AppState) {
+    if std::env::var("VOLUMIO_EVO_SKIP_STARTUP_KIOSK_APPLY")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        tracing::info!(
+            "{} skipping startup kiosk apply (VOLUMIO_EVO_SKIP_STARTUP_KIOSK_APPLY=1)",
+            crate::log_tags::EVO_KIOSK
+        );
+        return;
+    }
+
+    // Defer a few seconds so systemd, logind, and DRM are fully up before we
+    // probe /dev/dri/card* and flip the unit.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let outcome = crate::kiosk::apply_kiosk_settings(&state).await;
+    tracing::info!(
+        "{} startup kiosk apply outcome: {:?}",
+        crate::log_tags::EVO_KIOSK,
+        outcome
     );
 }

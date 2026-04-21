@@ -1,0 +1,114 @@
+#!/bin/sh
+# volumio-evo-kiosk-autorotate - map accelerometer orientation to kiosk
+# rotation. Requires iio-sensor-proxy (net.hadess.SensorProxy on the session
+# or system bus). We use the system bus since the kiosk runs headless.
+#
+# Protocol recap (iio-sensor-proxy):
+#   ClaimAccelerometer()   - begin watching
+#   AccelerometerOrientation property: "normal" | "bottom-up" | "left-up" | "right-up" | "undefined"
+#
+# We write the rotation to /var/lib/volumio-evo/settings/kiosk/rotation and
+# restart the kiosk unit via sudo -n systemctl when it changes. The restart
+# is debounced (3 seconds of the same reading).
+
+set -eu
+
+BUSCTL="${BUSCTL:-/usr/bin/busctl}"
+SYSTEMCTL="${VOLUMIO_EVO_KIOSK_SYSTEMCTL:-/usr/bin/systemctl}"
+SETTINGS_DIR=/var/lib/volumio-evo/settings/kiosk
+ROTATION_FILE="${SETTINGS_DIR}/rotation"
+DEBOUNCE_SECS=3
+POLL_SECS=1
+KIOSK_UNIT=volumio-evo-kiosk.service
+
+log() {
+  printf '[kiosk-autorotate] %s\n' "$*"
+}
+
+read_orientation() {
+  if [ ! -x "${BUSCTL}" ]; then
+    echo "undefined"
+    return
+  fi
+  # Properties.Get returns something like: s "normal"
+  raw=$("${BUSCTL}" --system get-property net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy AccelerometerOrientation 2>/dev/null || true)
+  case "${raw}" in
+    *'"normal"'*)     echo "normal" ;;
+    *'"bottom-up"'*)  echo "bottom-up" ;;
+    *'"right-up"'*)   echo "right-up" ;;
+    *'"left-up"'*)    echo "left-up" ;;
+    *)                echo "undefined" ;;
+  esac
+}
+
+orientation_to_rotation() {
+  case "$1" in
+    normal)     echo "0" ;;
+    bottom-up)  echo "180" ;;
+    right-up)   echo "90" ;;
+    left-up)    echo "270" ;;
+    *)          echo "" ;;
+  esac
+}
+
+claim_accelerometer() {
+  if [ -x "${BUSCTL}" ]; then
+    "${BUSCTL}" --system call net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy ClaimAccelerometer 2>/dev/null || true
+  fi
+}
+
+release_accelerometer() {
+  if [ -x "${BUSCTL}" ]; then
+    "${BUSCTL}" --system call net.hadess.SensorProxy /net/hadess/SensorProxy net.hadess.SensorProxy ReleaseAccelerometer 2>/dev/null || true
+  fi
+}
+
+mkdir -p "${SETTINGS_DIR}"
+
+claim_accelerometer
+trap 'release_accelerometer' EXIT INT TERM
+
+current="$(cat "${ROTATION_FILE}" 2>/dev/null || echo 0)"
+pending=""
+stable_count=0
+
+log "Starting watcher. current_rotation=${current}"
+
+while true; do
+  orient="$(read_orientation)"
+  rot="$(orientation_to_rotation "${orient}")"
+  if [ -z "${rot}" ]; then
+    stable_count=0
+    pending=""
+    sleep "${POLL_SECS}"
+    continue
+  fi
+  if [ "${rot}" = "${current}" ]; then
+    stable_count=0
+    pending=""
+    sleep "${POLL_SECS}"
+    continue
+  fi
+  if [ "${rot}" = "${pending}" ]; then
+    stable_count=$((stable_count + 1))
+  else
+    pending="${rot}"
+    stable_count=1
+  fi
+  if [ "${stable_count}" -ge "${DEBOUNCE_SECS}" ]; then
+    log "Applying rotation ${rot} (was ${current})"
+    # Atomic overlay write.
+    tmp="${ROTATION_FILE}.tmp"
+    printf '%s\n' "${rot}" > "${tmp}"
+    mv "${tmp}" "${ROTATION_FILE}"
+    current="${rot}"
+    pending=""
+    stable_count=0
+    # Restart the kiosk to pick up the new transform. Requires sudoers.
+    if [ -x "${SYSTEMCTL}" ]; then
+      sudo -n "${SYSTEMCTL}" restart "${KIOSK_UNIT}" 2>/dev/null || \
+        log "WARN: could not restart ${KIOSK_UNIT} (check /etc/sudoers.d/volumio-evo-kiosk-control)"
+    fi
+  fi
+  sleep "${POLL_SECS}"
+done

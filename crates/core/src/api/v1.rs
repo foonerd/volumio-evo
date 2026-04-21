@@ -574,3 +574,10 @@ pub async fn network_nm_intent_put(
     }))
     .into_response()
 }
+
+/// GET /api/v1/kiosk/status - snapshot of WPE kiosk settings and live unit state.
+/// See crates/core/src/kiosk.rs.
+pub async fn kiosk_status(State(state): State<AppState>) -> impl IntoResponse {
+    let v = crate::kiosk::kiosk_status_json(&state).await;
+    Json(v).into_response()
+}

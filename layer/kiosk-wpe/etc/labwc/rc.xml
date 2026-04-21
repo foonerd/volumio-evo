@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<!--
+  Volumio Evo kiosk labwc config.
+
+  Minimal config: server-side decorations off, F24 bound to HideCursor.
+  The session script fires F24 via wtype when the operator sets
+  cursor=hide (overlay file).
+
+  IMPORTANT: no windowRule for fullscreen. The kiosk browser requests
+  xdg_toplevel.set_maximized (see /usr/local/bin/volumio-evo-kiosk-browser
+  and its doc-comment). Maximized keeps the client on the regular window
+  layer so wlr_layer_shell surfaces (squeekboard OSK on LAYER_TOP)
+  render above the kiosk. An earlier revision had a windowRule
+  matchOnce="true" ToggleFullscreen catch-all; that forced the client
+  onto the wlroots "fullscreen" layer which sits above LAYER_TOP and
+  hid the OSK. Removed.
+
+  Installed to /etc/volumio-evo/labwc/rc.xml by
+  layer/kiosk-wpe/install.sh (install_labwc_config). Consumed by labwc
+  via its -C flag (short form of the config-dir option) pointing at
+  /etc/volumio-evo/labwc, invoked from
+  /usr/local/bin/volumio-evo-kiosk-launch.
+
+  Do not edit /etc/volumio-evo/labwc/rc.xml in place; it is overwritten
+  on every install. Edit the source at layer/kiosk-wpe/etc/labwc/rc.xml
+  in the repo.
+
+  Note: XML comments cannot contain a doubled hyphen sequence, so this
+  block avoids CLI flag syntax that would produce one. Use prose or the
+  single-letter short form when describing flags here.
+-->
+<labwc_config>
+
+  <core>
+    <!-- Client-side decorations: labwc draws nothing around client
+         windows. The kiosk browser draws no chrome of its own, so the
+         net effect is a clean, borderless surface. -->
+    <decoration>client</decoration>
+  </core>
+
+  <keyboard>
+    <!-- Keep the default labwc keybinds alongside ours. -->
+    <default />
+
+    <!-- F24 is a high function key not present on any real keyboard.
+         Safe to use as an IPC signal from the session script via wtype
+         without colliding with user input or application shortcuts. -->
+    <keybind key="F24">
+      <action name="HideCursor" />
+    </keybind>
+  </keyboard>
+
+</labwc_config>

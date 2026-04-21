@@ -1,0 +1,13 @@
+# Ubuntu 24.04 (Noble): gtk-rs 0.9 needs GTK >= 4.10 (Jammy ships GTK 4.6).
+# Official cross-rs images are Ubuntu 16.04/20.04; use this standalone Dockerfile
+# per cross FAQ (Custom Images).
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git \
+        build-essential pkg-config \
+        libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev \
+    && rm -rf /var/lib/apt/lists/*

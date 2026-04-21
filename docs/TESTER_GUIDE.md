@@ -34,7 +34,9 @@ Optional (see also **Git checkout size**): `EVO_REPO_URL`, **`EVO_REPO_DIR`** / 
 
 By default, bootstrap picks the **current session user** (e.g. **`SUDO_USER`** when you use `sudo`), so **`volumio-evo`** usually runs as your **SSH login** without extra flags. To force root or another account, see [RUNTIME_USER.md](RUNTIME_USER.md). **Sudo, `systemctl`, and `/etc` ownership** are defined in [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) — the service must stay **non-interactive** (no password prompts in normal operation).
 
-**Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary only), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
+**Modes** (see script **`--help`**): **`--full`** (default), **`--reset`** (stop backend first, then full reinstall), **`--upgrade-evo`** (backend binary + optional kiosk layer — see below), **`--upgrade-nginx`** / **`--apply-ui-only`** (nginx + UI roots from config).
+
+**Optional Wayland kiosk (second layer):** pass **`--with-kiosk=wpe`**, **`--kiosk-wpe`**, or **`KIOSK=wpe`** with **`--full`** / **`--reset`** to run **`layer/kiosk-wpe/install.sh`** after the main stack (labwc + **`volumio-evo-kiosk-browser`**, OSK, units). The kiosk is **not** auto-started by the installer; use **Settings → System → Kiosk** in the UI, or see [KIOSK.md](KIOSK.md). For **git pull**-style updates on a device that already uses the kiosk, run **`sudo EVO_WITH_KIOSK=wpe ./scripts/bootstrap-volumio-evo-player.sh --upgrade-evo`** to refresh the backend **and** re-run the kiosk layer from the updated repo. **Prebuilt** **`volumio-evo-kiosk-browser`** under **`layer/binaries/<triple>/`** is recommended so the device does not compile Rust (see [layer/binaries/README.md](../layer/binaries/README.md)).
 
 **Updates:** run the **same command again**. When **`EVO_REPO_UPDATE=1`** (default), bootstrap **fetches only the current branch** from **`origin`** and **fast-forwards** if possible — it does **not** run **`git fetch --all`**. Set **`EVO_REPO_UPDATE=0`** only for offline or pinned trees.
 

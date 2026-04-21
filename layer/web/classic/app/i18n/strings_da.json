@@ -967,7 +967,21 @@
     "KIOSK_WPE_DOC": "Reserveret til Wayland/WPE‑shell på enheden; se docs/KIOSK.md.",
     "LOCALE_REGION": "Sprog, region og tidszone",
     "PRIMARY_DISPLAY": "Primær skærm",
-    "PRIMARY_DISPLAY_DOC": "Hvilken udgang viser fuldskærms‑UI når kiosk er aktiv."
+    "PRIMARY_DISPLAY_DOC": "Hvilken udgang viser fuldskærms‑UI når kiosk er aktiv.",
+    "KIOSK_ROTATION": "Skærmrotation",
+    "KIOSK_ROTATION_DOC": "Roterer kiosk-brugerfladen i framebuffer (0°, 90°, 180° eller 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatisk rotation",
+    "KIOSK_AUTO_ROTATE_DOC": "Tilpasser rotation, når skærmen melder ændret orientering.",
+    "KIOSK_OSK": "Skærmtastatur",
+    "KIOSK_OSK_DOC": "Virtuelt tastatur til touch (Squeekboard, wvkbd eller ingen).",
+    "KIOSK_CURSOR": "Markør",
+    "KIOSK_CURSOR_DOC": "Vis eller skjul musemarkør eller brug standard.",
+    "KIOSK_ZOOM": "Web-zoom",
+    "KIOSK_ZOOM_DOC": "Zoomniveau for den indlejrede kiosk-browser.",
+    "KIOSK_SCALE": "Brugerflade­skala",
+    "KIOSK_SCALE_DOC": "Samlet skalering af kiosk-shell.",
+    "KIOSK_OSK_LAYOUT": "Tastaturlayout",
+    "KIOSK_OSK_LAYOUT_DOC": "Layout- eller sproghint for skærmtastatur."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "De bedste radioer",

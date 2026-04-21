@@ -1099,7 +1099,21 @@
     "KIOSK_WPE_DOC": "Réservé au shell Wayland/WPE sur l'appareil ; voir docs/KIOSK.md.",
     "LOCALE_REGION": "Langue, région et fuseau horaire",
     "PRIMARY_DISPLAY": "Écran principal",
-    "PRIMARY_DISPLAY_DOC": "Sortie vidéo qui affiche l'interface plein écran lorsque le mode kiosque est activé."
+    "PRIMARY_DISPLAY_DOC": "Sortie vidéo qui affiche l'interface plein écran lorsque le mode kiosque est activé.",
+    "KIOSK_ROTATION": "Rotation de l’écran",
+    "KIOSK_ROTATION_DOC": "Fait pivoter l’interface kiosque dans le framebuffer (0°, 90°, 180° ou 270°).",
+    "KIOSK_AUTO_ROTATE": "Rotation automatique",
+    "KIOSK_AUTO_ROTATE_DOC": "Applique la rotation lorsque l’affichage signale un changement d’orientation.",
+    "KIOSK_OSK": "Clavier à l’écran",
+    "KIOSK_OSK_DOC": "Clavier virtuel pour saisie tactile (Squeekboard, wvkbd ou aucun).",
+    "KIOSK_CURSOR": "Pointeur",
+    "KIOSK_CURSOR_DOC": "Afficher, masquer ou laisser le comportement par défaut du pointeur.",
+    "KIOSK_ZOOM": "Zoom web",
+    "KIOSK_ZOOM_DOC": "Niveau de zoom du navigateur kiosque intégré.",
+    "KIOSK_SCALE": "Échelle de l’interface",
+    "KIOSK_SCALE_DOC": "Échelle globale de l’interface kiosque.",
+    "KIOSK_OSK_LAYOUT": "Disposition du clavier",
+    "KIOSK_OSK_LAYOUT_DOC": "Indication de disposition ou de langue pour le clavier à l’écran."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Meilleures Radios",

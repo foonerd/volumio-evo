@@ -1097,7 +1097,21 @@
     "KIOSK_WPE_DOC": "Reserverat för Wayland/WPE‑skal på enheten; se docs/KIOSK.md.",
     "LOCALE_REGION": "Språk, region och tidszon",
     "PRIMARY_DISPLAY": "Primär skärm",
-    "PRIMARY_DISPLAY_DOC": "Vilken utgång visar helskärms‑UI när kiosk är aktiv."
+    "PRIMARY_DISPLAY_DOC": "Vilken utgång visar helskärms‑UI när kiosk är aktiv.",
+    "KIOSK_ROTATION": "Skärmrotation",
+    "KIOSK_ROTATION_DOC": "Roterar kioskgränssnittet i framebuffer (0°, 90°, 180° eller 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatisk rotation",
+    "KIOSK_AUTO_ROTATE_DOC": "Anpassar rotation när skärmen rapporterar orienteringsändring.",
+    "KIOSK_OSK": "Skärmtangentbord",
+    "KIOSK_OSK_DOC": "Virtuellt tangentbord för pek (Squeekboard, wvkbd eller inget).",
+    "KIOSK_CURSOR": "Pekare",
+    "KIOSK_CURSOR_DOC": "Visa eller dölja muspekaren eller använd standard.",
+    "KIOSK_ZOOM": "Webb-zoom",
+    "KIOSK_ZOOM_DOC": "Zoomnivå för den inbäddade kioskwebbläsaren.",
+    "KIOSK_SCALE": "Gränssnittskalning",
+    "KIOSK_SCALE_DOC": "Övergripande skalning av kiosk-shell.",
+    "KIOSK_OSK_LAYOUT": "Tangentbordslayout",
+    "KIOSK_OSK_LAYOUT_DOC": "Layout- eller språkhint för skärmtangentbord."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Bäst radio",

@@ -976,7 +976,21 @@
     "KIOSK_WPE_DOC": "Varattu laitteen Wayland/WPE‑kuorelle; katso docs/KIOSK.md.",
     "LOCALE_REGION": "Kieli, alue ja aikavyöhyke",
     "PRIMARY_DISPLAY": "Ensisijainen näyttö",
-    "PRIMARY_DISPLAY_DOC": "Kumpi lähtö näyttää koko näytön käyttöliittymän, kun kioski on käytössä."
+    "PRIMARY_DISPLAY_DOC": "Kumpi lähtö näyttää koko näytön käyttöliittymän, kun kioski on käytössä.",
+    "KIOSK_ROTATION": "Näytön kierto",
+    "KIOSK_ROTATION_DOC": "Kiertää kiosk-käyttöliittymää framepuskurissa (0°, 90°, 180° tai 270°).",
+    "KIOSK_AUTO_ROTATE": "Automaattinen kierto",
+    "KIOSK_AUTO_ROTATE_DOC": "Sovittaa kierron, kun näyttö ilmoittaa suunnan muutoksen.",
+    "KIOSK_OSK": "Näppäimistö näytöllä",
+    "KIOSK_OSK_DOC": "Virtuaalinen näppäimistö kosketusta varten (Squeekboard, wvkbd tai ei mitään).",
+    "KIOSK_CURSOR": "Osoitin",
+    "KIOSK_CURSOR_DOC": "Näytä tai piilota osoitin tai käytä oletusta.",
+    "KIOSK_ZOOM": "Verkkozoom",
+    "KIOSK_ZOOM_DOC": "Zoomaustaso upotetulle kiosk-selaimelle.",
+    "KIOSK_SCALE": "Käyttöliittymän skaalaus",
+    "KIOSK_SCALE_DOC": "Koko kiosk-käyttöliittymän skaalaus.",
+    "KIOSK_OSK_LAYOUT": "Näppäimistön asettelu",
+    "KIOSK_OSK_LAYOUT_DOC": "Asettelu tai kieli vihje näppäimistölle."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Parhaat radiot",

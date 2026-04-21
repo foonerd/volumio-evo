@@ -609,7 +609,7 @@ async fn get_system_info(s: SocketRef, State(state): State<AppState>) {
     s.emit("pushSystemInfo", &data).ok();
 }
 
-async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
+pub(crate) async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
     let zones: Vec<String> = crate::system_settings::list_timezones_cached().to_vec();
     let sys = state.system_settings.read().await.clone();
     let active_layout = state.active_layout.read().await.clone();
@@ -3618,23 +3618,50 @@ async fn call_method(
     if payload.endpoint.as_deref() == Some("system_controller/system")
         && payload.method.as_deref() == Some("saveKioskSettings")
     {
-        let mut sys = state.system_settings.write().await;
-        let changed = sys.merge_kiosk_payload(&payload.data);
-        if changed {
-            if let Err(e) = sys.save() {
-                tracing::warn!("{} saveKioskSettings: {}", crate::log_tags::EVO_UI, e);
+        // Capture the previous kiosk_enabled so we can revert on refusal.
+        let prev_enabled;
+        let changed;
+        {
+            let mut sys = state.system_settings.write().await;
+            prev_enabled = sys.kiosk_enabled;
+            changed = sys.merge_kiosk_payload(&payload.data);
+            if changed {
+                if let Err(e) = sys.save() {
+                    tracing::warn!(
+                        "{} saveKioskSettings persist: {}",
+                        crate::log_tags::EVO_KIOSK,
+                        e
+                    );
+                }
             }
-            drop(sys);
-            emit_system_ui_config(&s, &state).await;
-            let _ = s.emit(
-                "pushToastMessage",
-                &serde_json::json!({
-                    "type": "success",
-                    "title": "System",
-                    "message": "Display settings saved"
-                }),
-            );
         }
+        if !changed {
+            // No-op save; just re-emit so the UI reflects live unit state.
+            emit_system_ui_config(&s, &state).await;
+            return;
+        }
+
+        let need_layer_install = {
+            let sys = state.system_settings.read().await;
+            sys.kiosk_enabled && (!prev_enabled || !crate::kiosk::kiosk_layer_installed())
+        };
+
+        if need_layer_install {
+            let st = state.clone();
+            let s2 = s.clone();
+            tokio::spawn(async move {
+                super::kiosk_install::deferred_kiosk_enable_after_layer_install(s2, st, prev_enabled)
+                    .await;
+            });
+            return;
+        }
+
+        // Apply side effects (overlays + systemctl). On refusal, revert the
+        // kiosk_enabled flag and re-persist so the toggle shows the actual state.
+        let outcome = crate::kiosk::apply_kiosk_settings(&state).await;
+        super::kiosk_install::notify_kiosk_apply_outcome(&s, &state, outcome, prev_enabled).await;
+
+        emit_system_ui_config(&s, &state).await;
         return;
     }
 
@@ -3715,6 +3742,17 @@ async fn call_method(
         let data = payload.data.clone();
         tokio::spawn(async move {
             super::boot_branding::spawn_install(st, data).await;
+        });
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("installKioskLayer")
+    {
+        let st = state.clone();
+        let s2 = s.clone();
+        tokio::spawn(async move {
+            super::kiosk_install::spawn_install_only(st, s2).await;
         });
         return;
     }

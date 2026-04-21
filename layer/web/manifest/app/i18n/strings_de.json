@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "Reserviert für die Wayland-/WPE-Shell auf dem Gerät; siehe docs/KIOSK.md.",
     "LOCALE_REGION": "Sprache, Region und Zeit",
     "PRIMARY_DISPLAY": "Primäre Anzeige",
-    "PRIMARY_DISPLAY_DOC": "Welcher Ausgang zeigt die Vollbild-Oberfläche bei aktivierter Kiosk-Funktion."
+    "PRIMARY_DISPLAY_DOC": "Welcher Ausgang zeigt die Vollbild-Oberfläche bei aktivierter Kiosk-Funktion.",
+    "KIOSK_ROTATION": "Bildschirmrotation",
+    "KIOSK_ROTATION_DOC": "Rotiert die Kiosk-Oberfläche im Framebuffer (0°, 90°, 180° oder 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatische Rotation",
+    "KIOSK_AUTO_ROTATE_DOC": "Passt die Rotation automatisch an, wenn sich die Displayausrichtung ändert.",
+    "KIOSK_OSK": "Bildschirmtastatur",
+    "KIOSK_OSK_DOC": "Virtuelle Tastatur für Touch (Squeekboard, wvkbd oder keine).",
+    "KIOSK_CURSOR": "Mauszeiger",
+    "KIOSK_CURSOR_DOC": "Mauszeiger einblenden, ausblenden oder Systemstandard verwenden.",
+    "KIOSK_ZOOM": "Web-Zoom",
+    "KIOSK_ZOOM_DOC": "Zoomstufe für den eingebetteten Kiosk-Browser.",
+    "KIOSK_SCALE": "Oberflächenskalierung",
+    "KIOSK_SCALE_DOC": "Gesamtgröße der Kiosk-Oberfläche (Skalierung).",
+    "KIOSK_OSK_LAYOUT": "Tastatur­layout",
+    "KIOSK_OSK_LAYOUT_DOC": "Layout bzw. Sprache der Bildschirmtastatur."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Die besten Sender",

@@ -1,0 +1,17 @@
+# Debian/Ubuntu packages required to *compile* volumio-evo-kiosk-browser (gtk-rs / webkit6-sys).
+# GTK in use needs >= 4.10 (Jammy 22.04 often has 4.6 only — use Debian Trixie /
+# Ubuntu 24.04+ or match gtk-rs versions to your distro).
+#
+# Install on the host for plain `cargo build`; cross-rs uses docker/cross-kiosk/.
+#
+# Native amd64:
+#   sudo apt-get install --no-install-recommends $(grep -v '^#' apt-build-deps.txt | grep -v '^$')
+#
+# Transitive pkg-config deps (glib, cairo, gdk-pixbuf, pango, …) are pulled in by these metapackages.
+
+build-essential
+pkg-config
+
+libgtk-4-dev
+libwebkitgtk-6.0-dev
+libsoup-3.0-dev

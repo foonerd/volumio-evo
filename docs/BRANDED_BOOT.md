@@ -134,6 +134,20 @@ Work in roughly this order; details can track a project board.
 
 ---
 
+## Parallel pattern: Wayland kiosk (privileged installer from the UI)
+
+**Boot branding** is not the only **Settings → System** feature that runs an **`apt`/layer script** under **`sudo -n`** with progress modals (**`openModal`** / **`modalProgress`** / **`modalDone`**). The **Wayland kiosk** stack uses the same contract:
+
+| Boot branding | Wayland kiosk |
+|---------------|----------------|
+| **`layer/install/run-boot-branding.sh`** | **`layer/install/run-kiosk-wpe-install.sh`** → **`layer/kiosk-wpe/install.sh`** |
+| **`/etc/sudoers.d/volumio-evo-boot-branding`** | **`/etc/sudoers.d/volumio-evo-kiosk-layer-install`** |
+| **`installBootBranding`** **`callMethod`** | **`installKioskLayer`** **`callMethod`** (explicit refresh). **`saveKioskSettings`** may run the kiosk installer first when **`kiosk_enabled`** is turned on or the layer is not yet installed. |
+
+Authoritative detail (bootstrap flags, **`volumio-evo-kiosk-browser`** prebuilts, **`systemctl`** sudoers): **[KIOSK.md](KIOSK.md)** and **[OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)** — not duplicated here.
+
+---
+
 ## References
 
 - **`layer/plymouth/generate-overlays.sh`** — regenerates **`overlay-vol-*.png`** from the VOL registry (dev tool; see **`layer/plymouth/README.md`**).
