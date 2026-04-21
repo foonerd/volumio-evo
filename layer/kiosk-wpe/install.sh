@@ -111,6 +111,23 @@ host_rust_triple() {
   esac
 }
 
+# True when install_kiosk_browser_binary will run cargo (no usable prebuilt).
+# Matches resolution order there: KIOSK_BUILD_BROWSER=0 never builds; else
+# layer/binaries/<triple>/volumio-evo-kiosk-browser wins without dev packages.
+kiosk_browser_sources_build_needed() {
+  if [[ "${KIOSK_BUILD_BROWSER}" != "1" ]]; then
+    return 1
+  fi
+  local triple prebuilt
+  triple="$(host_rust_triple)"
+  [[ -n "${triple}" ]] || return 0
+  prebuilt="${REPO_DIR}/layer/binaries/${triple}/volumio-evo-kiosk-browser"
+  if [[ -n "${prebuilt}" && -x "${prebuilt}" ]]; then
+    return 1
+  fi
+  return 0
+}
+
 # Return "intel", "amd", or "" based on lspci vendor ID of the first VGA class.
 detect_amd64_gpu_vendor() {
   if ! command -v lspci >/dev/null 2>&1; then
@@ -181,10 +198,8 @@ install_packages() {
   #   libwebkitgtk-6.0-4 or  - WebKit 6 / webkit2gtk 6.0 runtime (Debian uses -4;
   #   libwebkitgtk-6.0-1       Ubuntu often -1 — filter picks whichever exists)
   #   libsoup-3.0-0          - HTTP stack used by WebKit 6
-  #   libgtk-4-dev           - build-time headers for crates/kiosk-browser
-  #   libwebkitgtk-6.0-dev   - build-time headers for crates/kiosk-browser
-  #   libsoup-3.0-dev        - build-time headers for crates/kiosk-browser
-  #   pkg-config             - cargo finds the three libs above via pkg-config
+  #   libgtk-4-dev … pkg-config — only when cargo must build kiosk-browser
+  #     (no prebuilt at layer/binaries/<triple>/); skipped for OOTB prebuilt installs.
   #   bubblewrap +           - required by the webkit2gtk sandbox when enabled
   #     xdg-dbus-proxy         (unit currently sets WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
   #                            - see systemd/volumio-evo-kiosk.service; install them
@@ -205,10 +220,6 @@ install_packages() {
     libwebkitgtk-6.0-4
     libwebkitgtk-6.0-1
     libsoup-3.0-0
-    libgtk-4-dev
-    libwebkitgtk-6.0-dev
-    libsoup-3.0-dev
-    pkg-config
     bubblewrap
     xdg-dbus-proxy
     squeekboard
@@ -260,6 +271,20 @@ install_packages() {
     pkgs+=(iio-sensor-proxy)
   fi
 
+  local needs_browser_build=0
+  if kiosk_browser_sources_build_needed; then
+    needs_browser_build=1
+    pkgs+=(
+      libgtk-4-dev
+      libwebkitgtk-6.0-dev
+      libsoup-3.0-dev
+      pkg-config
+    )
+    log "Including GTK/WebKit dev packages (cargo build fallback; no executable prebuilt for this triple)."
+  else
+    log "Skipping GTK/WebKit dev packages (prebuilt kiosk-browser present or KIOSK_BUILD_BROWSER=0)."
+  fi
+
   export DEBIAN_FRONTEND=noninteractive
   export APT_LISTCHANGES_FRONTEND=none
 
@@ -273,8 +298,7 @@ install_packages() {
   local -a resolved=()
   filter_apt_packages resolved "${pkgs[@]}"
 
-  # Hard-required: the kiosk cannot function without labwc or the WebKit
-  # runtime + headers the browser binary links against.
+  # Hard-required: labwc + GTK/WebKit *runtime*. Dev headers only when building from source.
   local has_labwc=0 has_gtk4_rt=0 has_webkit_rt=0 has_gtk4_dev=0 has_webkit_dev=0 has_pkgc=0
   local q
   for q in "${resolved[@]}"; do
@@ -291,8 +315,10 @@ install_packages() {
   if [[ "${has_gtk4_rt}" != "1" || "${has_webkit_rt}" != "1" ]]; then
     fail "Required runtime libraries missing (libgtk-4-1, libwebkitgtk-6.0-4 or libwebkitgtk-6.0-1). Install from Debian main / security. See docs/KIOSK.md."
   fi
-  if [[ "${has_gtk4_dev}" != "1" || "${has_webkit_dev}" != "1" || "${has_pkgc}" != "1" ]]; then
-    fail "Required build headers missing (libgtk-4-dev, libwebkitgtk-6.0-dev, pkg-config). Needed to compile crates/kiosk-browser."
+  if [[ "${needs_browser_build}" == "1" ]]; then
+    if [[ "${has_gtk4_dev}" != "1" || "${has_webkit_dev}" != "1" || "${has_pkgc}" != "1" ]]; then
+      fail "Required build headers missing (libgtk-4-dev, libwebkitgtk-6.0-dev, libsoup-3.0-dev, pkg-config). Needed to compile crates/kiosk-browser."
+    fi
   fi
 
   log "Installing ${#resolved[@]} package(s) (filtered to index-available names)."
