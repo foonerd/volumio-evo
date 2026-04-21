@@ -1,5 +1,7 @@
 # SMB server
 
+Fabric role: **file-sharing / storage-adjacent warden** ([CONCEPT.md](CONCEPT.md) §6). Today's implementation lives in the **`volumio-evo`** binary ([PLUGIN_CORE_VS_EXTENSIONS.md](PLUGIN_CORE_VS_EXTENSIONS.md)).
+
 Volumio Evo exposes an SMB file server comparable to classic Node Volumio (guest-friendly shares, optional named users), with moderation of export paths and privilege rules in **[`OS_PRIVILEGE_MODEL.md`](OS_PRIVILEGE_MODEL.md)**.
 
 The Rust backend writes **`settings/samba/smb.conf.generated`**, installs it to **`/etc/samba/smb.conf`** via **`sudo -n install`** (narrow sudoers **`volumio-evo-samba`**), then **`restart smbd`**/**`nmbd`** (or **`stop`** when SMB is disabled). **`VOLUMIO_EVO_SKIP_STARTUP_SAMBA_APPLY=1`** skips the boot-time apply hook.

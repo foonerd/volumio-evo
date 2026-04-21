@@ -1,11 +1,20 @@
 # Documentation map
 
-Single index for **volumio-evo**. Other docs own detail; **do not** copy long inventories here - link them.
+Single index for **volumio-evo**. Other docs own detail; **do not** copy long inventories here — link them.
+
+## Supremacy (read first)
+
+| Topic | Canonical doc |
+|-------|----------------|
+| Fabric vocabulary, racks, steward/plugins, commitments, existing-assets mapping | **[CONCEPT.md](CONCEPT.md)** — **evo-next contract** |
+
+Everything else below is **operational**: bootstrap, parity, subsystem behaviour, or transitional mapping of **today's monolith** onto the fabric words.
 
 ## Authority (which doc wins)
 
 | Topic | Canonical doc |
 |-------|----------------|
+| Fabric / steward / catalogue / racks / slots | [CONCEPT.md](CONCEPT.md) |
 | volumio3-backend parity: REST, Socket.IO, stubs | [PORTING.md](PORTING.md) |
 | Bootstrap / on-device validation, git depth & updates | [TESTER_GUIDE.md](TESTER_GUIDE.md) |
 | `sudo -n`, sudoers, service user | [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
@@ -13,35 +22,39 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | NetworkManager / `nmcli` | [NETWORK_NM.md](NETWORK_NM.md) |
 | Paths under `/var/lib/volumio-evo/` | [SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md) |
 | Logging / `journalctl` | [OBSERVABILITY.md](OBSERVABILITY.md) |
-| WASM plugins | [PLUGIN_ABI.md](PLUGIN_ABI.md) |
+| WASM guest/host ABI (one plugin host) | [PLUGIN_ABI.md](PLUGIN_ABI.md) |
+| Trust classes, plugin transports, fabric role assignments | [CONCEPT.md](CONCEPT.md) §4, §5, §6 |
+| Stock UI **`pluginName`** / **`getUiConfig`** / **`callMethod`** (compatibility adapter) | [UI_PLUGIN_ROUTING.md](UI_PLUGIN_ROUTING.md) |
 | Stock UI optional forks | [UI_GAP.md](UI_GAP.md) |
 | Cross-build, `layer/binaries/` (**`volumio-evo`** + **`volumio-evo-kiosk-browser`**) | [BUILD_GUIDE.md](BUILD_GUIDE.md), [layer/binaries/README.md](../layer/binaries/README.md), **`scripts/refresh-layer-binaries-sha256sums.sh`** |
-| Evo architecture one-pager | [CONCEPT.md](CONCEPT.md) |
 | Alarm / RTC wake | [ALARM_WAKE.md](ALARM_WAKE.md) |
 | Album art provider order / URLs | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) |
 | Playback timer / queue UI contract | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) |
 | External `.cue` files (normalize, browse, MPD `load`) | [CUE_SHEETS.md](CUE_SHEETS.md) |
 | Runtime user / mount helpers | [RUNTIME_USER.md](RUNTIME_USER.md) |
-| Wayland kiosk (concept, installer, binaries, **`sudo -n`** install) | [KIOSK.md](KIOSK.md); **`layer/kiosk-wpe/`**, **`layer/install/run-kiosk-wpe-install.sh`**, **`crates/core/src/kiosk.rs`**, **`crates/core/src/api/kiosk_install.rs`**, **`crates/kiosk-browser/`** |
+| Wayland kiosk (installer, binaries, **`sudo -n`**) | [KIOSK.md](KIOSK.md); **`layer/kiosk-wpe/`**, **`layer/install/run-kiosk-wpe-install.sh`**, **`crates/core/src/kiosk.rs`**, **`crates/core/src/api/kiosk_install.rs`**, **`crates/kiosk-browser/`** |
 
 ## Every markdown file under `docs/`
 
-All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md** unless another row in **Authority** applies.
+All paths relative to **`docs/`**. Parity ownership is usually **PORTING.md** unless another **Authority** row applies.
 
 | File | Role |
 |------|------|
-| [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | **This index** - assumptions, authority, completed vs not ported, deferred. |
-| [PORTING.md](PORTING.md) | volumio3-backend <-> Evo parity inventory and phased status. |
+| [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md) | **This index** — supremacy, authority, completed vs not ported, deferred. |
+| [CONCEPT.md](CONCEPT.md) | **Fabric contract** — steward, catalogue, racks, plugins, commitments, §6 existing assets. |
+| [PORTING.md](PORTING.md) | volumio3-backend ↔ Evo parity inventory and phased status. |
 | [TESTER_GUIDE.md](TESTER_GUIDE.md) | Canonical on-device bootstrap and validation (incl. shallow **`EVO_REPO_DEPTH`** / lightweight git updates). |
 | [BUILD_GUIDE.md](BUILD_GUIDE.md) | Compile and cross-compile **`volumio-evo`**. |
-| [CONCEPT.md](CONCEPT.md) | Architecture one-pager. |
 | [NETWORK_NM.md](NETWORK_NM.md) | NetworkManager contract + **implementation status** table. |
 | [SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md) | **`/var/lib/volumio-evo/settings/`** layout. |
 | [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) | **`sudo -n`**, sudoers, service user. |
 | [RUNTIME_USER.md](RUNTIME_USER.md) | Effective user for mounts and runtime. |
 | [OBSERVABILITY.md](OBSERVABILITY.md) | Logging and **`journalctl`**. |
-| [PLUGIN_ABI.md](PLUGIN_ABI.md) | WASM exports; **`plugin_handle_request`** remains **TBD** until ABI freeze ([PRIORITY_ALSA_AAMPP.md](PRIORITY_ALSA_AAMPP.md)). |
-| [PRIORITY_ALSA_AAMPP.md](PRIORITY_ALSA_AAMPP.md) | ALSA merge pipeline - **deferred** implementation. |
+| [PLUGIN_ABI.md](PLUGIN_ABI.md) | WASM guest ABI - one plugin transport among several per [CONCEPT.md](CONCEPT.md) §5; **`plugin_handle_request`** remains **TBD** until ABI freeze ([PRIORITY_ALSA_AAMPP.md](PRIORITY_ALSA_AAMPP.md)). |
+| [PLUGIN_SYSTEM_EXTENSIONS.md](PLUGIN_SYSTEM_EXTENSIONS.md) | **Obsolete.** Tombstone redirecting to [CONCEPT.md](CONCEPT.md); file can be removed with `git rm`. |
+| [PLUGIN_CORE_VS_EXTENSIONS.md](PLUGIN_CORE_VS_EXTENSIONS.md) | **Obsolete.** Tombstone redirecting to [CONCEPT.md](CONCEPT.md); file can be removed with `git rm`. |
+| [UI_PLUGIN_ROUTING.md](UI_PLUGIN_ROUTING.md) | Wire-level Settings routes — **compatibility adapter** until projections replace it ([CONCEPT.md](CONCEPT.md) §6 UI row). |
+| [PRIORITY_ALSA_AAMPP.md](PRIORITY_ALSA_AAMPP.md) | ALSA merge pipeline — **deferred** implementation. |
 | [BRANDED_BOOT.md](BRANDED_BOOT.md) | Plymouth, VOL tokens, branding units, **`vol-branding-v1-*`**. |
 | [UI_GAP.md](UI_GAP.md) | Stock UI changes when paired with Evo (fork/upstream checklist). |
 | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) | Online album-art provider behaviour. |
@@ -49,16 +62,19 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) | Timer and **`pushState`** expectations for the UI. |
 | [CUE_SHEETS.md](CUE_SHEETS.md) | `.cue` normalization, browse expansion, **`load`** vs **`add`**; deferred sidecar/multi-file work. |
 | [KIOSK.md](KIOSK.md) | Wayland kiosk: shipped stack (**labwc** + Rust **gtk4/webkit6** shell), bootstrap **`--with-kiosk=wpe`** / **`--kiosk-wpe`**, **`saveKioskSettings`** / **`installKioskLayer`**, prebuilts under **`layer/binaries/`**. Historical WPE/cog sections retained below §0. |
+| [SAMBA.md](SAMBA.md) | SMB server integration (native module today). |
 
 ## Documentation update rule (non-negotiable)
 
-1. **Behaviour** is described only in the **authority** doc for that topic (table above).
-2. **No placeholder sections:** "future / optional / TBD" in prose must either name the **deferred doc** (below), **PORTING** phase **Outstanding**, or **NETWORK_NM** implementation gaps - or be removed.
+1. **Behaviour** is described only in the **authority** doc for that topic (tables above).
+2. **No orphan placeholders:** "future / optional / TBD" in prose must either name the **deferred** section below, **PORTING** phase **Outstanding**, or **NETWORK_NM** implementation gaps — or be removed.
 3. After changing code, update the owning doc in the **same change set** when behaviour is user-visible or parity-relevant.
+4. Doc changes that redefine boundaries (what is steward vs plugin, new rack concerns) **must** remain consistent with **[CONCEPT.md](CONCEPT.md)**.
 
 ## Assumptions
 
-- **OS:** Stock minimal Debian-class or Raspberry Pi OS; Evo is a **layer** on top ([CONCEPT.md](CONCEPT.md)).
+- **Architecture:** Steward + catalogue + plugins per [CONCEPT.md](CONCEPT.md). **Today's** repo is still largely a **single binary** embodying steward-shaped duties and inlined “plugins”; documentation may say **“steward process”** or **“backend binary”** interchangeably until repackaging lands.
+- **OS:** Stock minimal Debian-class or Raspberry Pi OS; Evo is a **layer** on top ([CONCEPT.md](CONCEPT.md) §5).
 - **Ports:** Evo listens on **3000**; UI usually via nginx on **80** ([TESTER_GUIDE.md](TESTER_GUIDE.md)).
 - **Socket.IO wire:** Engine.IO **v3** for stock Volumio2-UI (`socketioxide` **`v4`** feature) ([PORTING.md](PORTING.md)).
 - **Integration test:** **`scripts/bootstrap-volumio-evo-player.sh`** is the canonical path ([TESTER_GUIDE.md](TESTER_GUIDE.md)).
@@ -68,7 +84,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 
 | Area | Pointer |
 |------|---------|
-| Playback, browse, queue, playlists (MPD), album art | [PORTING.md](PORTING.md) Part 2-3 |
+| Playback, browse, queue, playlists (MPD), album art | [PORTING.md](PORTING.md) Part 2–3 |
 | **`GET /api/host`** | Implemented ([PORTING.md](PORTING.md)); nginx proxies from UI host |
 | Settings Sources: NAS mounts, share discovery | [PORTING.md](PORTING.md) 3.2 |
 | Wi-Fi list + NM apply (`nmcli`) | [NETWORK_NM.md](NETWORK_NM.md), [PORTING.md](PORTING.md) Phase 3 |
@@ -81,8 +97,8 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 
 | Item | Notes |
 |------|--------|
-| Node plugins, plugin store, install zip flow | [PORTING.md](PORTING.md) Part 5-6 |
-| My Volumio cloud, stock updater, OAuth/push URLs as in Node | [PORTING.md](PORTING.md) Part 5-6 |
+| Node plugins, plugin store, install zip flow | [PORTING.md](PORTING.md) Part 5–6 |
+| My Volumio cloud, stock updater, OAuth/push URLs as in Node | [PORTING.md](PORTING.md) Part 5–6 |
 | **`VOL:v1:initrd:*`** from initramfs | volumio-os / image recipes - [BRANDED_BOOT.md](BRANDED_BOOT.md) "Not implemented here" |
 
 ## Deferred / reference (not shipped as product requirement)
@@ -92,6 +108,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | ALSA AAMPP priority pipeline | [PRIORITY_ALSA_AAMPP.md](PRIORITY_ALSA_AAMPP.md) |
 | NM runtime STA-loss watchdog (phase 3) | [NETWORK_NM.md](NETWORK_NM.md) Phased implementation |
 | WASM `plugin_handle_request` + full generic RPC | [PLUGIN_ABI.md](PLUGIN_ABI.md), [PORTING.md](PORTING.md) Part 5 |
+| Steward/plugin wire format, manifest schema, projection protocol | [CONCEPT.md](CONCEPT.md) §9 — engineering TBD |
 | OS-wide locale (`locale-gen`, `/etc/default/locale`) | [SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md) Later phases |
 | NM-aligned regulatory hints (beyond `iw reg set`) | [SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md) Regulatory domain |
 | Evo **`Type=notify`** / `sd_notify` for branding "app listening" | [BRANDED_BOOT.md](BRANDED_BOOT.md) |

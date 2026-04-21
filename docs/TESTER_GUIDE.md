@@ -12,6 +12,8 @@ Do **not** use a parallel workflow of manual `git pull`, `cargo build`, or hand-
 
 **Documentation index** (assumptions, canonical topics, implemented vs not): [DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md).
 
+**Product contract (fabric):** [CONCEPT.md](CONCEPT.md).
+
 ---
 
 ## Run bootstrap (only command that matters)

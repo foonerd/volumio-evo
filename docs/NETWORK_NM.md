@@ -1,6 +1,8 @@
 # Network stack: NetworkManager (`nmcli`)
 
-Volumio Evo is moving from **ifupdown / dhcpcd / hostapd scripts** to **NetworkManager** so one code path can express **DHCP vs static IPv4**, **Wi‑Fi client (STA)**, **access point (AP)**, and coordinated **fallback hotspot** behaviour.
+**Fabric role:** **Networking rack** — link and reachability ([CONCEPT.md](CONCEPT.md) §3, §6). This document is the **operational** contract for **`nmcli`** integration in the **current** steward binary.
+
+Volumio Evo uses **NetworkManager** so one code path can express **DHCP vs static IPv4**, **Wi‑Fi client (STA)**, **access point (AP)**, and coordinated **fallback hotspot** behaviour (replacing ad hoc **ifupdown / dhcpcd / hostapd** scripts on minimal images).
 
 **Privilege:** when the service runs as a **non-root** user, Evo invokes **`sudo -n $VOLUMIO_EVO_NMCLI`** (see **`nmcli_bin()`**). Bootstrap installs **`/etc/sudoers.d/volumio-evo-nmcli`** — see **[OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)**.
 

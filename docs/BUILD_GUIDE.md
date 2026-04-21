@@ -1,5 +1,7 @@
 # Building Volumio Evo
 
+Produces the **`volumio-evo`** **steward** binary ([CONCEPT.md](CONCEPT.md) §5); workspace members may include kiosk browser and WASM example guests — not the entire future plugin catalogue.
+
 **On-device integration test (full stack: Rust + static UI + nginx + MPD):** run **`scripts/bootstrap-volumio-evo-player.sh` only** — not manual `git pull` or `cargo build` as a substitute. This document is for **cross-compiling** or **host-side** `cargo` when you need a binary artifact; it does not replace bootstrap for verification on a Raspberry Pi or Debian test machine.
 
 ---

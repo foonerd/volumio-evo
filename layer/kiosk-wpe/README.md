@@ -1,7 +1,8 @@
 # Volumio Evo - Kiosk layer component (labwc + webkit2gtk shell)
 
 This directory is the runtime layer for the on-device kiosk. The design
-reference is docs/KIOSK.md; this README documents what actually installs
+reference is **docs/KIOSK.md**; the **fabric** role (Kiosk rack) is in
+**docs/CONCEPT.md** §3 and §6. This README documents what actually installs
 and how it maps to the backend.
 
 The kiosk is a Wayland fullscreen shell that renders the Evo UI

@@ -1,6 +1,6 @@
 # Volumio Evo layer
 
-Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo. For detailed step-by-step instructions (including MPD setup and validation), see [docs/TESTER_GUIDE.md](../docs/TESTER_GUIDE.md). Persisted Evo state on disk (ALSA, MPD playback options, future subsystems) is namespaced under `/var/lib/volumio-evo/settings/` — see [docs/SETTINGS_LAYOUT.md](../docs/SETTINGS_LAYOUT.md). Journald filtering and log markers: [docs/OBSERVABILITY.md](../docs/OBSERVABILITY.md). Branded boot (Plymouth, **`VOL:v1`** branding stages, Pi 5 vs RC testing, theme/packaging roadmap): [docs/BRANDED_BOOT.md](../docs/BRANDED_BOOT.md).
+The **fabric** runs on the device; the **layer** is how a stock OS becomes an Evo device ([**CONCEPT.md**](../docs/CONCEPT.md) §5, §7). Apply this on top of a minimal base image (Raspberry Pi OS Lite or Debian Trixie) to turn it into Volumio Evo. For detailed step-by-step instructions (including MPD setup and validation), see [docs/TESTER_GUIDE.md](../docs/TESTER_GUIDE.md). Persisted Evo state on disk (ALSA, MPD playback options, future subsystems) is namespaced under `/var/lib/volumio-evo/settings/` — see [docs/SETTINGS_LAYOUT.md](../docs/SETTINGS_LAYOUT.md). Journald filtering and log markers: [docs/OBSERVABILITY.md](../docs/OBSERVABILITY.md). Branded boot (Plymouth, **`VOL:v1`** branding stages, Pi 5 vs RC testing, theme/packaging roadmap): [docs/BRANDED_BOOT.md](../docs/BRANDED_BOOT.md).
 
 ## Contents
 

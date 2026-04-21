@@ -1,5 +1,7 @@
 # Plymouth themes (vendored)
 
+Boot splash assets are part of the **layer** ([CONCEPT.md](../../docs/CONCEPT.md) §7). Mentions of **Node** or **volumio-os** below refer to **other** release pipelines or sync points — not the Evo steward/plugin model ([CONCEPT.md](../../docs/CONCEPT.md)).
+
 ## `generate-overlays.sh` (dev / maintainers)
 
 Lives in **`layer/plymouth/`** (sibling to **`volumio-adaptive/`**), so copying only the theme directory to a device does not ship the generator. **ImageMagick** (`convert`), **`bc`**, **bash 4+** required.

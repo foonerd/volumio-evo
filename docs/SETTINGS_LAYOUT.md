@@ -1,5 +1,7 @@
 # Evo persisted settings layout
 
+Persisted state is **steward infrastructure** in the **[CONCEPT.md](CONCEPT.md)** sense (§6): on-disk namespaces until catalogue/subject storage fully replaces ad hoc trees.
+
 All mutable **Evo-controlled** state that must survive reboots lives under a single root so it can be backed up, permissioned, and extended by subsystem without a flat sprawl of unrelated files.
 
 ## Root directory

@@ -1,6 +1,8 @@
-# Volumio Evo - Plugin ABI
+# Volumio Evo — WASM plugin ABI
 
-Contract between the host (Rust core) and guest (WASM plugin).
+Contract between the **steward process** and a **WASM guest** plugin. This is **one admissible plugin host** among several ([CONCEPT.md](CONCEPT.md) §4–6, §6 WASM row). The steward must stay **service-agnostic** at the architectural level ([CONCEPT.md](CONCEPT.md) §5); today’s binary still embeds many concerns inline while the WASM surface remains narrow.
+
+**Not covered here:** Full plugin manifests, out-of-process wire format, trust-class enforcement, and non-WASM plugin transports - see [CONCEPT.md](CONCEPT.md) §4, §5, §9. A WASM guest built against this ABI is a **respondent** in fabric terms ([CONCEPT.md](CONCEPT.md) §4); wardens, factories, and anything requiring broader host capability than the current imports allow are out of scope until the ABI grows.
 
 **Feature flag:** The WASM plugin host is built only when the **`wasm`** crate feature is enabled (default on **aarch64** / **x86_64**). **armv7** / **armhf** release builds use **`--no-default-features`**, so there is **no** plugin loader — ABI applies when that feature is on. See [BUILD_GUIDE.md](BUILD_GUIDE.md).
 
@@ -20,7 +22,7 @@ When `has_alsa_contribution` returns `1`, the host reads `memory[ptr .. ptr+len]
 
 **Host merge + rebuild:** specified here; **implementation is high-priority and not yet complete** — see [`PRIORITY_ALSA_AAMPP.md`](./PRIORITY_ALSA_AAMPP.md).
 
-## Host imports (core provides)
+## Host imports (steward provides)
 
 | Name | Signature   | Description                          |
 |------|------------|--------------------------------------|

@@ -4,6 +4,8 @@
 
 The directory and the bootstrap flag (`--with-kiosk=wpe`) keep the historical name for continuity; the implementation is no longer WPE-based.
 
+Fabric role for this stack: **Kiosk rack** presenter / warden ([**CONCEPT.md**](CONCEPT.md) §3, §6). Packaging as a versioned plugin artefact is an engineering exercise — see **[PLUGIN_SYSTEM_EXTENSIONS.md](PLUGIN_SYSTEM_EXTENSIONS.md)** for hosts + trust classes; implementation today remains **native layer + steward orchestration**, not WASM.
+
 ## 0. Implementation update (read first)
 
 The original concept in this document chose **cog + WPE WebKit + cage** as the reference stack. During bring-up on Pi 5 / Trixie three upstream issues forced deviations from that plan. The implementation that ships on `kiosk-wpe` now is:
@@ -23,7 +25,7 @@ The original concept in this document chose **cog + WPE WebKit + cage** as the r
 
 Prebuilt **`volumio-evo-kiosk-browser`** belongs in **`layer/binaries/<rustc-triple>/`** next to **`volumio-evo`** (same triples). **`install.sh`** prefers that file and only compiles on-device if **`cargo`** + GTK/WebKit **dev** headers are present (maintainers should avoid that on production images). Regenerate **`layer/binaries/SHA256SUMS`** with **`scripts/refresh-layer-binaries-sha256sums.sh`** after copying binaries — see **[layer/binaries/README.md](../layer/binaries/README.md)** and **[BUILD_GUIDE.md](BUILD_GUIDE.md)** (*Kiosk browser binary*).
 
-### Backend (Rust core) and UI
+### Backend (steward process / `volumio-evo`) and UI
 
 | Component | Responsibility |
 |-----------|----------------|
@@ -56,7 +58,7 @@ Related docs:
 
 | Document | Topic |
 |----------|--------|
-| [docs/CONCEPT.md](CONCEPT.md) | overall Evo architecture |
+| [docs/CONCEPT.md](CONCEPT.md) | Fabric contract (racks, steward, kiosk role) |
 | [docs/PORTING.md](PORTING.md) | backend port status |
 | [docs/PLUGIN_ABI.md](PLUGIN_ABI.md) | WASM plugin ABI (distinct from the "kiosk" here) |
 | [layer/README.md](../layer/README.md) | layer-component conventions |

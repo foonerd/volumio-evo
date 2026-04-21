@@ -2,7 +2,9 @@
 
 This document records **optional or recommended changes in the stock Volumio web UI** ([Volumio2-UI](https://github.com/volumio/Volumio2-ui)) when pairing it with **Volumio Evo** as the backend. Evo intentionally does **not** modify that repository; workarounds live in Evo where possible. Use this file to track **what** would need to change **where**, and **why**, if you later fork the UI or contribute upstream.
 
-**Related:** [PORTING.md](PORTING.md) (backend inventory and Evo status).
+Long term, consumers should attach to **fabric projections** and **happenings** ([CONCEPT.md](CONCEPT.md)); entries here assume the **stock UI compatibility adapter** ([CONCEPT.md](CONCEPT.md) §6 UI row).
+
+**Related:** [PORTING.md](PORTING.md) (parity inventory), [CONCEPT.md](CONCEPT.md) (fabric).
 
 ---
 

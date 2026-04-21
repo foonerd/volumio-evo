@@ -1,24 +1,25 @@
 # Volumio Evo
 
-Rust backend + WASM plugins on a stock minimal OS. No Node, no debootstrap.
+**Evo-next contract:** a **steward** process administers a **catalogue** (racks, shelves, slots); **plugins** stock slots; consumers get **projections** and **happenings** — no plugin-to-plugin traffic. Full vocabulary and commitments: **[docs/CONCEPT.md](docs/CONCEPT.md)**.
 
-## Concept
+**Today's repository** still ships much of that behaviour inside one Rust binary plus optional WASM guests and OS-layer installers — a **transitional** layout on the path to manifest-driven plugins and a service-agnostic steward ([docs/PLUGIN_CORE_VS_EXTENSIONS.md](docs/PLUGIN_CORE_VS_EXTENSIONS.md)). Base OS: **Debian Trixie minimal** (lite); Evo applies as a **layer**, not a from-scratch rootfs ([docs/CONCEPT.md](docs/CONCEPT.md) §5).
 
-- **Base:** Stock minimal image (Raspberry Pi OS Lite / Debian Trixie).
-- **Layer:** Volumio Evo binary, plugins, config, and systemd applied on top.
-- **Backend:** Single Rust binary; loads sandboxed WASM plugins.
-- **UI:** Unchanged (e.g. React) over HTTP and Socket.IO.
+## Documentation index
 
-**Documentation index** (assumptions, authority, what is done vs not, every `docs/*.md` file, and the **non-negotiable update rule**): [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md). Further: [docs/CONCEPT.md](docs/CONCEPT.md), [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md), [docs/PORTING.md](docs/PORTING.md).
+**Start here:** [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) — supremacy (**CONCEPT.md**), authority table, assumptions, completed vs not ported, deferred topics, update rules.
 
-- **Persisted settings on disk:** [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) — namespace under `/var/lib/volumio-evo/settings/` (`alsa/`, `mpd/`, future `network/`, `mounts/`, …), env overrides, secrets guidance.
+Further pointers:
 
-- **Logs and journald:** [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) — `[EVO]` line prefix, domain tags (`EVO VOLUME -->`, …), `RUST_LOG` / config precedence, `journalctl` examples.
+- Parity with volumio3-backend: [docs/PORTING.md](docs/PORTING.md)
+- WASM plugin ABI (one admissible host): [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md)
+- Plugin hosts / trust / native stacks: [docs/PLUGIN_SYSTEM_EXTENSIONS.md](docs/PLUGIN_SYSTEM_EXTENSIONS.md)
 
-- **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — step-by-step from a plain OS (Raspberry Pi OS, Debian Trixie, Ubuntu 24.04) to a working setup and validation. By default the bootstrap script installs the **prebuilt** binary from **`layer/binaries/<triple>/`** when the repo checkout is present; use **`--build`** to compile on the device instead.
-- **One-command full player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — installs dependencies, clones or updates the repo, installs the backend (prebuilt from **`layer/binaries/`** by default, or **`cargo`** with **`--build`**), copies static UI from **`layer/web/`**, configures MPD/systemd/nginx, and serves the UI on port **80** (Evo API on **3000**).
-- **Fresh host, no git clone yet:** `curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh | sudo bash` — **shallow**-clones (default **depth 1**, **single branch**) into **`/opt/volumio/volumio-evo`** and runs bootstrap. Override with **`EVO_REPO_URL`**, **`EVO_REPO_DIR`** / **`BASE_DIR`**, and either **`EVO_REPO_BRANCH`** or **`EVO_GIT_REF`** for the cloned branch (**`EVO_REPO_BRANCH`** wins when both matter to **`install.sh`**). For a **full** git history (large download), set **`EVO_REPO_DEPTH=0`** before the `curl` line. Re-runs and on-device bootstrap use the same **`EVO_REPO_DEPTH`** / **`EVO_REPO_BRANCH`** contract — see [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) § *Git checkout size*. Pass bootstrap flags after **`--`**, e.g. `| sudo bash -s -- --build`.
-- **Build the binary:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — build `volumio-evo` for each architecture (native, arm64, amd64, armhf) and optionally refresh **`layer/binaries/`** for shipping.
+- **Persisted settings:** [docs/SETTINGS_LAYOUT.md](docs/SETTINGS_LAYOUT.md) — namespace under `/var/lib/volumio-evo/settings/`, env overrides, secrets guidance.
+- **Logs and journald:** [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) — `[EVO]` prefix, domain tags, `RUST_LOG`, `journalctl` examples.
+- **Run and test:** [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) — from plain OS to validation; bootstrap installs **prebuilt** **`layer/binaries/<triple>/`** when present; use **`--build`** to compile on device.
+- **One-command player bootstrap:** `scripts/bootstrap-volumio-evo-player.sh` — dependencies, repo clone/update, backend install, **`layer/web/`** UI, MPD/systemd/nginx; UI on **80**, Evo API on **3000**.
+- **Fresh host:** `curl -fsSL https://raw.githubusercontent.com/foonerd/volumio-evo/main/install.sh | sudo bash` — shallow clone into **`/opt/volumio/volumio-evo`**; overrides **`EVO_REPO_URL`**, **`EVO_REPO_DIR`**, **`EVO_REPO_BRANCH`** / **`EVO_GIT_REF`**, **`EVO_REPO_DEPTH`**. Pass bootstrap flags after **`--`**. See [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) § Git checkout size.
+- **Build:** [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) — cross-compile and refresh **`layer/binaries/`**.
 
 ## Build
 
@@ -59,17 +60,14 @@ On armhf the core runs without the WASM plugin layer. For full plugin support us
 
 Evo uses its **own layout** for music sources instead of relying on Volumio OS paths (`/mnt/INTERNAL`, overlayfs, etc.). This works on vanilla Debian (e.g. Trixie) and keeps MPD integration explicit.
 
-- **Base path:** `music_sources.music_root`. Can be set at **install** or **first run** so it's not tied to a specific user (e.g. not only `volumio`):
+- **Base path:** `music_sources.music_root`. Set at **install** or **first run** so it is not tied to a specific user (e.g. not only `volumio`):
   - **Env:** `VOLUMIO_EVO_MUSIC_ROOT` overrides config (e.g. in systemd unit or install script).
   - **Config file:** `[music_sources] music_root = "..."` in `/etc/volumio-evo/config.toml` or `config/volumio-evo.toml`.
-  - **No config file:** user-aware default: `$XDG_DATA_HOME/volumio-evo/music` or `$HOME/.local/share/volumio-evo/music`, else `/var/lib/volumio-evo/music`. So a different user (e.g. `pi`, `debian`) gets a writable path when running without a config file.
-- **MPD:** Set MPD's `music_directory` to the same path (install or MPD config) so MPD sees one root with four subdirs.
-- **Subdirs:** Under `music_root` create (or symlink) **INTERNAL**, **USB**, **NAS**, **SMB** (same names as stock Volumio / Node `stickingMusicLibrary` so `lsinfo` matches browse URIs):
-  - **INTERNAL** - on-device storage (e.g. symlink to `/data/INTERNAL` on Volumio OS, or a dir on rootfs on vanilla).
-  - **USB** - removable media (e.g. symlink under `/media`).
-  - **NAS** / **SMB** - mount points or symlinks for network shares.
+  - **No config file:** user-aware default: `$XDG_DATA_HOME/volumio-evo/music` or `$HOME/.local/share/volumio-evo/music`, else `/var/lib/volumio-evo/music`.
+- **MPD:** Set MPD's `music_directory` to the same path.
+- **Subdirs:** Under `music_root` create (or symlink) **INTERNAL**, **USB**, **NAS**, **SMB** (same names as stock Volumio / Node `stickingMusicLibrary`).
 
-Browse root `GET /api/v1/browse?uri=music-library` returns these four sources with `albumart` (bundled `sourceicon` PNGs); subpaths use MPD `lsinfo`. The four subdirs must exist under `music_root`. If you still have a lowercase **`local`** tree from an older Evo install, add e.g. `ln -s local INTERNAL` under `music_root` until you rename dirs. Optional `music_sources.local`, `usb`, `nas`, `smb` in config document where each source points for installers.
+Browse root `GET /api/v1/browse?uri=music-library` returns these four sources with `albumart` (bundled `sourceicon` PNGs). Optional `music_sources.local`, `usb`, `nas`, `smb` in config document paths for installers.
 
 ## Layer
 
@@ -79,19 +77,23 @@ Apply the `layer/` contents on a minimal Pi OS or Debian Trixie image. See [laye
 
 | Document | Role |
 |----------|------|
-| [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) | **Index:** authority, assumptions, done vs not ported |
+| [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) | **Index:** supremacy, authority, done vs not ported |
+| [docs/CONCEPT.md](docs/CONCEPT.md) | **Fabric contract** |
 | [docs/PORTING.md](docs/PORTING.md) | volumio3-backend → Evo parity |
 | [docs/TESTER_GUIDE.md](docs/TESTER_GUIDE.md) | On-device bootstrap (canonical test) |
 | [docs/BRANDED_BOOT.md](docs/BRANDED_BOOT.md) | Plymouth / boot branding |
 | [docs/OS_PRIVILEGE_MODEL.md](docs/OS_PRIVILEGE_MODEL.md) | Sudoers, non-interactive contract |
 | [docs/PLAYBACK_STATE_REQUIREMENTS.md](docs/PLAYBACK_STATE_REQUIREMENTS.md) | `pushState` / `pushQueue` |
 | [docs/PLUGIN_ABI.md](docs/PLUGIN_ABI.md) | WASM plugin ABI |
+| [docs/PLUGIN_SYSTEM_EXTENSIONS.md](docs/PLUGIN_SYSTEM_EXTENSIONS.md) | Hosts + trust; native stacks |
+| [docs/PLUGIN_CORE_VS_EXTENSIONS.md](docs/PLUGIN_CORE_VS_EXTENSIONS.md) | Monolith vs fabric (transitional) |
+| [docs/UI_PLUGIN_ROUTING.md](docs/UI_PLUGIN_ROUTING.md) | Stock UI wire routes (compatibility) |
 | [docs/BUILD_GUIDE.md](docs/BUILD_GUIDE.md) | Cross-compilation, `layer/binaries/` |
 | [docs/NETWORK_NM.md](docs/NETWORK_NM.md) | NetworkManager / `nmcli` |
-| [docs/KIOSK.md](docs/KIOSK.md) | Kiosk reference (deferred) |
+| [docs/KIOSK.md](docs/KIOSK.md) | Wayland kiosk reference |
 | [docs/UI_GAP.md](docs/UI_GAP.md) | Optional Volumio2-UI notes |
 
-All other `docs/*.md` files: see [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md) or the **Authority** table there.
+All other `docs/*.md` files: [docs/DOCUMENTATION_MAP.md](docs/DOCUMENTATION_MAP.md).
 
 ## License
 

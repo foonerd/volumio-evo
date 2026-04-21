@@ -1,6 +1,8 @@
 # Logs, journald, and filtering
 
-Evo uses **`tracing`** with **`tracing-subscriber`** (env filter + stderr). This page describes what you see in **`journalctl`** and how to grep it reliably.
+**Fabric:** **Observability** infrastructure ([CONCEPT.md](CONCEPT.md) §3) — steward logging plus each plugin’s declared channel when plugins are out-of-process.
+
+Evo uses **`tracing`** with **`tracing-subscriber`** (env filter + stderr). This page describes what you see in **`journalctl`** and how to grep it reliably for the **monolithic steward binary** today.
 
 ## Two layers of markers
 
