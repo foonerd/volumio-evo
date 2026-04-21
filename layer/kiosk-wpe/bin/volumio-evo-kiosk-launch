@@ -1,13 +1,12 @@
 #!/bin/sh
 # volumio-evo-kiosk-launch - spawn OSK + exec cage+cog.
 #
-# Environment set by volumio-evo-kiosk-preflight via EnvironmentFile=-:
-#   TTYPath, KIOSK_PRIMARY_DISPLAY, KIOSK_OUTPUT, KIOSK_ROTATION,
-#   KIOSK_URL, KIOSK_TOML, KIOSK_SETTINGS_DIR, DRM_PRESENT
+# Unit file sets TTYPath (static /dev/tty1), Wayland env, and
+# RuntimeDirectory=/run/volumio-evo-kiosk. Preflight only probes DRM.
 #
-# Additional runtime config:
-#   - /etc/volumio-evo/kiosk.toml      (first-install defaults, never overwritten)
-#   - /var/lib/volumio-evo/settings/kiosk/*  (backend overlays - win over TOML)
+# Runtime config (overlays win over TOML):
+#   - /etc/volumio-evo/kiosk.toml
+#   - /var/lib/volumio-evo/settings/kiosk/*
 #
 # OSK selection order: overlay file -> kiosk.toml osk -> squeekboard.
 
@@ -16,7 +15,6 @@ set -eu
 KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
 KIOSK_TOML="${KIOSK_TOML:-/etc/volumio-evo/kiosk.toml}"
 KIOSK_SETTINGS_DIR="${KIOSK_SETTINGS_DIR:-/var/lib/volumio-evo/settings/kiosk}"
-KIOSK_ROTATION="${KIOSK_ROTATION:-0}"
 KIOSK_OUTPUT="${KIOSK_OUTPUT:-}"
 
 log() {
@@ -98,10 +96,10 @@ CURSOR=$(resolve cursor cursor auto)
 OSK_FORCE_SHOW=$(resolve osk_force_show osk_force_show false)
 AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
 XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
+ROT_RAW=$(resolve rotation rotation 0)
 
-# Rotation: prefer the overlay (already parsed by preflight). Launcher only
-# uses it to build cage env.
-case "${KIOSK_ROTATION}" in
+# Rotation: overlay > TOML > 0 (preflight no longer exports KIOSK_ROTATION).
+case "${ROT_RAW}" in
   0)   CAGE_ROT=normal ;;
   90)  CAGE_ROT=90 ;;
   180) CAGE_ROT=180 ;;

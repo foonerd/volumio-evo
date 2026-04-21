@@ -20,7 +20,7 @@ pre-installed.
         volumio-evo-kiosk-autorotate.service
                                         - accelerometer watcher, disabled by default
       bin/
-        volumio-evo-kiosk-preflight     - VT + DRM + output probe (ExecStartPre)
+        volumio-evo-kiosk-preflight     - DRM probe only (ExecStartPre)
         volumio-evo-kiosk-launch        - cage + cog + OSK launcher
         volumio-evo-kiosk-autorotate    - iio-sensor-proxy DBus client
       etc/
@@ -134,11 +134,13 @@ Environment=VOLUMIO_EVO_KIOSK_SYSTEMCTL=<path>.
 
 ## VT selection
 
-The unit does not hard-code TTYPath. ExecStartPre
-/usr/local/bin/volumio-evo-kiosk-preflight picks tty1 when no getty is
-configured there, then tty2, then tty7, and writes the result to
-/run/volumio-evo-kiosk/preflight.env which the service then loads via
-EnvironmentFile=-.
+The unit sets **TTYPath=/dev/tty1** (same slot a display manager uses on Lite
+installs). **Conflicts=getty@tty1.service** mirrors that behaviour so the kiosk
+owns the VT while running. systemd reads **EnvironmentFile** before
+**ExecStartPre**, so discovering TTY dynamically in preflight cannot work — an
+older revision tried that and caused pam_systemd “VT number out of range”.
+Preflight now only probes **/dev/dri/card***; overlays and kiosk.toml are read by
+`/usr/local/bin/volumio-evo-kiosk-launch`.
 
 ## systemd target
 
