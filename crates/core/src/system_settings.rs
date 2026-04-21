@@ -68,6 +68,22 @@ pub struct SystemSettings {
     /// Cursor policy: `auto` | `hide` | `show`.
     #[serde(default = "default_kiosk_cursor")]
     pub kiosk_cursor: String,
+    /// WebKit page zoom level as a float-in-string (e.g. `"1.2"`).
+    /// Matches Node `display_zoom`: 0.63..=1.7. Applied by the kiosk
+    /// browser via `webkit_web_view_set_zoom_level()`.
+    #[serde(default = "default_kiosk_zoom")]
+    pub kiosk_zoom: String,
+    /// Wayland output scale. `auto` (compositor default) or a float as
+    /// string (`1`, `1.25`, `1.5`, `2`, `3`). Applied by the session
+    /// script via `wlr-randr --scale`.
+    #[serde(default = "default_kiosk_scale")]
+    pub kiosk_scale: String,
+    /// On-screen keyboard layout. `auto` resolves to the OS
+    /// `language_code` at apply time; an explicit XKB code (`us`, `gb`,
+    /// `de`, ...) overrides. Written as a resolved code to the
+    /// `settings/kiosk/osk_layout` overlay.
+    #[serde(default = "default_kiosk_osk_layout")]
+    pub kiosk_osk_layout: String,
 
     /// Plymouth theme asset rotation (`plymouth=N` kernel parameter): **0**, **90**, **180**, or **270**.
     #[serde(default)]
@@ -83,6 +99,13 @@ fn default_23() -> u8 { 23 }
 fn default_primary_display() -> String { "auto".to_string() }
 fn default_kiosk_osk() -> String { "squeekboard".to_string() }
 fn default_kiosk_cursor() -> String { "auto".to_string() }
+// Default zoom "1.2" matches the legacy Node kiosk default (Chromium
+// --force-device-scale-factor=1.2). WebKit's set_zoom_level has the same
+// CSS-viewport effect, so Bootstrap breakpoints on the Evo UI respond the
+// same way they do on the Node kiosk.
+fn default_kiosk_zoom() -> String { "1.2".to_string() }
+fn default_kiosk_scale() -> String { "auto".to_string() }
+fn default_kiosk_osk_layout() -> String { "auto".to_string() }
 
 impl Default for SystemSettings {
     fn default() -> Self {
@@ -101,6 +124,9 @@ impl Default for SystemSettings {
             kiosk_auto_rotate: false,
             kiosk_osk: default_kiosk_osk(),
             kiosk_cursor: default_kiosk_cursor(),
+            kiosk_zoom: default_kiosk_zoom(),
+            kiosk_scale: default_kiosk_scale(),
+            kiosk_osk_layout: default_kiosk_osk_layout(),
             boot_branding_plymouth_rotation: 0,
         }
     }
@@ -169,6 +195,9 @@ impl SystemSettings {
         self.primary_display = normalize_kiosk_primary_display(&self.primary_display);
         self.kiosk_osk = normalize_kiosk_osk(&self.kiosk_osk);
         self.kiosk_cursor = normalize_kiosk_cursor(&self.kiosk_cursor);
+        self.kiosk_zoom = normalize_kiosk_zoom(&self.kiosk_zoom);
+        self.kiosk_scale = normalize_kiosk_scale(&self.kiosk_scale);
+        self.kiosk_osk_layout = normalize_kiosk_osk_layout(&self.kiosk_osk_layout);
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
@@ -310,6 +339,27 @@ impl SystemSettings {
                 changed = true;
             }
         }
+        if let Some(z) = extract_select_value(data, "kiosk_zoom") {
+            let t = normalize_kiosk_zoom(z.trim());
+            if !t.is_empty() && t != self.kiosk_zoom {
+                self.kiosk_zoom = t;
+                changed = true;
+            }
+        }
+        if let Some(s) = extract_select_value(data, "kiosk_scale") {
+            let t = normalize_kiosk_scale(s.trim());
+            if !t.is_empty() && t != self.kiosk_scale {
+                self.kiosk_scale = t;
+                changed = true;
+            }
+        }
+        if let Some(l) = extract_select_value(data, "kiosk_osk_layout") {
+            let t = normalize_kiosk_osk_layout(l.trim());
+            if !t.is_empty() && t != self.kiosk_osk_layout {
+                self.kiosk_osk_layout = t;
+                changed = true;
+            }
+        }
         changed
     }
 }
@@ -369,6 +419,85 @@ pub(crate) fn normalize_kiosk_cursor(value: &str) -> String {
         "show" => "show".to_string(),
         _ => "auto".to_string(),
     }
+}
+
+/// Clamp + canonicalise zoom level. Accepts any positive float, snaps to
+/// the Node `display_zoom` option ladder (0.63, 0.7, 0.8, 0.9, 1.0, 1.1,
+/// 1.2, 1.3, 1.4, 1.5, 1.6, 1.7) so UI + TOML + overlay stay in a single
+/// canonical vocabulary. Parse failures collapse to the default (1.2).
+pub(crate) fn normalize_kiosk_zoom(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default_kiosk_zoom();
+    }
+    let parsed: f64 = match trimmed.parse::<f64>() {
+        Ok(v) if v.is_finite() && v > 0.0 => v,
+        _ => return default_kiosk_zoom(),
+    };
+    const LADDER: &[f64] = &[
+        0.63, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.40, 1.50, 1.60, 1.70,
+    ];
+    let mut best = LADDER[0];
+    let mut best_delta = (parsed - best).abs();
+    for &candidate in LADDER.iter().skip(1) {
+        let d = (parsed - candidate).abs();
+        if d < best_delta {
+            best_delta = d;
+            best = candidate;
+        }
+    }
+    // Format to 2 decimals for < 1.0 / ladder precision, strip trailing zero
+    // for whole numbers so overlays contain short strings like "1" / "1.2".
+    let s = format!("{best:.2}");
+    let trimmed_s = s.trim_end_matches('0').trim_end_matches('.');
+    if trimmed_s.is_empty() { "1".to_string() } else { trimmed_s.to_string() }
+}
+
+/// Canonicalise scale. `auto` (default) or one of the documented ladder
+/// values (1, 1.25, 1.5, 2, 3). Everything else falls back to `auto`.
+pub(crate) fn normalize_kiosk_scale(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed == "auto" {
+        return "auto".to_string();
+    }
+    let parsed: f64 = match trimmed.parse::<f64>() {
+        Ok(v) if v.is_finite() && v > 0.0 => v,
+        _ => return "auto".to_string(),
+    };
+    const LADDER: &[f64] = &[1.0, 1.25, 1.5, 2.0, 3.0];
+    let mut best = LADDER[0];
+    let mut best_delta = (parsed - best).abs();
+    for &candidate in LADDER.iter().skip(1) {
+        let d = (parsed - candidate).abs();
+        if d < best_delta {
+            best_delta = d;
+            best = candidate;
+        }
+    }
+    let s = format!("{best:.2}");
+    let trimmed_s = s.trim_end_matches('0').trim_end_matches('.');
+    if trimmed_s.is_empty() { "1".to_string() } else { trimmed_s.to_string() }
+}
+
+/// XKB layout for the on-screen keyboard. `auto` means "resolve from the
+/// system language_code at apply time"; anything else is taken as a raw
+/// XKB layout code (lowercased, restricted to `[a-z0-9_-]{1,16}`). Unknown
+/// / malformed values collapse to `auto`.
+pub(crate) fn normalize_kiosk_osk_layout(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed == "auto" {
+        return "auto".to_string();
+    }
+    if trimmed.len() > 16 {
+        return "auto".to_string();
+    }
+    let ok = trimmed
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    if !ok {
+        return "auto".to_string();
+    }
+    trimmed
 }
 
 fn extract_boot_branding_rotation(data: &Value) -> Option<u16> {

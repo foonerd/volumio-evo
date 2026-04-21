@@ -36,6 +36,14 @@ cursor = "auto"
 # Overlay file: settings/kiosk/osk.
 osk = "squeekboard"
 
+# XKB layout used by squeekboard. Must be one of the codes the installed
+# squeekboard supports (us, gb, de, fr, es, it, pt, ru, ...). The backend
+# writes this automatically from SystemSettings.language_code when set to
+# "auto" in the UI; this TOML default kicks in only when no overlay has
+# been written yet.
+# Overlay file: settings/kiosk/osk_layout.
+osk_layout = "us"
+
 # Debug: force the OSK visible on launch via squeekboard DBus SetVisible.
 # Normal operation leaves this false; squeekboard follows text-input-v3
 # focus events driven by the WebView. Flip to true only to verify the
@@ -50,6 +58,24 @@ auto_rotate = false
 
 # Color depth hint. "auto" lets the compositor pick.
 color_depth = "auto"
+
+# WebKit page zoom for the kiosk browser. Default 1.2 matches the legacy
+# Node kiosk (which shipped --force-device-scale-factor=1.2 as default for
+# HDMI kiosks). Float in [0.25, 5.0]; "auto" maps to 1.0. Applied via
+# WebKit.WebView.set_zoom_level, which affects the CSS viewport the page
+# sees - Bootstrap media queries shift accordingly. Orthogonal to `scale`
+# below (which is a compositor-level output scale).
+# Overlay file: settings/kiosk/zoom.
+zoom = "1.2"
+
+# Wayland output scale applied via wlr-randr after labwc starts. "auto"
+# means do not override the compositor default. Numeric float (1, 1.25,
+# 1.5, 2, 3) advertises a scale on the wl_output; GTK 4 / WebKit divide
+# the CSS viewport by this number before rendering at the scaled raster
+# resolution. Use this for HiDPI panels or very small dense DSI panels
+# where a different layout breakpoint is wanted.
+# Overlay file: settings/kiosk/scale.
+scale = "auto"
 
 # XKB layout passed to wlroots via WLR_XKB_LAYOUT. Examples: us, de, fr, gb.
 xkb_layout = "us"

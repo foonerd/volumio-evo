@@ -15,14 +15,14 @@ Single index for **volumio-evo**. Other docs own detail; **do not** copy long in
 | Logging / `journalctl` | [OBSERVABILITY.md](OBSERVABILITY.md) |
 | WASM plugins | [PLUGIN_ABI.md](PLUGIN_ABI.md) |
 | Stock UI optional forks | [UI_GAP.md](UI_GAP.md) |
-| Cross-build, `layer/binaries/` | [BUILD_GUIDE.md](BUILD_GUIDE.md), [layer/binaries/README.md](../layer/binaries/README.md) |
+| Cross-build, `layer/binaries/` (**`volumio-evo`** + **`volumio-evo-kiosk-browser`**) | [BUILD_GUIDE.md](BUILD_GUIDE.md), [layer/binaries/README.md](../layer/binaries/README.md), **`scripts/refresh-layer-binaries-sha256sums.sh`** |
 | Evo architecture one-pager | [CONCEPT.md](CONCEPT.md) |
 | Alarm / RTC wake | [ALARM_WAKE.md](ALARM_WAKE.md) |
 | Album art provider order / URLs | [ALBUMART_PROVIDERS.md](ALBUMART_PROVIDERS.md) |
 | Playback timer / queue UI contract | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) |
 | External `.cue` files (normalize, browse, MPD `load`) | [CUE_SHEETS.md](CUE_SHEETS.md) |
 | Runtime user / mount helpers | [RUNTIME_USER.md](RUNTIME_USER.md) |
-| Wayland kiosk concept and wiring | [KIOSK.md](KIOSK.md); implementation in `layer/kiosk-wpe/` + `crates/core/src/kiosk.rs` |
+| Wayland kiosk (concept, installer, binaries, **`sudo -n`** install) | [KIOSK.md](KIOSK.md); **`layer/kiosk-wpe/`**, **`layer/install/run-kiosk-wpe-install.sh`**, **`crates/core/src/kiosk.rs`**, **`crates/core/src/api/kiosk_install.rs`**, **`crates/kiosk-browser/`** |
 
 ## Every markdown file under `docs/`
 
@@ -48,7 +48,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | [ALARM_WAKE.md](ALARM_WAKE.md) | **`rtcwake`** / alarm persistence. |
 | [PLAYBACK_STATE_REQUIREMENTS.md](PLAYBACK_STATE_REQUIREMENTS.md) | Timer and **`pushState`** expectations for the UI. |
 | [CUE_SHEETS.md](CUE_SHEETS.md) | `.cue` normalization, browse expansion, **`load`** vs **`add`**; deferred sidecar/multi-file work. |
-| [KIOSK.md](KIOSK.md) | WPE Wayland kiosk concept. Implementation lives in `layer/kiosk-wpe/` and `crates/core/src/kiosk.rs`; enabled via `--with-kiosk=wpe`. |
+| [KIOSK.md](KIOSK.md) | Wayland kiosk: shipped stack (**labwc** + Rust **gtk4/webkit6** shell), bootstrap **`--with-kiosk=wpe`** / **`--kiosk-wpe`**, **`saveKioskSettings`** / **`installKioskLayer`**, prebuilts under **`layer/binaries/`**. Historical WPE/cog sections retained below §0. |
 
 ## Documentation update rule (non-negotiable)
 
@@ -62,7 +62,7 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 - **Ports:** Evo listens on **3000**; UI usually via nginx on **80** ([TESTER_GUIDE.md](TESTER_GUIDE.md)).
 - **Socket.IO wire:** Engine.IO **v3** for stock Volumio2-UI (`socketioxide` **`v4`** feature) ([PORTING.md](PORTING.md)).
 - **Integration test:** **`scripts/bootstrap-volumio-evo-player.sh`** is the canonical path ([TESTER_GUIDE.md](TESTER_GUIDE.md)).
-- **Binary:** Prefer checked-in **`layer/binaries/<triple>/volumio-evo`**; else **`--build`** ([layer/binaries/README.md](../layer/binaries/README.md)).
+- **Binaries:** Prefer checked-in **`layer/binaries/<triple>/volumio-evo`** and (for kiosk) **`layer/binaries/<triple>/volumio-evo-kiosk-browser`**; else kiosk **`install.sh`** may invoke **`cargo`** if dev headers exist ([layer/binaries/README.md](../layer/binaries/README.md)). Backend: else **`--build`**.
 
 ## Completed in this repo (high level)
 
@@ -72,9 +72,9 @@ All paths relative to **`docs/`**. Owning doc for parity is usually **PORTING.md
 | **`GET /api/host`** | Implemented ([PORTING.md](PORTING.md)); nginx proxies from UI host |
 | Settings Sources: NAS mounts, share discovery | [PORTING.md](PORTING.md) 3.2 |
 | Wi-Fi list + NM apply (`nmcli`) | [NETWORK_NM.md](NETWORK_NM.md), [PORTING.md](PORTING.md) Phase 3 |
-| **`callMethod`**: ALSA/MPD saves (**`saveAlsaOptions`** may **`openModal`** reboot after I2S **`dtoverlay`**), **system_controller/system** saves, **`installBootBranding`** | `socketio.rs`; parity [PORTING.md](PORTING.md) 3.1 Playback/ALSA; boot stack [BRANDED_BOOT.md](BRANDED_BOOT.md), [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
+| **`callMethod`**: ALSA/MPD saves (**`saveAlsaOptions`** may **`openModal`** reboot after I2S **`dtoverlay`**), **system_controller/system** saves, **`installBootBranding`**, **`installKioskLayer`** | `socketio.rs`; parity [PORTING.md](PORTING.md) 3.1 Playback/ALSA; boot stack [BRANDED_BOOT.md](BRANDED_BOOT.md); kiosk [KIOSK.md](KIOSK.md), [OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md) |
 | Plymouth theme **`layer/plymouth/`**, **`vol-branding-v1-*`** units | [BRANDED_BOOT.md](BRANDED_BOOT.md) |
-| Wayland kiosk (layer + Rust wiring) | `layer/kiosk-wpe/`, `crates/core/src/kiosk.rs`, [KIOSK.md](KIOSK.md). `GET /api/v1/kiosk/status`; Settings -> System kiosk drives the unit via sudoers drop-in. |
+| Wayland kiosk (layer + Rust wiring + UI-driven install) | `layer/kiosk-wpe/`, `crates/core/src/kiosk.rs`, `crates/core/src/api/kiosk_install.rs`, `crates/kiosk-browser/`, [KIOSK.md](KIOSK.md). **`GET /api/v1/kiosk/status`**. Settings → System kiosk: overlays + **`systemctl`** (**`volumio-evo-kiosk-control`** sudoers). **`saveKioskSettings`** / **`installKioskLayer`**: **`sudo -n`** **`run-kiosk-wpe-install.sh`** (**`volumio-evo-kiosk-layer-install`** sudoers). Bootstrap **`--upgrade-evo`** refreshes kiosk when **`EVO_WITH_KIOSK=wpe`**. |
 | WASM plugin host | arm64/x86_64 ([PLUGIN_ABI.md](PLUGIN_ABI.md)); armhf core only |
 
 ## Not ported / outside this repo

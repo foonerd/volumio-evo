@@ -6,22 +6,30 @@
 #   - WAYLAND_DISPLAY is set (by labwc) -> Wayland clients can connect
 #   - XDG_RUNTIME_DIR is set (by pam_systemd) -> /run/user/<uid>/
 #
-# Responsibilities:
-#   1. Start the on-screen keyboard (squeekboard | wvkbd | none).
-#   2. If cursor=hide, fire HideCursor via wtype (F24 keybind in rc.xml).
-#   3. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
-#   4. Exec the kiosk browser (/usr/local/bin/volumio-evo-kiosk-browser),
-#      which is a GTK4 + WebKit 6.0 (webkit2gtk) shell - see that script
-#      for the rationale (WPE input-dispatch bug + OSK layering).
+# Responsibilities, in order:
+#   1. Apply Wayland output scale via wlr-randr if KIOSK_SCALE != "auto".
+#   2. Set the XKB layout for squeekboard via gsettings if KIOSK_OSK_LAYOUT
+#      is non-empty (backend resolves "auto" -> concrete code before
+#      writing the overlay, so this script only sees concrete codes).
+#   3. Start the on-screen keyboard (squeekboard | wvkbd | none).
+#   4. If cursor=hide, fire HideCursor via wtype (F24 keybind in rc.xml).
+#   5. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
+#   6. Exec the kiosk browser (/usr/local/bin/volumio-evo-kiosk-browser),
+#      which is the Rust GTK4 + webkit2gtk 6.0 binary built from
+#      crates/kiosk-browser. The browser reads KIOSK_ZOOM from env and
+#      applies it via WebKit.WebView.set_zoom_level.
 #
 # When the browser exits, this script exits, labwc exits (because it was
 # started with --session <this-script>), systemd restarts the whole unit.
 #
 # Environment variables expected from volumio-evo-kiosk-launch:
-#   KIOSK_URL        URL to load (resolved from overlay / TOML)
-#   OSK              "squeekboard" | "wvkbd" | "none"
-#   OSK_FORCE_SHOW   "true" | "false"   (debug: force OSK visible on launch)
-#   KIOSK_CURSOR     "auto" | "show" | "hide"
+#   KIOSK_URL         URL to load (resolved from overlay / TOML)
+#   OSK               "squeekboard" | "wvkbd" | "none"
+#   OSK_FORCE_SHOW    "true" | "false"   (debug: force OSK visible on launch)
+#   KIOSK_CURSOR      "auto" | "show" | "hide"
+#   KIOSK_ZOOM        float or "auto"    (forwarded to the browser binary)
+#   KIOSK_SCALE       float or "auto"    (wlroots output scale)
+#   KIOSK_OSK_LAYOUT  XKB code (us/gb/de/...) or empty; gsettings input source
 
 set -eu
 
@@ -29,10 +37,98 @@ KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
 OSK="${OSK:-squeekboard}"
 OSK_FORCE_SHOW="${OSK_FORCE_SHOW:-false}"
 KIOSK_CURSOR="${KIOSK_CURSOR:-auto}"
+KIOSK_ZOOM="${KIOSK_ZOOM:-auto}"
+KIOSK_SCALE="${KIOSK_SCALE:-auto}"
+KIOSK_OSK_LAYOUT="${KIOSK_OSK_LAYOUT:-}"
 
 log() {
   printf '[kiosk-session] %s\n' "$*"
 }
+
+# --------------------- Output scale via wlr-randr ------------------------
+
+# KIOSK_SCALE: "auto" -> no-op. Numeric float (1.0, 1.25, 1.5, 2, ...)
+# -> call wlr-randr on the first enabled output to set its scale.
+# wlroots supports fractional scales via wp_fractional_scale_v1; GTK 4
+# honours the advertised scale, so this shifts the CSS viewport seen
+# by the page. Orthogonal to KIOSK_ZOOM (which is a WebKit content
+# zoom and does not change the compositor's view of the output).
+apply_output_scale() {
+  if [ "${KIOSK_SCALE}" = "auto" ] || [ -z "${KIOSK_SCALE}" ]; then
+    return 0
+  fi
+  if ! command -v wlr-randr >/dev/null 2>&1; then
+    log "wlr-randr not installed; skipping scale=${KIOSK_SCALE}"
+    return 0
+  fi
+  # Give labwc a moment to finish output bring-up; wlr-randr will fail
+  # with "compositor unavailable" otherwise on cold starts.
+  sleep 1
+  # Parse wlr-randr output: top-level names start in column 0, followed
+  # by indented property lines. We want the first output whose details
+  # include "Enabled: yes".
+  out=$(wlr-randr 2>/dev/null || true)
+  name=""
+  current=""
+  first_enabled=""
+  # shellcheck disable=SC2086
+  printf '%s\n' "${out}" | while IFS= read -r line; do
+    case "${line}" in
+      [!\ ]*)
+        current=$(printf '%s' "${line}" | awk '{print $1}')
+        ;;
+      *Enabled:\ yes*)
+        if [ -n "${current}" ] && [ -z "${first_enabled}" ]; then
+          first_enabled="${current}"
+          printf '%s' "${first_enabled}" > /tmp/.kiosk-first-output.$$
+          break
+        fi
+        ;;
+    esac
+  done
+  if [ -f "/tmp/.kiosk-first-output.$$" ]; then
+    name=$(cat "/tmp/.kiosk-first-output.$$" 2>/dev/null || true)
+    rm -f "/tmp/.kiosk-first-output.$$" 2>/dev/null || true
+  fi
+  if [ -z "${name}" ]; then
+    log "wlr-randr: no enabled output found; not applying scale=${KIOSK_SCALE}"
+    return 0
+  fi
+  if wlr-randr --output "${name}" --scale "${KIOSK_SCALE}" 2>/dev/null; then
+    log "Applied wlr-randr scale=${KIOSK_SCALE} to output=${name}"
+  else
+    log "wlr-randr --output ${name} --scale ${KIOSK_SCALE} failed; continuing"
+  fi
+}
+
+apply_output_scale
+
+# --------------------- OSK XKB layout via gsettings ----------------------
+
+# Squeekboard reads the active input source from the gsettings key
+# org.gnome.desktop.input-sources.sources and derives its keyboard
+# layout from the XKB code it finds there. Setting this before starting
+# squeekboard gives it the correct layout on first show.
+#
+# The backend's apply_osk_layout() resolves "auto" to a concrete code
+# (via SystemSettings.language_code) and writes that code to the
+# overlay, so KIOSK_OSK_LAYOUT here is always a concrete XKB code
+# (us / gb / de / fr / ...) when non-empty.
+apply_osk_layout() {
+  if [ -z "${KIOSK_OSK_LAYOUT}" ]; then
+    return 0
+  fi
+  if ! command -v gsettings >/dev/null 2>&1; then
+    log "gsettings not installed; skipping osk_layout=${KIOSK_OSK_LAYOUT}"
+    return 0
+  fi
+  # Value syntax: "[('xkb', 'us')]" - array of (type, code) tuples.
+  # squeekboard picks the first entry.
+  gsettings set org.gnome.desktop.input-sources sources "[('xkb', '${KIOSK_OSK_LAYOUT}')]" 2>/dev/null || true
+  log "OSK layout: gsettings input-sources.sources -> [('xkb', '${KIOSK_OSK_LAYOUT}')]"
+}
+
+apply_osk_layout
 
 # --------------------------- OSK startup ---------------------------------
 
@@ -100,5 +196,9 @@ fi
 
 # --------------------------- Exec browser --------------------------------
 
-log "exec volumio-evo-kiosk-browser ${KIOSK_URL}"
+# KIOSK_ZOOM is consumed by the browser binary (reads getenv at startup
+# and calls WebKit.WebView.set_zoom_level). No argv for zoom by design:
+# the browser binary's CLI is URL-only, env carries everything else.
+log "exec volumio-evo-kiosk-browser ${KIOSK_URL} (zoom=${KIOSK_ZOOM})"
+export KIOSK_ZOOM
 exec /usr/local/bin/volumio-evo-kiosk-browser "${KIOSK_URL}"

@@ -83,6 +83,14 @@ pub fn drm_device_present() -> bool {
     false
 }
 
+/// True when the kiosk layer has been installed at least once (systemd unit +
+/// browser binary on disk). Used to decide whether **`saveKioskSettings`** must
+/// run **`layer/kiosk-wpe/install.sh`** before starting the unit.
+pub fn kiosk_layer_installed() -> bool {
+    std::path::Path::new("/etc/systemd/system/volumio-evo-kiosk.service").is_file()
+        && std::path::Path::new("/usr/local/bin/volumio-evo-kiosk-browser").is_file()
+}
+
 /// Atomic overlay write (tmp + rename). Returns `Ok(true)` when the value
 /// changed on disk, `Ok(false)` when it already matched.
 fn write_overlay(path: PathBuf, value: &str) -> std::io::Result<bool> {
@@ -182,6 +190,85 @@ pub fn apply_auto_rotate_overlay(enabled: bool) -> std::io::Result<bool> {
     let changed = write_overlay(paths::kiosk_auto_rotate_overlay_path(), v)?;
     if changed {
         tracing::info!("{} auto_rotate overlay -> {}", EVO_KIOSK, v);
+    }
+    Ok(changed)
+}
+
+/// Write zoom overlay (WebKit page zoom, float as string). Consumed by
+/// the kiosk browser via `KIOSK_ZOOM` env.
+pub fn apply_zoom(value: &str) -> std::io::Result<bool> {
+    let v = crate::system_settings::normalize_kiosk_zoom(value);
+    let changed = write_overlay(paths::kiosk_zoom_overlay_path(), &v)?;
+    if changed {
+        tracing::info!("{} zoom overlay -> {}", EVO_KIOSK, v);
+    }
+    Ok(changed)
+}
+
+/// Write scale overlay (Wayland output scale; `auto` or float). Consumed
+/// by the session script via `wlr-randr --scale`.
+pub fn apply_scale(value: &str) -> std::io::Result<bool> {
+    let v = crate::system_settings::normalize_kiosk_scale(value);
+    let changed = write_overlay(paths::kiosk_scale_overlay_path(), &v)?;
+    if changed {
+        tracing::info!("{} scale overlay -> {}", EVO_KIOSK, v);
+    }
+    Ok(changed)
+}
+
+/// Resolve a Volumio language code to an XKB layout code. Mirrors the
+/// subset of `api::system_ui::LANGUAGE_OPTIONS` so the OSK layout follows
+/// the UI language when the operator leaves `kiosk_osk_layout = "auto"`.
+/// Unknown / empty language codes fall back to `us` so the OSK is still
+/// usable.
+fn language_to_xkb(lang: &str) -> &'static str {
+    match lang.trim().to_ascii_lowercase().as_str() {
+        "en" => "us",
+        "de" => "de",
+        "fr" => "fr",
+        "es" => "es",
+        "it" => "it",
+        "pt" => "pt",
+        "nl" => "us",
+        "pl" => "pl",
+        "ru" => "ru",
+        "cs" => "cz",
+        "hu" => "hu",
+        "tr" => "tr",
+        "sv" => "se",
+        "no" => "no",
+        "fi" => "fi",
+        "da" => "dk",
+        "gr" => "gr",
+        "ja" => "jp",
+        "ko" => "kr",
+        "zh" => "cn",
+        "th" => "th",
+        "ua" => "ua",
+        "hr" => "hr",
+        "sk" => "sk",
+        "vi" => "vn",
+        "ca" => "es",
+        _ => "us",
+    }
+}
+
+/// Write the OSK layout overlay. Resolves `auto` against the current
+/// `language_code` so the session script reads a concrete XKB code and
+/// does not need to re-implement the locale mapping.
+pub fn apply_osk_layout(value: &str, language_code: &str) -> std::io::Result<bool> {
+    let normalized = crate::system_settings::normalize_kiosk_osk_layout(value);
+    let resolved = if normalized == "auto" {
+        language_to_xkb(language_code).to_string()
+    } else {
+        normalized
+    };
+    let changed = write_overlay(paths::kiosk_osk_layout_overlay_path(), &resolved)?;
+    if changed {
+        tracing::info!(
+            "{} osk_layout overlay -> {} (source='{}', language='{}')",
+            EVO_KIOSK, resolved, value, language_code
+        );
     }
     Ok(changed)
 }
@@ -307,11 +394,35 @@ pub async fn apply_kiosk_settings(
             false
         }
     };
+    let zoom_changed = match apply_zoom(&sys.kiosk_zoom) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} zoom overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
+    let scale_changed = match apply_scale(&sys.kiosk_scale) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} scale overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
+    let osk_layout_changed = match apply_osk_layout(&sys.kiosk_osk_layout, &sys.language_code) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("{} osk_layout overlay: {}", EVO_KIOSK, e);
+            false
+        }
+    };
     let any_overlay_changed = primary_display_changed
         || rotation_changed
         || osk_changed
         || cursor_changed
-        || auto_rotate_changed;
+        || auto_rotate_changed
+        || zoom_changed
+        || scale_changed
+        || osk_layout_changed;
 
     // Desired state:
     //   kiosk_enabled=true  + DRM present + non-root user -> unit active
@@ -346,13 +457,16 @@ pub async fn apply_kiosk_settings(
                 // picks up the new values (OSK selection, rotation,
                 // cursor policy, primary display, auto-rotate).
                 tracing::info!(
-                    "{} live kiosk settings change (rotation={} osk={} cursor={} primary_display={} auto_rotate={}); restarting kiosk unit",
+                    "{} live kiosk settings change (rotation={} osk={} cursor={} primary_display={} auto_rotate={} zoom={} scale={} osk_layout={}); restarting kiosk unit",
                     EVO_KIOSK,
                     rotation_changed,
                     osk_changed,
                     cursor_changed,
                     primary_display_changed,
                     auto_rotate_changed,
+                    zoom_changed,
+                    scale_changed,
+                    osk_layout_changed,
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 restart_kiosk_unit().map_err(|e| {
@@ -422,6 +536,9 @@ pub async fn kiosk_status_json(state: &crate::api::AppState) -> serde_json::Valu
         "auto_rotate":       sys.kiosk_auto_rotate,
         "osk":               normalize_osk(&sys.kiosk_osk),
         "cursor":            normalize_cursor(&sys.kiosk_cursor),
+        "zoom":              crate::system_settings::normalize_kiosk_zoom(&sys.kiosk_zoom),
+        "scale":             crate::system_settings::normalize_kiosk_scale(&sys.kiosk_scale),
+        "osk_layout":        crate::system_settings::normalize_kiosk_osk_layout(&sys.kiosk_osk_layout),
         "unit_active":       unit_is_active(KIOSK_UNIT),
         "autorotate_active": unit_is_active(KIOSK_AUTOROTATE_UNIT),
         "drm_present":       drm_device_present(),

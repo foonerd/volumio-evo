@@ -27,8 +27,11 @@ Static read-only data shipped with the image stays under `/usr/share/volumio-evo
 | `settings/playlist/` | User playlists as JSON files (filename = playlist name, no extension) | One file per playlist |
 | `settings/network/` | NetworkManager intent: DHCP/static, Wi‑Fi STA/AP, hotspot fallback (see **[NETWORK_NM.md](NETWORK_NM.md)**) | `intent.toml`: **`ethernet.enabled`** (default **true**; set **false** for Wi‑Fi‑only), **`fallback.hotspot_ifname`** when STA iface ≠ AP iface, optional `wifi-sta.psk` / `wifi-ap.psk` (0600), **`wifi_iface_preferred`** (one line: UI-chosen STA `wlan*`), staging **`config.toml.pending`** (full merged TOML before `install` to `/etc`) |
 | `settings/samba/` | SMB server: enable share, protocol floor, export list + user metadata; **`smb.conf.generated`** staging; **[`SAMBA.md`](SAMBA.md)** | `state.toml` (credentials in Samba **passdb**, not TOML) |
-| `settings/system/` | Settings → System: hostname, timezone, country code (→ `iw reg`), UI language code, kiosk placeholders, privacy/update flags | `state.toml` |
+| `settings/system/` | Settings → System: hostname, timezone, country code (→ `iw reg`), UI language code, kiosk toggles (**`kiosk_enabled`**, rotation, OSK, zoom, scale, cursor, … persisted in **`state.toml`**), privacy/update flags | `state.toml` |
+| `settings/kiosk/` | Runtime overlay overrides for the kiosk layer (one-line files: **`rotation`**, **`zoom`**, **`scale`**, **`osk_layout`**, **`cursor`**, …). Backend writes via **`crates/core/src/kiosk.rs`** when saving **Settings → System → Kiosk** | One file per key (see **[KIOSK.md](KIOSK.md)** and **`layer/kiosk-wpe/README.md`**). Overlays win over **`/etc/volumio-evo/kiosk.toml`** |
 | `settings/alarm/` | Alarm clock + sleep timer (daily playlist alarms, countdown sleep — `state.toml`) | `state.toml` |
+
+Kiosk **preferences** round-trip through **`settings/system/state.toml`** (`SystemSettings`). **`settings/kiosk/`** mirrors **effective** values as overlay files consumed by **`volumio-evo-kiosk-launch`** without restarting the Evo backend process.
 
 **Sleep timer `time` field (`H:M`):** Evo interprets the stock UI string in two ways (preset rows only use **`hour &lt; 12`**):
 
@@ -72,6 +75,7 @@ Log level and **`journalctl`** filtering are documented in **[OBSERVABILITY.md](
 | `VOLUMIO_EVO_SAMBA_STATE` | **Full path** to SMB server persisted state. Overrides `settings/samba/state.toml`. |
 | `VOLUMIO_EVO_REPO_DIR` | Root of the **volumio-evo** tree (contains **`layer/`** install assets). Default: `/usr/share/volumio-evo/repo`. Used for **Settings → System → Boot branding** and repo-relative paths. |
 | `VOLUMIO_EVO_BOOT_BRANDING_SCRIPT` | Optional full path to **`run-boot-branding.sh`**. Default: `$VOLUMIO_EVO_REPO_DIR/layer/install/run-boot-branding.sh`. |
+| `VOLUMIO_EVO_KIOSK_INSTALL_SCRIPT` | Optional full path to **`run-kiosk-wpe-install.sh`**. Default: `$VOLUMIO_EVO_REPO_DIR/layer/install/run-kiosk-wpe-install.sh` (must match **volumio-evo-kiosk-layer-install** sudoers on non-dev systems). |
 | `VOLUMIO_EVO_BRANDING_READY_URL` | Optional HTTP URL polled by **`vol-branding-v1-app-listening.service`** until ready (drop-in **`Environment=`**). Legacy alias still honored in the unit: **`VOLUMIO_EVO_MILESTONE_URL`**. |
 
 Systemd: `layer/systemd/volumio-evo.service` sets `VOLUMIO_EVO_SETTINGS_DIR` so all subsystems share one root.

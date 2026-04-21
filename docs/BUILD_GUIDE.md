@@ -197,6 +197,56 @@ Use this binary in [TESTER_GUIDE.md](TESTER_GUIDE.md) Step 4.1 as the file to co
 
 ---
 
+## Kiosk browser binary (`volumio-evo-kiosk-browser`)
+
+The on-device **Wayland kiosk** uses a **second** release binary, built from **`crates/kiosk-browser/`** (workspace member; **excluded** from default **`cargo build --release`** at the repo root so normal dev/CI does not need GTK/WebKit C headers). The package is **`volumio-evo-kiosk-browser`**; it links **gtk4** + **webkit6** (webkit2gtk **6.0** on the system).
+
+**Captured build dependencies:** the canonical Debian/Ubuntu package list for compiling this crate is **`crates/kiosk-browser/apt-build-deps.txt`** (native amd64 `apt-get install`). Transitive **`pkg-config`** libraries (`glib-2.0`, `cairo`, `gdk-pixbuf-2.0`, …) come from those `-dev` metapackages. **GTK version:** current **gtk-rs** bindings expect **GTK 4.10+** (`gtk4.pc`); **Ubuntu 22.04** often ships **GTK 4.6**, which is too old — use **Ubuntu 24.04+** or **Debian Trixie** (or pin older gtk crates).
+
+**Host prerequisites (same list as the file above):** install **`build-essential`**, **`pkg-config`**, **`libgtk-4-dev`**, **`libwebkitgtk-6.0-dev`**, **`libsoup-3.0-dev`**. Runtime libraries on the device are installed by [`layer/kiosk-wpe/install.sh`](../layer/kiosk-wpe/install.sh).
+
+**Native build (same arch as host):**
+
+```bash
+cd volumio-evo
+cargo build --release -p volumio-evo-kiosk-browser
+# target/release/volumio-evo-kiosk-browser
+```
+
+**Cross-build with `cross`:** stock cross Docker images use **Ubuntu ≤20.04**, which cannot **`apt`**-install **GTK 4.10+** / **webkit2gtk 6** dev packages, and their **glibc** is too old to run **build script** binaries that were produced on a **newer** host OS (shared **`target/`** reuse). Repo-root **`Cross.toml`** overrides:
+
+- **`x86_64-unknown-linux-gnu`** → **`docker/cross-kiosk/Dockerfile.x86_64-unknown-linux-gnu`** (Ubuntu **24.04**).
+- **`aarch64-unknown-linux-gnu`** → **`docker/cross-kiosk/Dockerfile.aarch64-unknown-linux-gnu`** (Noble + **ports.ubuntu.com** arm64 packages + **`aarch64-linux-gnu-*`** toolchain).
+- **`armv7-unknown-linux-gnueabihf`** → **`docker/cross-kiosk/Dockerfile.armv7-unknown-linux-gnueabihf`** (Noble + **ports.ubuntu.com** armhf packages + **`arm-linux-gnueabihf-*`** toolchain).
+
+Examples:
+
+```bash
+cargo install cross
+cd volumio-evo
+cross build --release -p volumio-evo-kiosk-browser --target x86_64-unknown-linux-gnu
+# target/x86_64-unknown-linux-gnu/release/volumio-evo-kiosk-browser
+
+cross build --release -p volumio-evo-kiosk-browser --target aarch64-unknown-linux-gnu
+# target/aarch64-unknown-linux-gnu/release/volumio-evo-kiosk-browser
+
+cross build --release -p volumio-evo-kiosk-browser --target armv7-unknown-linux-gnueabihf
+# target/armv7-unknown-linux-gnueabihf/release/volumio-evo-kiosk-browser
+```
+
+If **`cross`** fails with **`GLIBC_2.xx not found`** on **`build-script-build`** under **`target/release/build/`**, run **`cargo clean`** (or delete **`target/release/build`**) so build scripts are **rebuilt inside** the container instead of reusing host-linked binaries from a shared **`target/`** directory.
+
+**Cross-build without Docker** still needs a **sysroot** (or device-native build) that provides the same **`pkg-config`** files for the target triple:
+
+```bash
+cargo build --release -p volumio-evo-kiosk-browser --target aarch64-unknown-linux-gnu
+# target/aarch64-unknown-linux-gnu/release/volumio-evo-kiosk-browser
+```
+
+**Ship in-repo** (required for OOTB kiosk on devices without `cargo` + dev headers): copy to **`layer/binaries/<triple>/volumio-evo-kiosk-browser`**, then run **`./scripts/refresh-layer-binaries-sha256sums.sh`**. See **[layer/binaries/README.md](../layer/binaries/README.md)**. On the device, **`layer/kiosk-wpe/install.sh`** prefers that prebuilt; it only runs **`cargo build -p volumio-evo-kiosk-browser --release`** as a fallback when the prebuilt is missing and a toolchain is available.
+
+---
+
 ## Optional: build the example WASM plugin
 
 The example plugin is built for the **wasm32** target and can be loaded by the Evo backend (on arm64/amd64 builds with WASM enabled). You do not need it for basic testing.

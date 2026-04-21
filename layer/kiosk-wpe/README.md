@@ -11,16 +11,12 @@ no graphical stack pre-installed.
 
 **Stack:**
 
-- **labwc** - wlroots-based stacking compositor with wlr-layer-shell.
-- **volumio-evo-kiosk-browser** - purpose-built GTK 4 + WebKit 6.0
-  (webkit2gtk) Python shell. One maximized undecorated window, one
-  WebView, one URL. Blocks popups, new windows, and context menus.
+- **labwc** — wlroots-based stacking compositor with wlr-layer-shell.
+- **`volumio-evo-kiosk-browser`** — Rust binary built from **`crates/kiosk-browser`** (GTK **4** + **`webkit6`** crate / webkit2gtk **6** runtime). One maximized undecorated window, one **`WebView`**, one URL. Blocks popups, **`target=_blank`**, and context menus (see **`src/main.rs`**).
 - **squeekboard** / **wvkbd** - on-screen keyboards (squeekboard is the
   default; it follows text-input-v3 focus events).
 
-The directory is still named `kiosk-wpe` and the bootstrap flag is
-still `--with-kiosk=wpe` for continuity with existing scripts and
-documentation. The implementation underneath is no longer WPE.
+The directory is still named **`kiosk-wpe`**; bootstrap accepts **`--with-kiosk=wpe`**, **`--kiosk-wpe`**, or **`KIOSK=wpe`** for continuity. The runtime stack is **labwc + webkit2gtk**, not WPE.
 
 ## Why not cog/WPE, cage, epiphany, or chromium
 
@@ -47,16 +43,13 @@ Evaluated and rejected, in order:
    not `window.open` / `target=_blank`. Wayland support on Trixie is
    through GDK_BACKEND and tagged X11-interface - not production-ready.
 
-Purpose-built GTK 4 + webkit2gtk 6.0 shell wins:
+Purpose-built GTK + webkit2gtk shell wins:
 
 - Same WebKit engine family as WPE so the UI renders identically to
-  what cog would have produced - zero UI-compatibility risk.
-- GTK platform path for input is mature (shipped in GNOME Web for a
-  decade); button and keyboard events reach the DOM on the same
+  what cog would have produced — zero UI-compatibility risk.
+- GTK platform path for input is mature; button and keyboard events reach the DOM on the same
   hardware where WPE fails.
-- Deterministic policy: we own the ~100 lines, we can audit every
-  signal handler, we block popups / new windows / context menus at
-  compile-time, no browser chrome.
+- Deterministic policy: **`crates/kiosk-browser`** is small and auditable; popups / new windows / context menus blocked in code.
 - Memory footprint comparable to cog (~80-150 MB resident with one
   WebProcess), acceptable on 1 GB Pi class hardware.
 
@@ -72,8 +65,8 @@ Purpose-built GTK 4 + webkit2gtk 6.0 shell wins:
       bin/
         volumio-evo-kiosk-preflight     - DRM probe only (ExecStartPre)
         volumio-evo-kiosk-launch        - overlays/TOML; exec labwc --session with session helper
-        volumio-evo-kiosk-session       - labwc session: starts OSK then execs the browser
-        volumio-evo-kiosk-browser       - GTK4 + WebKit 6.0 kiosk shell (Python)
+        volumio-evo-kiosk-session       - labwc session: OSK, wlr-randr scale, gsettings OSK layout, exec browser
+        volumio-evo-kiosk-browser       - **not** shipped here as source; produced by **`crates/kiosk-browser`** and installed to **`/usr/local/bin/`** by **`install.sh`** (prebuilt **`layer/binaries/<triple>/`** preferred)
         volumio-evo-kiosk-autorotate    - iio-sensor-proxy DBus client
       etc/
         kiosk.toml.example              - seeded once to /etc/volumio-evo/kiosk.toml
@@ -81,22 +74,20 @@ Purpose-built GTK 4 + webkit2gtk 6.0 shell wins:
 
 ## Install
 
-Invoked by the main bootstrap with an additive flag:
+Invoked by the main bootstrap with an additive flag (equivalent forms):
 
-    sudo scripts/bootstrap-volumio-evo-player.sh --with-kiosk=wpe
+    sudo scripts/bootstrap-volumio-evo-player.sh --full --with-kiosk=wpe
+    sudo scripts/bootstrap-volumio-evo-player.sh --full --kiosk-wpe
 
-Environment equivalent (useful in piped one-liners):
+Environment equivalent:
 
     sudo KIOSK=wpe ./scripts/bootstrap-volumio-evo-player.sh
 
-The flag is off by default. Running bootstrap without it does not
-install any kiosk assets. When set, `layer/kiosk-wpe/install.sh` is
-invoked after the Evo stack validates, adds packages (labwc, python3-gi,
-gir1.2-gtk-4.0, gir1.2-webkit-6.0, squeekboard, wvkbd, wtype, ...),
-copies units and helper scripts, seeds `/etc/volumio-evo/kiosk.toml` and
-`/etc/volumio-evo/labwc/rc.xml`, and runs `systemctl daemon-reload`. It
-does **not** enable the kiosk units - the backend toggle (Settings ->
-System -> Kiosk) is the single source of truth for runtime state.
+**Upgrade path:** after `git pull`, refresh backend **and** kiosk layer without a full reinstall:
+
+    sudo EVO_WITH_KIOSK=wpe ./scripts/bootstrap-volumio-evo-player.sh --upgrade-evo
+
+The kiosk flags are off by default. When set on **full**/**reset**, `layer/kiosk-wpe/install.sh` runs after the Evo stack validates: installs packages (**labwc**, **`libgtk-4-1`**, **`libwebkitgtk-6.0-1`**, dev headers only if **`install_kiosk_browser_binary`** must compile — prefer checked-in **`layer/binaries/<triple>/volumio-evo-kiosk-browser`**), squeekboard, wvkbd, wtype, **`bubblewrap`**, **`xdg-dbus-proxy`**, copies units and shell helpers, installs **`volumio-evo-kiosk-browser`** to **`/usr/local/bin/`**, seeds **`/etc/volumio-evo/kiosk.toml`** and **`/etc/volumio-evo/labwc/rc.xml`**, **`systemctl daemon-reload`**. It does **not** enable **`volumio-evo-kiosk.service`** — **Settings → System → Kiosk** (`kiosk_enabled`) is the runtime switch. When the operator enables the kiosk from the UI and the layer has never been installed (or **`installKioskLayer`** is invoked), the backend runs **`sudo -n …/run-kiosk-wpe-install.sh`** first — see **`docs/KIOSK.md`** and **`docs/OS_PRIVILEGE_MODEL.md`**.
 
 ## Hardware matrix
 
@@ -110,8 +101,8 @@ index (`apt-cache show`). Names that are missing on your mirror or
 suite (for example optional fonts, GStreamer plugins, or VA drivers)
 are skipped with a warning instead of failing the whole run. The
 following packages are hard-required and the installer stops if any
-are unavailable: `labwc`, `python3-gi`, `gir1.2-gtk-4.0`,
-`gir1.2-webkit-6.0`.
+are unavailable (runtime): `labwc`, `libgtk-4-1`, `libwebkitgtk-6.0-1`;
+(build headers + **`pkg-config`** are also required when **`install.sh`** must invoke **`cargo build`** because no prebuilt **`volumio-evo-kiosk-browser`** exists for this arch).
 
 Conditional packages:
 
@@ -137,6 +128,9 @@ the backend writes them on save. Overlay values take precedence over
       rotation          - "0" | "90" | "180" | "270"
       osk               - "squeekboard" | "wvkbd" | "none"
       cursor            - "auto" | "hide" | "show"
+      zoom              - WebKit zoom ladder string (e.g. `1.2`) → **`KIOSK_ZOOM`** for the browser
+      scale             - `auto` or fractional scale → **`wlr-randr`** in session script
+      osk_layout        - resolved XKB code (`us`, `gb`, …) for squeekboard via **`gsettings`**
       auto_rotate       - "true" | "false"
       osk_force_show    - "true" | "false"  (debug only)
 
@@ -161,37 +155,33 @@ wins.
     xkb_layout     = "us"                       - passed to wlroots via WLR_XKB_LAYOUT
     [env]                                       - extra env for labwc + browser
 
-## Backend toggle and sudoers
+## Backend toggle, layer install, and sudoers
 
-Settings -> System -> Kiosk exposes:
+Settings → System → Kiosk exposes (persisted in **`settings/system/state.toml`**):
 
-  - Enable kiosk     (switch, `SystemSettings.kiosk_enabled`)
-  - Primary display  (select, `SystemSettings.primary_display`)
-  - Rotation         (select 0 / 90 / 180 / 270, `SystemSettings.kiosk_rotation`)
-  - Auto rotate      (switch, `SystemSettings.kiosk_auto_rotate`)
-  - On-screen keyb.  (select, `SystemSettings.kiosk_osk`)
-  - Cursor           (select, `SystemSettings.kiosk_cursor`)
+  - Enable kiosk       (switch, `SystemSettings.kiosk_enabled`)
+  - Primary display    (select, `SystemSettings.primary_display`)
+  - Rotation           (select 0 / 90 / 180 / 270, `SystemSettings.kiosk_rotation`)
+  - Auto rotate        (switch, `SystemSettings.kiosk_auto_rotate`)
+  - On-screen keyboard (select, `SystemSettings.kiosk_osk`)
+  - OSK layout         (select, `SystemSettings.kiosk_osk_layout` — `auto` follows UI language)
+  - Cursor             (select, `SystemSettings.kiosk_cursor`)
+  - Zoom               (select, `SystemSettings.kiosk_zoom` — WebKit/CSS viewport; Node parity ladder)
+  - Scale              (select, `SystemSettings.kiosk_scale` — Wayland output scale via **`wlr-randr`**)
 
-Save goes through Socket.IO `callMethod system_controller/system
-saveKioskSettings`. The Rust side persists `state.toml`, writes the
-overlay files, and starts / stops / restarts the kiosk unit via:
+Save goes through Socket.IO **`callMethod system_controller/system saveKioskSettings`**. **`crates/core/src/kiosk.rs`** writes overlay files under **`settings/kiosk/`**, then starts / stops / restarts **`volumio-evo-kiosk.service`** (and autorotate) via **`sudo -n`** and:
 
     /etc/sudoers.d/volumio-evo-kiosk-control
 
-Contents of that drop-in (managed by bootstrap):
+When the operator enables the kiosk **and** the layer is not yet on disk (**`/usr/local/bin/volumio-evo-kiosk-browser`** missing or first enable from off), **`crates/core/src/api/kiosk_install.rs`** runs **`sudo -n /usr/share/volumio-evo/repo/layer/install/run-kiosk-wpe-install.sh`** (same script as bootstrap) under **`/etc/sudoers.d/volumio-evo-kiosk-layer-install`**, then applies settings. **`installKioskLayer`** **`callMethod`** re-runs that installer explicitly (parity with **`installBootBranding`**).
+
+Example **kiosk-control** lines (paths managed by bootstrap; **`systemctl`** must match **`VOLUMIO_EVO_KIOSK_SYSTEMCTL`**):
 
     <user> ALL=(root) NOPASSWD: /usr/bin/systemctl start volumio-evo-kiosk.service
     <user> ALL=(root) NOPASSWD: /usr/bin/systemctl stop volumio-evo-kiosk.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart volumio-evo-kiosk.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl enable volumio-evo-kiosk.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl disable volumio-evo-kiosk.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl start volumio-evo-kiosk-autorotate.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl stop volumio-evo-kiosk-autorotate.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl enable volumio-evo-kiosk-autorotate.service
-    <user> ALL=(root) NOPASSWD: /usr/bin/systemctl disable volumio-evo-kiosk-autorotate.service
+    …
 
-Resolved systemctl binary is published in `10-runtime-user.conf` as
-`Environment=VOLUMIO_EVO_KIOSK_SYSTEMCTL=<path>`.
+Resolved **`systemctl`** binary is published in **`10-runtime-user.conf`** as **`Environment=VOLUMIO_EVO_KIOSK_SYSTEMCTL=<path>`**.
 
 ## VT selection
 
@@ -293,14 +283,15 @@ This component uninstalls by:
     sudo rm -f /etc/sudoers.d/volumio-evo-kiosk-control
     sudo systemctl daemon-reload
 
-The apt packages (labwc, python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0,
-squeekboard, wvkbd, ...) remain installed; remove them with apt if
+The apt packages (labwc, libgtk-4-1, libwebkitgtk-6.0-1, GTK/WebKit **-dev** if installed,
+squeekboard, wvkbd, …) remain installed; remove them with apt if
 desired. Persisted settings under `/var/lib/volumio-evo/settings/kiosk/`
 and `/etc/volumio-evo/kiosk.toml` are left in place.
 
 ## Related docs
 
-- docs/KIOSK.md              - design concept and rationale (updated)
-- docs/OS_PRIVILEGE_MODEL.md - sudoers model (this drop-in fits the pattern)
-- docs/SETTINGS_LAYOUT.md    - /var/lib/volumio-evo/settings/ conventions
-- docs/OBSERVABILITY.md      - journalctl filtering
+- [docs/KIOSK.md](../../docs/KIOSK.md) — architecture, bootstrap/UI install, binaries
+- [docs/OS_PRIVILEGE_MODEL.md](../../docs/OS_PRIVILEGE_MODEL.md) — **`volumio-evo-kiosk-control`** + **`volumio-evo-kiosk-layer-install`**
+- [docs/SETTINGS_LAYOUT.md](../../docs/SETTINGS_LAYOUT.md) — **`settings/kiosk/`** overlays vs **`state.toml`**
+- [docs/PORTING.md](../../docs/PORTING.md) — **`saveKioskSettings`**, **`installKioskLayer`**
+- [docs/OBSERVABILITY.md](../../docs/OBSERVABILITY.md) — journal grep patterns

@@ -76,9 +76,11 @@ EVO_INSTALL_RFKILL_SUDOERS="${EVO_INSTALL_RFKILL_SUDOERS:-1}"
 EVO_INSTALL_BOOT_BRANDING_SUDOERS="${EVO_INSTALL_BOOT_BRANDING_SUDOERS:-1}"
 # 1: /etc/sudoers.d/volumio-evo-ui-bootstrap — sudo -n bootstrap-volumio-evo-player.sh --apply-ui-only (nginx UI roots).
 EVO_INSTALL_UI_BOOTSTRAP_SUDOERS="${EVO_INSTALL_UI_BOOTSTRAP_SUDOERS:-1}"
-# 1: install /etc/sudoers.d/volumio-evo-kiosk-control - sudo -n systemctl start/stop/restart/enable/disable
-# volumio-evo-kiosk.service and volumio-evo-kiosk-autorotate.service. Only installed when --with-kiosk=wpe.
+# 1: install /etc/sudoers.d/volumio-evo-kiosk-control — sudo -n systemctl start/stop/restart/enable/disable
+# volumio-evo-kiosk*.service (Settings → System → Kiosk). Independent of --with-kiosk=wpe.
 EVO_INSTALL_KIOSK_CONTROL_SUDOERS="${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}"
+# 1: install /etc/sudoers.d/volumio-evo-kiosk-layer-install — sudo -n run-kiosk-wpe-install.sh (same as --with-kiosk=wpe).
+EVO_INSTALL_KIOSK_LAYER_SUDOERS="${EVO_INSTALL_KIOSK_LAYER_SUDOERS:-1}"
 # WPE kiosk layer install opt-in. Set via --with-kiosk=wpe or KIOSK=wpe.
 EVO_WITH_KIOSK="${EVO_WITH_KIOSK:-${KIOSK:-}}"
 # 1: apt install CIFS/NFS/SMB client packages (cifs-utils, nfs-common, smbclient) for NAS/SMB mounts and Sources UI.
@@ -110,7 +112,7 @@ BOOTSTRAP_MODE="full"
 usage() {
   cat <<'EOF'
 Usage:
-  sudo ./scripts/bootstrap-volumio-evo-player.sh [MODE] [--with-kiosk=wpe]
+  sudo ./scripts/bootstrap-volumio-evo-player.sh [MODE] [--with-kiosk=wpe] [--kiosk-wpe]
 
 Modes (default: full):
   (none) | --full     Full install: clone/update repo, backend, static UI, MPD, nginx, validate.
@@ -124,6 +126,7 @@ Modes (default: full):
                       the Wayland kiosk (labwc + webkit2gtk shell, squeekboard/wvkbd). Flag name is
                       historical (not WPE-based). Off by default.
                       Env equivalent: KIOSK=wpe.
+  --kiosk-wpe         Same as --with-kiosk=wpe (shorter alias).
 
 Requires a git checkout at EVO_REPO_DIR (default /opt/volumio/volumio-evo) with layer/web/ or
 UI_DIST_SOURCE, and (unless --build) layer/binaries/<triple>/volumio-evo for this machine.
@@ -165,6 +168,7 @@ Environment (common):
   EVO_INSTALL_SAMBA_SUDOERS=1
   EVO_INSTALL_NETWORK_MANAGER=1
   EVO_INSTALL_KIOSK_CONTROL_SUDOERS=1
+  EVO_INSTALL_KIOSK_LAYER_SUDOERS=1
   EVO_STOCK_BACKGROUNDS_SOURCE=
   KIOSK=                          # set to "wpe" to enable kiosk install after --full / --reset
   KIOSK_ALLOW_ROOT=0               # 1 to permit enabling kiosk when service runs as root
@@ -608,6 +612,26 @@ EOF
     rm -f "${boot_branding_sudoers}" 2>/dev/null || true
   fi
 
+  # Wayland kiosk layer (Settings → System → Kiosk): sudo -n run-kiosk-wpe-install.sh — same as bootstrap --with-kiosk=wpe.
+  local kiosk_layer_sudoers="/etc/sudoers.d/volumio-evo-kiosk-layer-install"
+  if [[ "${EVO_INSTALL_KIOSK_LAYER_SUDOERS:-1}" == "1" ]]; then
+    local tmp_kl
+    tmp_kl="$(mktemp)"
+    cat > "${tmp_kl}" <<EOF
+# volumio-evo: kiosk layer installer (narrow path; managed by bootstrap). Must match crates/core kiosk_wpe_install_run_script_path().
+${u} ALL=(root) NOPASSWD: /usr/share/volumio-evo/repo/layer/install/run-kiosk-wpe-install.sh
+EOF
+    if command -v visudo >/dev/null 2>&1 && visudo -cf "${tmp_kl}" 2>/dev/null; then
+      install -m 0440 "${tmp_kl}" "${kiosk_layer_sudoers}"
+      echo "Installed ${kiosk_layer_sudoers} (kiosk layer install NOPASSWD for ${u})."
+    else
+      echo "WARN: visudo check failed or visudo missing; not installing ${kiosk_layer_sudoers}."
+    fi
+    rm -f "${tmp_kl}"
+  else
+    rm -f "${kiosk_layer_sudoers}" 2>/dev/null || true
+  fi
+
   # SMB file server (Settings → Network): generated smb.conf install, smbd/nmbd, narrow user-sync script.
   local samba_sudoers="/etc/sudoers.d/volumio-evo-samba"
   local smb_conf_gen="/var/lib/volumio-evo/settings/samba/smb.conf.generated"
@@ -642,9 +666,8 @@ EOF
   fi
 
   # Wayland kiosk control (Settings -> System kiosk). Narrow commands only.
-  # Only installed when --with-kiosk=wpe so non-kiosk hosts do not carry the sudoers.
   local kiosk_ctrl_sudoers="/etc/sudoers.d/volumio-evo-kiosk-control"
-  if [[ "${EVO_WITH_KIOSK:-}" == "wpe" && "${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}" == "1" ]]; then
+  if [[ "${EVO_INSTALL_KIOSK_CONTROL_SUDOERS:-1}" == "1" ]]; then
     local tmp_kc
     tmp_kc="$(mktemp)"
     cat > "${tmp_kc}" <<EOF
@@ -1634,6 +1657,9 @@ main() {
       --with-kiosk=*)
         EVO_WITH_KIOSK="${a#--with-kiosk=}"
         ;;
+      --kiosk-wpe)
+        EVO_WITH_KIOSK="wpe"
+        ;;
       *)
         mode_args+=("${a}")
         ;;
@@ -1688,6 +1714,7 @@ main() {
     ensure_raspberry_pi_i2c_dev_module
     build_and_install_evo
     validate_backend_only
+    run_kiosk_wpe_install
     exit 0
   fi
 

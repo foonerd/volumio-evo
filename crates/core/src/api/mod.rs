@@ -2,6 +2,7 @@
 
 mod alsa_hotplug;
 mod boot_branding;
+mod kiosk_install;
 mod http;
 mod network_ui;
 pub(crate) mod system_power;

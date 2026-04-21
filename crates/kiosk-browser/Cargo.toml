@@ -1,0 +1,24 @@
+[package]
+name = "volumio-evo-kiosk-browser"
+version = "0.2.5"
+edition = "2021"
+description = "Volumio Evo on-device WebKit kiosk shell (GTK 4 + webkit2gtk 6.0)"
+
+[[bin]]
+name = "volumio-evo-kiosk-browser"
+path = "src/main.rs"
+
+# Build deps (on target device, install.sh adds these when --with-kiosk=wpe):
+#   libgtk-4-dev, libwebkitgtk-6.0-dev, libsoup-3.0-dev, pkg-config
+#
+# Runtime deps (also ensured by install.sh):
+#   libgtk-4-1, libwebkitgtk-6.0-1, libsoup-3.0-0
+#
+# Intentionally does NOT depend on volumio-evo-core or plugin-sdk - this is a
+# standalone leaf binary. Keeps the kiosk crate buildable in isolation and
+# avoids dragging in tokio, wasmtime, socket.io, etc.
+[dependencies]
+gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }
+webkit6 = { version = "0.4", features = ["v2_44"] }
+glib = "0.20"
+gio = "0.20"

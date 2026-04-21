@@ -609,7 +609,7 @@ async fn get_system_info(s: SocketRef, State(state): State<AppState>) {
     s.emit("pushSystemInfo", &data).ok();
 }
 
-async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
+pub(crate) async fn emit_system_ui_config(s: &SocketRef, state: &AppState) {
     let zones: Vec<String> = crate::system_settings::list_timezones_cached().to_vec();
     let sys = state.system_settings.read().await.clone();
     let active_layout = state.active_layout.read().await.clone();
@@ -3641,84 +3641,25 @@ async fn call_method(
             return;
         }
 
+        let need_layer_install = {
+            let sys = state.system_settings.read().await;
+            sys.kiosk_enabled && (!prev_enabled || !crate::kiosk::kiosk_layer_installed())
+        };
+
+        if need_layer_install {
+            let st = state.clone();
+            let s2 = s.clone();
+            tokio::spawn(async move {
+                super::kiosk_install::deferred_kiosk_enable_after_layer_install(s2, st, prev_enabled)
+                    .await;
+            });
+            return;
+        }
+
         // Apply side effects (overlays + systemctl). On refusal, revert the
         // kiosk_enabled flag and re-persist so the toggle shows the actual state.
         let outcome = crate::kiosk::apply_kiosk_settings(&state).await;
-        match outcome {
-            crate::kiosk::ApplyOutcome::Running => {
-                let _ = s.emit(
-                    "pushToastMessage",
-                    &serde_json::json!({
-                        "type": "success",
-                        "title": "Display",
-                        "message": "Kiosk started"
-                    }),
-                );
-            }
-            crate::kiosk::ApplyOutcome::Stopped => {
-                let _ = s.emit(
-                    "pushToastMessage",
-                    &serde_json::json!({
-                        "type": "success",
-                        "title": "Display",
-                        "message": "Display settings saved"
-                    }),
-                );
-            }
-            crate::kiosk::ApplyOutcome::NoDrm => {
-                // Revert kiosk_enabled so the UI is honest about state.
-                {
-                    let mut sys = state.system_settings.write().await;
-                    sys.kiosk_enabled = prev_enabled;
-                    if let Err(e) = sys.save() {
-                        tracing::warn!(
-                            "{} saveKioskSettings revert: {}",
-                            crate::log_tags::EVO_KIOSK,
-                            e
-                        );
-                    }
-                }
-                let _ = s.emit(
-                    "pushToastMessage",
-                    &serde_json::json!({
-                        "type": "error",
-                        "title": "Display",
-                        "message": "No display detected. Connect HDMI or DSI and retry."
-                    }),
-                );
-            }
-            crate::kiosk::ApplyOutcome::RootUserRefused => {
-                {
-                    let mut sys = state.system_settings.write().await;
-                    sys.kiosk_enabled = prev_enabled;
-                    if let Err(e) = sys.save() {
-                        tracing::warn!(
-                            "{} saveKioskSettings revert (root refusal): {}",
-                            crate::log_tags::EVO_KIOSK,
-                            e
-                        );
-                    }
-                }
-                let _ = s.emit(
-                    "pushToastMessage",
-                    &serde_json::json!({
-                        "type": "error",
-                        "title": "Display",
-                        "message": "Kiosk requires a non-root service user."
-                    }),
-                );
-            }
-            crate::kiosk::ApplyOutcome::PartialFailure => {
-                let _ = s.emit(
-                    "pushToastMessage",
-                    &serde_json::json!({
-                        "type": "warning",
-                        "title": "Display",
-                        "message": "Settings saved but kiosk did not change state. Check journalctl -u volumio-evo-kiosk."
-                    }),
-                );
-            }
-        }
+        super::kiosk_install::notify_kiosk_apply_outcome(&s, &state, outcome, prev_enabled).await;
 
         emit_system_ui_config(&s, &state).await;
         return;
@@ -3801,6 +3742,17 @@ async fn call_method(
         let data = payload.data.clone();
         tokio::spawn(async move {
             super::boot_branding::spawn_install(st, data).await;
+        });
+        return;
+    }
+
+    if payload.endpoint.as_deref() == Some("system_controller/system")
+        && payload.method.as_deref() == Some("installKioskLayer")
+    {
+        let st = state.clone();
+        let s2 = s.clone();
+        tokio::spawn(async move {
+            super::kiosk_install::spawn_install_only(st, s2).await;
         });
         return;
     }

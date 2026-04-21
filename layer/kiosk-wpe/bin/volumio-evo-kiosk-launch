@@ -120,6 +120,18 @@ OSK_FORCE_SHOW=$(resolve osk_force_show osk_force_show false)
 AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
 XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
 ROT_RAW=$(resolve rotation rotation 0)
+# WebKit page zoom for the kiosk browser. Default 1.2 matches the Node
+# kiosk's default. The Rust binary reads KIOSK_ZOOM and calls
+# set_zoom_level(), which affects the CSS viewport reported to the page
+# (Bootstrap breakpoints shift accordingly, same behaviour as Node's
+# Chromium --force-device-scale-factor).
+KIOSK_ZOOM=$(resolve zoom zoom 1.2)
+# Wayland output scale. "auto" means do not call wlr-randr at all.
+KIOSK_SCALE=$(resolve scale scale auto)
+# Resolved XKB layout for squeekboard. Backend writes a concrete code
+# (us | gb | de | ...) to settings/kiosk/osk_layout; the launcher just
+# forwards it through to the session script.
+KIOSK_OSK_LAYOUT=$(resolve osk_layout osk_layout us)
 
 # Rotation: overlay > TOML > 0. Variable name WLR_ROT matches the
 # consumer - wlroots env vars read by labwc.
@@ -137,7 +149,7 @@ if [ -n "${URL_FROM_TOML}" ]; then
   KIOSK_URL="${URL_FROM_TOML}"
 fi
 
-log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${WLR_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE}"
+log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${WLR_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE} zoom=${KIOSK_ZOOM} scale=${KIOSK_SCALE} osk_layout=${KIOSK_OSK_LAYOUT}"
 
 # ---------------------------- Compositor environment ----------------------
 
@@ -173,6 +185,9 @@ export KIOSK_URL
 export OSK
 export OSK_FORCE_SHOW
 export KIOSK_CURSOR="${CURSOR}"
+export KIOSK_ZOOM
+export KIOSK_SCALE
+export KIOSK_OSK_LAYOUT
 
 if [ ! -x "${SESSION_BIN}" ]; then
   log "ERROR: session helper missing at ${SESSION_BIN}"

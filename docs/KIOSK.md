@@ -11,26 +11,46 @@ The original concept in this document chose **cog + WPE WebKit + cage** as the r
 | Role | Concept said | Implementation uses | Why |
 |------|--------------|---------------------|-----|
 | Compositor | cage | **labwc** | cage lacks `wlr_layer_shell_v1` so squeekboard cannot render. labwc is a wlroots stacking compositor with layer-shell; it is the current default on Raspberry Pi OS. |
-| Browser | cog (WPE) | **purpose-built GTK 4 + webkit2gtk 6.0 shell** (`/usr/local/bin/volumio-evo-kiosk-browser`, ~100 lines of Python) | WPE WebKit 2.48.3 as packaged in Trixie does not dispatch pointer button or keyboard events to the DOM on Pi 5 class hardware. libinput delivers events at the kernel layer; WPE's `wl` and `fdo` platform plugins drop them before reaching WebCore. webkit2gtk (same engine family, GTK platform path) delivers every event correctly. Epiphany in `--application-mode` was also tried; it requires `xdg-desktop-portal` access to `/proc/<pid>/root` which is denied in a PAM-login systemd session. |
+| Browser | cog (WPE) | **Rust binary** **`volumio-evo-kiosk-browser`** (**`crates/kiosk-browser`**, GTK 4 + **`webkit6`** / webkit2gtk **6**) installed to **`/usr/local/bin/volumio-evo-kiosk-browser`** | Same rationale as originally: WPE drops input on Pi-class hardware; webkit2gtk GTK path delivers events. Built as a **standalone** workspace member (not WASM, not linked into **`volumio-evo-core`**). Prefer checked-in **`layer/binaries/<triple>/volumio-evo-kiosk-browser`** on devices; **`install.sh`** falls back to **`cargo build -p volumio-evo-kiosk-browser --release`** only when necessary. |
 | Fullscreen mode | xdg `set_fullscreen` | **xdg `set_maximized`** | squeekboard is hardcoded to `ZWLR_LAYER_SHELL_V1_LAYER_TOP`. wlroots' layer ordering places "fullscreen windows" above `LAYER_TOP`, so a true-fullscreen kiosk client covers the OSK. Maximized xdg_toplevels live on the regular window layer, below `LAYER_TOP`; the OSK renders above them. Combined with `<decoration>client</decoration>` and no panel, maximized is visually identical to fullscreen. References: [labwc/labwc#2926](https://github.com/labwc/labwc/issues/2926), [raspberrypi-ui/squeekboard#13](https://github.com/raspberrypi-ui/squeekboard/issues/13). |
+
+### Bootstrap, binaries, and repo updates
+
+| Flag / env | When it runs **`layer/kiosk-wpe/install.sh`** |
+|------------|-----------------------------------------------|
+| **`--with-kiosk=wpe`** or **`--kiosk-wpe`** or **`KIOSK=wpe`** | After **`--full`** / **`--reset`** bootstrap completes (main stack validated). |
+| **`EVO_WITH_KIOSK=wpe`** with **`--upgrade-evo`** | After the backend binary is refreshed; reapplies kiosk packages, units, and browser from the updated checkout without a full reinstall. |
+
+Prebuilt **`volumio-evo-kiosk-browser`** belongs in **`layer/binaries/<rustc-triple>/`** next to **`volumio-evo`** (same triples). **`install.sh`** prefers that file and only compiles on-device if **`cargo`** + GTK/WebKit **dev** headers are present (maintainers should avoid that on production images). Regenerate **`layer/binaries/SHA256SUMS`** with **`scripts/refresh-layer-binaries-sha256sums.sh`** after copying binaries — see **[layer/binaries/README.md](../layer/binaries/README.md)** and **[BUILD_GUIDE.md](BUILD_GUIDE.md)** (*Kiosk browser binary*).
+
+### Backend (Rust core) and UI
+
+| Component | Responsibility |
+|-----------|----------------|
+| **`crates/core/src/kiosk.rs`** | Overlay files under **`settings/kiosk/`**, **`sudo -n systemctl`** for **`volumio-evo-kiosk`** / **`volumio-evo-kiosk-autorotate`**, DRM probe, **`GET /api/v1/kiosk/status`**. |
+| **`crates/core/src/api/kiosk_install.rs`** | **`sudo -n`** wrapper **`layer/install/run-kiosk-wpe-install.sh`**: runs the same installer as bootstrap before starting the kiosk when the operator enables it in **Settings → System → Kiosk** and the layer is missing, or when turning the kiosk **on** from **off** (progress modal). |
+| **`saveKioskSettings`** (Socket.IO) | Persists **`SystemSettings`** kiosk fields; may chain **install → overlays → unit** as above. |
+| **`installKioskLayer`** (**`callMethod`**) | Same as **Settings → System → Boot branding**’s **`installBootBranding`**: explicit “refresh kiosk layer from repo” after **`git pull`** (optional UI button). |
+
+Privilege model (sudoers fragments, **`VOLUMIO_EVO_*`** env): **[OS_PRIVILEGE_MODEL.md](OS_PRIVILEGE_MODEL.md)** — **`volumio-evo-kiosk-control`** (narrow **`systemctl`**) and **`volumio-evo-kiosk-layer-install`** (narrow path to **`run-kiosk-wpe-install.sh`**). **`VOLUMIO_EVO_KIOSK_INSTALL_SCRIPT`** overrides the install wrapper path for development only.
 
 Other concept-to-implementation mappings:
 
 - **Chromium** was rejected on memory grounds (~250-400 MB RSS is too much for Pi 1 / 2 / Zero class targets).
 - **Midori** is no longer in Debian main.
 - **surf** (suckless webkit2gtk) ships in Trixie but its `-K` kiosk flag blocks only keystrokes and right-click, not `window.open` / `target=_blank`.
-- **cog-settings.ini** example file removed; cog is not installed.
-- `COG_PLATFORM_FDO_VIEW_FULLSCREEN` and `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS` removed from the unit; neither applies to the webkit2gtk shell.
+- **cog / cog-settings.ini** removed from the shipped path; cog is not installed.
+- **WebKit sandbox:** **`systemd`** sets **`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`** for webkit2gtk under the PAM-login kiosk unit on Trixie Lite (bubblewrap / capabilities quirk). The kiosk loads only **`http://127.0.0.1/`** (local nginx → Evo UI). **`bwrap`** + **`xdg-dbus-proxy`** are installed for a possible future re-enable — see **`layer/kiosk-wpe/systemd/volumio-evo-kiosk.service`** and **`install.sh`** comments.
 
-The sections that follow (original design from late 2025 / early 2026) are retained as historical context. Where they say "cog" / "cage" / "WPE" / "fullscreen", refer to the table above for the actual shipped choice.
+The sections that follow (original design from late 2025 / early 2026) are **historical** reference. Where they say "cog" / "cage" / "WPE" / "fullscreen", use the **table at the top of section 0** for the shipped stack.
 
 ---
 
 # Volumio Evo - Kiosk concept (original WPE reference path, historical)
 
-**Roadmap:** **Deferred.** This document is a **design reference for a future layer component**, not something you need for day-to-day Evo development today. Treat kiosk work as **after the Node backend is fully replaced** by the Rust core (playback, browse, REST/Socket.IO parity, installer story) so the on-device browser shell targets a **stable API and UI**. Do not block backend porting milestones on kiosk.
+**About this half of the document:** The headings **§1–§N** below record the **original** product concept (cog + WPE + cage). They remain useful for background, package names, and security thinking, but **do not** describe the current install byte-for-byte. Implementation details for what is **actually** on disk are **`layer/kiosk-wpe/README.md`** and section **0** above.
 
-**Status:** concept draft. Nothing implemented in-tree (`layer/kiosk-wpe/` may appear only when this phase starts). Targets the greenfield Evo stack (stock minimal Debian Lite + Evo layer). No inheritance from the legacy Volumio OS kiosk (X11 + openbox + Chromium/Vivaldi + Chrome extension keyboard). **No WASM plugin is involved in this concept**; see [Section 3](#3-terminology) for why.
+**Note:** The kiosk **layer is implemented** in-tree (`layer/kiosk-wpe/`, `crates/kiosk-browser/`, `crates/core/src/kiosk.rs`). It is **not** a WASM plugin; see [Section 3](#3-terminology) (terminology).
 
 Related docs:
 

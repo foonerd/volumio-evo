@@ -148,6 +148,130 @@ fn boot_branding_rotation_value_label(deg: u16) -> Value {
     json!({ "value": d, "label": format!("{d}\u{00B0}") })
 }
 
+// -------- Kiosk zoom / scale / osk_layout helpers --------
+
+/// `display_zoom` ladder, reusing the exact values and labels of the
+/// legacy Node kiosk UI (`section_hdmi_settings -> display_zoom`) so
+/// operators moving between Node and Evo see the same choices.
+const KIOSK_ZOOM_LADDER: &[(&str, &str)] = &[
+    ("0.63", "60%"),
+    ("0.7",  "70%"),
+    ("0.8",  "80%"),
+    ("0.9",  "90%"),
+    ("1.0",  "100%"),
+    ("1.1",  "110%"),
+    ("1.2",  "120%"),
+    ("1.3",  "130%"),
+    ("1.4",  "140%"),
+    ("1.5",  "150%"),
+    ("1.6",  "160%"),
+    ("1.7",  "170%"),
+];
+
+fn kiosk_zoom_options() -> Value {
+    let opts: Vec<Value> = KIOSK_ZOOM_LADDER
+        .iter()
+        .map(|(v, l)| json!({ "value": v, "label": l }))
+        .collect();
+    Value::Array(opts)
+}
+
+fn kiosk_zoom_value_label(value: &str) -> Value {
+    // Canonicalise through the same normaliser used on save so the UI
+    // always shows a value that exists in the options list.
+    let canonical = crate::system_settings::normalize_kiosk_zoom(value);
+    let label = KIOSK_ZOOM_LADDER
+        .iter()
+        .find(|(v, _)| *v == canonical.as_str())
+        .map(|(_, l)| (*l).to_string())
+        .unwrap_or_else(|| format!("{canonical}x"));
+    json!({ "value": canonical, "label": label })
+}
+
+/// Scale ladder (Wayland output scale). `auto` means "let the compositor
+/// decide", which on a plain HDMI monitor is 1.0 and on a HiDPI DSI panel
+/// is whatever the panel reports via EDID. The ladder values only apply
+/// when the operator overrides.
+const KIOSK_SCALE_LADDER: &[(&str, &str)] = &[
+    ("auto", "auto"),
+    ("1",    "1x"),
+    ("1.25", "1.25x"),
+    ("1.5",  "1.5x"),
+    ("2",    "2x"),
+    ("3",    "3x"),
+];
+
+fn kiosk_scale_options() -> Value {
+    let opts: Vec<Value> = KIOSK_SCALE_LADDER
+        .iter()
+        .map(|(v, l)| json!({ "value": v, "label": l }))
+        .collect();
+    Value::Array(opts)
+}
+
+fn kiosk_scale_value_label(value: &str) -> Value {
+    let canonical = crate::system_settings::normalize_kiosk_scale(value);
+    let label = KIOSK_SCALE_LADDER
+        .iter()
+        .find(|(v, _)| *v == canonical.as_str())
+        .map(|(_, l)| (*l).to_string())
+        .unwrap_or_else(|| canonical.clone());
+    json!({ "value": canonical, "label": label })
+}
+
+/// XKB layout options exposed in Settings -> System. `auto` follows the
+/// OS `language_code`; the rest are the most common Volumio locales.
+/// Backend maps language codes to the `Follow UI language` default via
+/// `crate::kiosk::apply_osk_layout`, so this list only needs to cover
+/// operators who want to pin a specific layout (e.g. UK English on a
+/// device whose UI is French).
+const KIOSK_OSK_LAYOUT_LADDER: &[(&str, &str)] = &[
+    ("auto", "Follow UI language"),
+    ("us",   "US English"),
+    ("gb",   "UK English"),
+    ("de",   "German"),
+    ("fr",   "French"),
+    ("es",   "Spanish"),
+    ("it",   "Italian"),
+    ("pt",   "Portuguese"),
+    ("pl",   "Polish"),
+    ("ru",   "Russian"),
+    ("cz",   "Czech"),
+    ("hu",   "Hungarian"),
+    ("se",   "Swedish"),
+    ("no",   "Norwegian"),
+    ("fi",   "Finnish"),
+    ("dk",   "Danish"),
+    ("tr",   "Turkish"),
+    ("gr",   "Greek"),
+    ("jp",   "Japanese"),
+    ("kr",   "Korean"),
+    ("cn",   "Chinese"),
+    ("ua",   "Ukrainian"),
+    ("hr",   "Croatian"),
+    ("sk",   "Slovak"),
+    ("vn",   "Vietnamese"),
+    ("th",   "Thai"),
+];
+
+fn kiosk_osk_layout_options() -> Value {
+    let opts: Vec<Value> = KIOSK_OSK_LAYOUT_LADDER
+        .iter()
+        .map(|(v, l)| json!({ "value": v, "label": l }))
+        .collect();
+    Value::Array(opts)
+}
+
+fn kiosk_osk_layout_value_label(value: &str) -> Value {
+    let canonical = crate::system_settings::normalize_kiosk_osk_layout(value);
+    let label = KIOSK_OSK_LAYOUT_LADDER
+        .iter()
+        .find(|(v, _)| *v == canonical.as_str())
+        .map(|(_, l)| (*l).to_string())
+        .unwrap_or_else(|| canonical.clone());
+    json!({ "value": canonical, "label": label })
+}
+
 fn volumio3_ui_options_array() -> Value {
     json!([
         {
@@ -272,7 +396,10 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], ac
               "kiosk_rotation",
               "kiosk_auto_rotate",
               "kiosk_osk",
-              "kiosk_cursor"
+              "kiosk_osk_layout",
+              "kiosk_cursor",
+              "kiosk_zoom",
+              "kiosk_scale"
             ]
           },
           "content": [
@@ -351,6 +478,30 @@ pub fn system_settings_ui_config(settings: &SystemSettings, zones: &[String], ac
                 { "value": "hide", "label": "hide" },
                 { "value": "show", "label": "show" }
               ]
+            },
+            {
+              "id": "kiosk_zoom",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_ZOOM",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_ZOOM_DOC",
+              "value": kiosk_zoom_value_label(&settings.kiosk_zoom),
+              "options": kiosk_zoom_options()
+            },
+            {
+              "id": "kiosk_scale",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_SCALE",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_SCALE_DOC",
+              "value": kiosk_scale_value_label(&settings.kiosk_scale),
+              "options": kiosk_scale_options()
+            },
+            {
+              "id": "kiosk_osk_layout",
+              "element": "select",
+              "label": "TRANSLATE.SYSTEM.KIOSK_OSK_LAYOUT",
+              "doc": "TRANSLATE.SYSTEM.KIOSK_OSK_LAYOUT_DOC",
+              "value": kiosk_osk_layout_value_label(&settings.kiosk_osk_layout),
+              "options": kiosk_osk_layout_options()
             }
           ]
         },

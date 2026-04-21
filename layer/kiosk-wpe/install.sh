@@ -7,11 +7,12 @@
 # unit / helper files.
 #
 # Design: docs/KIOSK.md; runtime overlays: layer/kiosk-wpe/README.md.
-# Stack: labwc (Wayland compositor) + volumio-evo-kiosk-browser (GTK4 +
-# webkit2gtk 6.0 kiosk shell). cog / WPE / cage were evaluated and
-# rejected - see README.md for the full rationale. The repo path is
-# still named kiosk-wpe for historical continuity; --with-kiosk=wpe is
-# the bootstrap flag.
+# Stack: labwc (Wayland compositor) + volumio-evo-kiosk-browser (Rust
+# binary built from crates/kiosk-browser, linking GTK 4 + webkit2gtk
+# 6.0 + libsoup 3). cog / WPE / cage were evaluated and rejected - see
+# README.md for the full rationale. The repo path is still named
+# kiosk-wpe for historical continuity; --with-kiosk=wpe is the
+# bootstrap flag.
 #
 # NEVER enables the kiosk unit here - the backend switch drives state
 # (crates/core/src/kiosk.rs + Settings -> System -> Kiosk).
@@ -29,6 +30,12 @@ KIOSK_ALLOW_ROOT="${KIOSK_ALLOW_ROOT:-0}"
 KIOSK_FORCE_ENABLE="${KIOSK_FORCE_ENABLE:-0}"
 # Default on. Set 0 to skip the apt install stage (re-running installer).
 KIOSK_INSTALL_PACKAGES="${KIOSK_INSTALL_PACKAGES:-1}"
+# Default on. Set 0 to skip the cargo build of the Rust kiosk-browser
+# binary (e.g. running the installer on a host that already has it
+# installed). When 1, a prebuilt at layer/binaries/<triple>/ is
+# preferred; missing prebuilt falls back to cargo build if toolchain
+# and source are present.
+KIOSK_BUILD_BROWSER="${KIOSK_BUILD_BROWSER:-1}"
 
 need_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
@@ -95,6 +102,15 @@ detect_arch() {
   fi
 }
 
+host_rust_triple() {
+  case "$(uname -m)" in
+    aarch64) echo "aarch64-unknown-linux-gnu" ;;
+    armv7l|armv6l|armv5tel) echo "armv7-unknown-linux-gnueabihf" ;;
+    x86_64|amd64) echo "x86_64-unknown-linux-gnu" ;;
+    *) echo "" ;;
+  esac
+}
+
 # Return "intel", "amd", or "" based on lspci vendor ID of the first VGA class.
 detect_amd64_gpu_vendor() {
   if ! command -v lspci >/dev/null 2>&1; then
@@ -158,31 +174,39 @@ install_packages() {
   accel="$(detect_accelerometer)"
   log "Arch: ${arch}; accelerometer present: ${accel}"
 
-  # Core stack:
-  #   labwc         - wlroots-based stacking compositor (layer-shell, xdg-shell)
-  #   python3-gi    - GObject-Introspection bindings for Python (kiosk browser)
-  #   gir1.2-gtk-4.0       - GTK 4 bindings   (kiosk browser)
-  #   gir1.2-webkit-6.0    - WebKit 6 bindings (kiosk browser, pulls webkit2gtk)
-  #   bubblewrap + xdg-dbus-proxy - required by the webkit2gtk sandbox.
-  #                 The unit currently sets WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
-  #                 (see systemd/volumio-evo-kiosk.service for why) so these
-  #                 are not on the critical path today, but installing them
-  #                 ahead of time means flipping the sandbox env later is
-  #                 just an env-var change with no apt churn.
-  #   squeekboard   - on-screen keyboard (text-input-v3 driven)
-  #   wvkbd         - fallback on-screen keyboard
-  #   wtype         - virtual-keyboard-v1 client used by the session script
-  #                   to fire the HideCursor keybind when cursor=hide
-  #   xkb-data      - XKB layouts (wlroots reads WLR_XKB_LAYOUT at start)
-  #   fonts-*       - base CJK-free font set
-  #   libinput-tools - libinput debug-events etc. for field diagnostics
-  #   xdg-user-dirs - standard user dirs (profile cache path resolution)
-  #   gstreamer*    - WebKit media backend
+  # Runtime + build stack for the Rust kiosk-browser:
+  #   labwc                  - wlroots stacking compositor (layer-shell, xdg-shell)
+  #   wlr-randr              - used by session script to apply output scale
+  #   libgtk-4-1             - GTK 4 runtime
+  #   libwebkitgtk-6.0-1     - WebKit 6 / webkit2gtk 6.0 runtime
+  #   libsoup-3.0-0          - HTTP stack used by WebKit 6
+  #   libgtk-4-dev           - build-time headers for crates/kiosk-browser
+  #   libwebkitgtk-6.0-dev   - build-time headers for crates/kiosk-browser
+  #   libsoup-3.0-dev        - build-time headers for crates/kiosk-browser
+  #   pkg-config             - cargo finds the three libs above via pkg-config
+  #   bubblewrap +           - required by the webkit2gtk sandbox when enabled
+  #     xdg-dbus-proxy         (unit currently sets WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+  #                            - see systemd/volumio-evo-kiosk.service; install them
+  #                            anyway so flipping the sandbox env is a pure
+  #                            config change without apt churn)
+  #   squeekboard            - on-screen keyboard (text-input-v3 driven)
+  #   wvkbd                  - fallback on-screen keyboard
+  #   wtype                  - virtual-keyboard-v1 client for HideCursor bind
+  #   xkb-data               - XKB layouts (wlroots reads WLR_XKB_LAYOUT)
+  #   fonts-*                - base CJK-free font set
+  #   libinput-tools         - `libinput debug-events` for field diagnostics
+  #   xdg-user-dirs          - standard user dirs (profile cache path)
+  #   gstreamer*             - WebKit media backend
   local -a pkgs=(
     labwc
-    python3-gi
-    gir1.2-gtk-4.0
-    gir1.2-webkit-6.0
+    wlr-randr
+    libgtk-4-1
+    libwebkitgtk-6.0-1
+    libsoup-3.0-0
+    libgtk-4-dev
+    libwebkitgtk-6.0-dev
+    libsoup-3.0-dev
+    pkg-config
     bubblewrap
     xdg-dbus-proxy
     squeekboard
@@ -206,13 +230,10 @@ install_packages() {
       pkgs+=(libgl1-mesa-dri libgles2 libegl1 libdrm2)
       ;;
     amd64)
-      # Match arm64/armhf GLES/DRM baseline; mesa pulls these transitively but
-      # explicit installs avoid silent breakage if Debian ever splits deps.
       pkgs+=(libgl1-mesa-dri libgles2 libegl1 libdrm2)
       gpu="$(detect_amd64_gpu_vendor)"
       case "${gpu}" in
         intel)
-          # Best-effort: prefer intel-media on Gen8+, fall back to i965 shaders.
           if pkg_in_apt_index intel-media-va-driver; then
             pkgs+=(intel-media-va-driver)
           fi
@@ -250,25 +271,26 @@ install_packages() {
   local -a resolved=()
   filter_apt_packages resolved "${pkgs[@]}"
 
-  # Hard-required core: the kiosk cannot function without labwc or the
-  # Python + WebKit bindings the browser depends on.
-  local has_labwc has_pygi has_gtk4 has_webkit6
-  has_labwc=0
-  has_pygi=0
-  has_gtk4=0
-  has_webkit6=0
+  # Hard-required: the kiosk cannot function without labwc or the WebKit
+  # runtime + headers the browser binary links against.
+  local has_labwc=0 has_gtk4_rt=0 has_webkit_rt=0 has_gtk4_dev=0 has_webkit_dev=0 has_pkgc=0
   local q
   for q in "${resolved[@]}"; do
     [[ "${q}" == "labwc" ]] && has_labwc=1
-    [[ "${q}" == "python3-gi" ]] && has_pygi=1
-    [[ "${q}" == "gir1.2-gtk-4.0" ]] && has_gtk4=1
-    [[ "${q}" == "gir1.2-webkit-6.0" ]] && has_webkit6=1
+    [[ "${q}" == "libgtk-4-1" ]] && has_gtk4_rt=1
+    [[ "${q}" == "libwebkitgtk-6.0-1" ]] && has_webkit_rt=1
+    [[ "${q}" == "libgtk-4-dev" ]] && has_gtk4_dev=1
+    [[ "${q}" == "libwebkitgtk-6.0-dev" ]] && has_webkit_dev=1
+    [[ "${q}" == "pkg-config" ]] && has_pkgc=1
   done
   if [[ "${has_labwc}" != "1" ]]; then
-    fail "Required package 'labwc' not available from apt. On Ubuntu enable 'universe'; on Debian use main. See docs/KIOSK.md."
+    fail "Required package 'labwc' not available from apt. Enable Debian main / Ubuntu universe. See docs/KIOSK.md."
   fi
-  if [[ "${has_pygi}" != "1" || "${has_gtk4}" != "1" || "${has_webkit6}" != "1" ]]; then
-    fail "Required kiosk-browser runtime missing (python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0). Install from Debian Trixie main / Ubuntu main. See docs/KIOSK.md."
+  if [[ "${has_gtk4_rt}" != "1" || "${has_webkit_rt}" != "1" ]]; then
+    fail "Required runtime libraries missing (libgtk-4-1, libwebkitgtk-6.0-1). Install from Debian Trixie main. See docs/KIOSK.md."
+  fi
+  if [[ "${has_gtk4_dev}" != "1" || "${has_webkit_dev}" != "1" || "${has_pkgc}" != "1" ]]; then
+    fail "Required build headers missing (libgtk-4-dev, libwebkitgtk-6.0-dev, pkg-config). Needed to compile crates/kiosk-browser."
   fi
 
   log "Installing ${#resolved[@]} package(s) (filtered to index-available names)."
@@ -345,15 +367,80 @@ EOF
   log "Installed ${auto_drop_in}"
 }
 
+# Shell helpers (preflight / launch / session / autorotate). The browser
+# is NOT in this list; it is a compiled binary installed by
+# install_kiosk_browser_binary() below.
 install_helper_scripts() {
   local bin
-  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-session volumio-evo-kiosk-browser volumio-evo-kiosk-autorotate; do
+  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-session volumio-evo-kiosk-autorotate; do
     local src="${SCRIPT_DIR}/bin/${bin}"
     local dst="/usr/local/bin/${bin}"
     [[ -f "${src}" ]] || fail "Missing helper ${src}"
     install -m 0755 "${src}" "${dst}"
     log "Installed ${dst}"
   done
+}
+
+# Build and install the Rust kiosk-browser binary.
+#
+# Resolution order:
+#   1. Prebuilt at ${REPO_DIR}/layer/binaries/${triple}/volumio-evo-kiosk-browser
+#   2. cargo build -p volumio-evo-kiosk-browser --release (uses the workspace
+#      Cargo.toml at ${REPO_DIR}/Cargo.toml with its default-members
+#      exclusion; the -p flag targets the kiosk crate explicitly, so
+#      building the kiosk does not pull the whole backend along with it).
+#
+# Either path leaves the final binary at /usr/local/bin/volumio-evo-kiosk-browser.
+install_kiosk_browser_binary() {
+  local dst="/usr/local/bin/volumio-evo-kiosk-browser"
+  if [[ "${KIOSK_BUILD_BROWSER}" != "1" ]]; then
+    if [[ ! -x "${dst}" ]]; then
+      fail "KIOSK_BUILD_BROWSER=0 but ${dst} is missing. Provide the binary or re-run with KIOSK_BUILD_BROWSER=1."
+    fi
+    log "Reusing existing ${dst} (KIOSK_BUILD_BROWSER=0)."
+    return 0
+  fi
+
+  local triple
+  triple="$(host_rust_triple)"
+  local prebuilt=""
+  if [[ -n "${triple}" ]]; then
+    prebuilt="${REPO_DIR}/layer/binaries/${triple}/volumio-evo-kiosk-browser"
+  fi
+
+  if [[ -n "${prebuilt}" && -x "${prebuilt}" ]]; then
+    log "Installing prebuilt kiosk-browser from ${prebuilt}"
+    install -m 0755 "${prebuilt}" "${dst}"
+    return 0
+  fi
+
+  # Fall back to cargo build. Needs a cargo in PATH and source in repo.
+  local cargo_bin=""
+  if command -v cargo >/dev/null 2>&1; then
+    cargo_bin="$(command -v cargo)"
+  elif [[ -x /usr/local/cargo/bin/cargo ]]; then
+    cargo_bin="/usr/local/cargo/bin/cargo"
+  fi
+  if [[ -z "${cargo_bin}" ]]; then
+    fail "No prebuilt at ${prebuilt:-<none>} and cargo not found. Install Rust (bootstrap --build installs rustup) or provide layer/binaries/<triple>/volumio-evo-kiosk-browser."
+  fi
+  if [[ ! -f "${REPO_DIR}/crates/kiosk-browser/Cargo.toml" ]]; then
+    fail "crates/kiosk-browser/Cargo.toml missing in ${REPO_DIR}; kiosk crate not in this checkout."
+  fi
+  log "Building kiosk-browser from source: ${cargo_bin} build -p volumio-evo-kiosk-browser --release"
+  (
+    cd "${REPO_DIR}"
+    export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
+    export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+    export PATH="${CARGO_HOME}/bin:${PATH}"
+    "${cargo_bin}" build -p volumio-evo-kiosk-browser --release
+  )
+  local built="${REPO_DIR}/target/release/volumio-evo-kiosk-browser"
+  if [[ ! -x "${built}" ]]; then
+    fail "cargo build succeeded but ${built} is missing."
+  fi
+  install -m 0755 "${built}" "${dst}"
+  log "Installed ${dst}"
 }
 
 seed_etc_kiosk_toml() {
@@ -369,14 +456,6 @@ seed_etc_kiosk_toml() {
 }
 
 install_labwc_config() {
-  # labwc configuration lives in its own dir to avoid collision with any
-  # /etc/xdg/labwc that other packages might drop. The launcher invokes
-  # labwc with --config-dir /etc/volumio-evo/labwc so only this file is
-  # used. Contents: server-side decorations off, F24 bound to HideCursor
-  # (the session script fires F24 via wtype when cursor=hide). No
-  # windowRule for fullscreen is set - the kiosk browser requests
-  # xdg_toplevel.set_maximized so layer-shell surfaces (squeekboard OSK)
-  # render above it.
   local src="${SCRIPT_DIR}/etc/labwc/rc.xml"
   local dir="/etc/volumio-evo/labwc"
   local dst="${dir}/rc.xml"
@@ -421,6 +500,7 @@ print_status() {
   else
     log "  sudoers         : not installed (root service user; enable via KIOSK_ALLOW_ROOT=1 and re-run)"
   fi
+  log "  browser binary  : /usr/local/bin/volumio-evo-kiosk-browser (Rust, from crates/kiosk-browser)"
   log "  backend toggle  : Settings -> System -> Kiosk (enable/disable)"
   log "  logs            : journalctl -u volumio-evo-kiosk -n 100 --no-pager"
 }
@@ -446,6 +526,7 @@ main() {
   install_unit_files
   install_unit_user_drop_in "${user}"
   install_helper_scripts
+  install_kiosk_browser_binary
   seed_etc_kiosk_toml
   install_labwc_config
   ensure_settings_dir "${user}"

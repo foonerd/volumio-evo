@@ -110,6 +110,22 @@ pub fn boot_branding_install_script_path() -> PathBuf {
         .join("volumio-boot-branding.sh")
 }
 
+/// Wrapper invoked as **`sudo -n …`** from **`crate::api::kiosk_install`** so the service user can
+/// refresh the Wayland kiosk layer (same entry point as bootstrap **`--with-kiosk=wpe`**).
+/// Override with **`VOLUMIO_EVO_KIOSK_INSTALL_SCRIPT`** for development.
+pub fn kiosk_wpe_install_run_script_path() -> PathBuf {
+    std::env::var("VOLUMIO_EVO_KIOSK_INSTALL_SCRIPT")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| {
+            evo_repo_dir()
+                .join("layer")
+                .join("install")
+                .join("run-kiosk-wpe-install.sh")
+        })
+}
+
 // --- SMB server (user-defined share paths): moderation -------------------------------------------
 
 /// Absolute path prefixes allowed as targets for **user-defined** SMB shares (string prefix policy; see `docs/SAMBA.md`).
@@ -155,4 +171,30 @@ pub fn kiosk_cursor_overlay_path() -> PathBuf {
 /// `settings/kiosk/auto_rotate`: `true` | `false`.
 pub fn kiosk_auto_rotate_overlay_path() -> PathBuf {
     kiosk_state_dir().join("auto_rotate")
+}
+
+/// `settings/kiosk/zoom`: WebKit page zoom level, float as string (e.g. `"1.2"`).
+/// Consumed by `/usr/local/bin/volumio-evo-kiosk-browser` via `KIOSK_ZOOM` env
+/// which the launcher exports from this overlay. Matches the Node kiosk
+/// `display_zoom` select (60 % - 170 %, default 1.2) so Bootstrap breakpoint
+/// behaviour on the kiosk UI is identical across Node and Evo.
+pub fn kiosk_zoom_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("zoom")
+}
+
+/// `settings/kiosk/scale`: Wayland output scale, either `auto` or a float as
+/// string (e.g. `"1.5"`). Applied by the session script via `wlr-randr
+/// --output <name> --scale <f>` once labwc has opened the Wayland socket.
+pub fn kiosk_scale_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("scale")
+}
+
+/// `settings/kiosk/osk_layout`: resolved XKB layout for the on-screen
+/// keyboard (e.g. `us`, `gb`, `de`). The backend normalises the UI value
+/// (`auto` or a specific code) and writes the resolved XKB code here; the
+/// session script reads it and runs `gsettings set
+/// org.gnome.desktop.input-sources sources "[('xkb', '<code>')]"` before
+/// launching squeekboard so the OSK matches the system locale.
+pub fn kiosk_osk_layout_overlay_path() -> PathBuf {
+    kiosk_state_dir().join("osk_layout")
 }

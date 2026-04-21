@@ -40,6 +40,8 @@ When a non-root user runs Evo:
 | `/etc/sudoers.d/volumio-evo-hostname-timedate` | NOPASSWD **`hostnamectl set-hostname *`** and **`timedatectl set-timezone *`** | Root; paths must match **`VOLUMIO_EVO_HOSTNAMECTL`** / **`VOLUMIO_EVO_TIMEDATECTL`** in **`10-runtime-user.conf`** |
 | `/etc/sudoers.d/volumio-evo-rtcwake` | NOPASSWD **`rtcwake`** (full binary path) | Root; path must match **`VOLUMIO_EVO_RTCWAKE`** — alarm RTC wake / suspend tests (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | `/etc/sudoers.d/volumio-evo-boot-branding` (bootstrap; disable with **`EVO_INSTALL_BOOT_BRANDING_SUDOERS=0`**) | NOPASSWD **`/usr/share/volumio-evo/repo/layer/install/run-boot-branding.sh`** (or the path from **`VOLUMIO_EVO_BOOT_BRANDING_SCRIPT`**) | Service user; allow only this wrapper (see **[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
+| **`/etc/sudoers.d/volumio-evo-kiosk-layer-install`** (bootstrap; disable with **`EVO_INSTALL_KIOSK_LAYER_SUDOERS=0`**) | NOPASSWD **`/usr/share/volumio-evo/repo/layer/install/run-kiosk-wpe-install.sh`** — **`layer/kiosk-wpe/install.sh`** (**[KIOSK.md](KIOSK.md)**); dev override **`VOLUMIO_EVO_KIOSK_INSTALL_SCRIPT`** must match sudoers | Service user (**[`kiosk_install.rs`](../crates/core/src/api/kiosk_install.rs)**) |
+| **`/etc/sudoers.d/volumio-evo-kiosk-control`** (bootstrap; disable with **`EVO_INSTALL_KIOSK_CONTROL_SUDOERS=0`**) | NOPASSWD **`systemctl`** on **`volumio-evo-kiosk.service`** and **`volumio-evo-kiosk-autorotate.service`** (narrow verbs) — path must match **`VOLUMIO_EVO_KIOSK_SYSTEMCTL`** | Service user (**[`kiosk.rs`](../crates/core/src/kiosk.rs)**) |
 | **`/etc/sudoers.d/volumio-evo-ui-bootstrap`** (bootstrap; disable with **`EVO_INSTALL_UI_BOOTSTRAP_SUDOERS=0`**) | NOPASSWD **`bootstrap-volumio-evo-player.sh --apply-ui-only`** at the canonical absolute path (**must** match **`Environment=VOLUMIO_EVO_BOOTSTRAP_SCRIPT`** in **`10-runtime-user.conf`**) | Service user; nginx **`root`** follows **`[ui] active_layout`** (**[`ui_bootstrap.rs`](../crates/core/src/ui_bootstrap.rs)**) |
 | `/etc/sudoers.d/volumio-evo-samba` (disable with **`EVO_INSTALL_SAMBA_SUDOERS=0`**) | NOPASSWD **`install`** **`…/settings/samba/smb.conf.generated`** → **`/etc/samba/smb.conf`**, **`systemctl`** **`stop`**/**`restart`** **`smbd`**/**`nmbd`**, **`/usr/local/bin/volumio-evo-smb-user-sync.sh`** | Root; paths must match [**`paths.rs`**](../crates/core/src/paths.rs) default generated file and **`VOLUMIO_EVO_SYSTEMCTL`** (**[SAMBA.md](SAMBA.md)**) |
 
@@ -59,6 +61,8 @@ When a non-root user runs Evo:
 | **`timedatectl`** (`set-timezone`) | Persisted timezone | **Root**, or **`sudo -n $VOLUMIO_EVO_TIMEDATECTL set-timezone …`** — same sudoers fragment as **`hostnamectl`** |
 | **`rtcwake`** | Program/clear RTC alarm for wake-from-suspend (**alarm clock** groundwork) | **Root**, or **`sudo -n $VOLUMIO_EVO_RTCWAKE …`** — bootstrap **`volumio-evo-rtcwake`** when **`EVO_INSTALL_RTCWAKE_SUDOERS=1`** (**[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | **Boot branding** installer | **Settings → System → Boot branding** | **Root**, or **`sudo -n /path/to/run-boot-branding.sh <rotation>`** — narrow sudoers line for the wrapper script only (**[BRANDED_BOOT.md](BRANDED_BOOT.md)**) |
+| **Kiosk layer** installer | **Settings → System → Kiosk** (**`saveKioskSettings`** when enabling / layer missing) or **`installKioskLayer`** **`callMethod`** | **Root**, or **`sudo -n /usr/share/volumio-evo/repo/layer/install/run-kiosk-wpe-install.sh`** — **volumio-evo-kiosk-layer-install** sudoers; same script as bootstrap **`--with-kiosk=wpe`** (**[KIOSK.md](KIOSK.md)**) |
+| **Kiosk systemd** | **Settings → System → Kiosk** (after layer installed) | **Root**, or **`sudo -n $VOLUMIO_EVO_KIOSK_SYSTEMCTL start|stop|restart|enable|disable volumio-evo-kiosk(.service)`** / **`volumio-evo-kiosk-autorotate`** — **volumio-evo-kiosk-control** sudoers (**[kiosk.rs](../crates/core/src/kiosk.rs)**) |
 | **SMB server** (`smb.conf`, **`smbd`**/**`nmbd`**, optional Unix/Samba users) | Settings → Network → SMB | **Root:** write generated file under **`…/settings/samba/`**, **`install`** → **`/etc/samba/smb.conf`**, **`systemctl`** **`smbd`**/**`nmbd`**. **Non-root:** same via **`sudo -n`** — bootstrap **`volumio-evo-samba`** when **`EVO_INSTALL_SAMBA_SUDOERS=1`**; named users via **`sudo -n /usr/local/bin/volumio-evo-smb-user-sync.sh`** only (**[SAMBA.md](SAMBA.md)**) |
 
 Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** session.
@@ -76,6 +80,8 @@ Nothing in Evo opens an interactive **`sudo`**, **`su`**, or **`pkexec`** sessio
 | **`EVO_INSTALL_RTCWAKE_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-rtcwake`** for **`sudo -n rtcwake`** (RTC alarm / wake-from-suspend — **[ALARM_WAKE.md](ALARM_WAKE.md)**) |
 | **`EVO_INSTALL_UI_BOOTSTRAP_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-ui-bootstrap`** for **`sudo -n`** **`bootstrap-volumio-evo-player.sh`** **`--apply-ui-only`** (Appearance layout → nginx); script path must match **`VOLUMIO_EVO_BOOTSTRAP_SCRIPT`** |
 | **`EVO_INSTALL_SAMBA_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-samba`** for SMB server apply (**`install`** **`smb.conf.generated`**, **`systemctl`** **`smbd`**/**`nmbd`**, **`volumio-evo-smb-user-sync.sh`** — **[SAMBA.md](SAMBA.md)**) |
+| **`EVO_INSTALL_KIOSK_LAYER_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-kiosk-layer-install`** for **`sudo -n`** **`run-kiosk-wpe-install.sh`** (**[KIOSK.md](KIOSK.md)**) |
+| **`EVO_INSTALL_KIOSK_CONTROL_SUDOERS`** | `1` | Installs **`/etc/sudoers.d/volumio-evo-kiosk-control`** for narrow **`systemctl`** on kiosk units (**[kiosk.rs](../crates/core/src/kiosk.rs)**) |
 | **`EVO_SERVICE_USER`** | unset → auto | See **RUNTIME_USER.md** |
 
 Setting **`EVO_INSTALL_MPD_SUDOERS=0`** while running Evo **as non-root** means fragment writes may succeed but **MPD reload will fail** unless you run Evo as **root** or install an equivalent **NOPASSWD** rule yourself.
@@ -89,5 +95,6 @@ Setting **`EVO_INSTALL_MPD_SUDOERS=0`** while running Evo **as non-root** means 
 ## Related documents
 
 - **[RUNTIME_USER.md](RUNTIME_USER.md)** — bootstrap variables and service user selection  
+- **[KIOSK.md](KIOSK.md)** — Wayland kiosk install + **`installKioskLayer`** + sudoers  
 - **[SETTINGS_LAYOUT.md](SETTINGS_LAYOUT.md)** — persisted paths under `/var/lib/volumio-evo/settings/`  
 - **[OBSERVABILITY.md](OBSERVABILITY.md)** — logging and `journalctl`

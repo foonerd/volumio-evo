@@ -32,8 +32,8 @@
 
 ## 6. Operations
 
-Index (assumptions, done vs not, doc authority): **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)**. Logs: [OBSERVABILITY.md](OBSERVABILITY.md). Binaries: [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`**. Plymouth: [BRANDED_BOOT.md](BRANDED_BOOT.md).
+Index (assumptions, done vs not, doc authority): **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)**. Logs: [OBSERVABILITY.md](OBSERVABILITY.md). Binaries: [BUILD_GUIDE.md](BUILD_GUIDE.md), **`layer/binaries/README.md`**. Plymouth: [BRANDED_BOOT.md](BRANDED_BOOT.md). Wayland kiosk: [KIOSK.md](KIOSK.md).
 
-## 7. Deferred: kiosk display shell
+## 7. On-device kiosk (Wayland)
 
-A dedicated **kiosk** (full-screen browser on Wayland, touch/OSK) is **not part of the shipped Evo backend requirement** — **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** (*Deferred / reference*). Specification: [KIOSK.md](KIOSK.md).
+A **kiosk layer** (**labwc** + **`volumio-evo-kiosk-browser`**) runs **beside** the Evo backend on supported images: **`layer/kiosk-wpe/`**, **`crates/kiosk-browser/`**, **`crates/core/src/kiosk.rs`**. Bootstrap opt-in (**`--with-kiosk=wpe`** / **`--kiosk-wpe`**); binaries from **`layer/binaries/<triple>/`** where possible; Settings → System drives **`systemctl`** via narrow sudoers. Operator and parity detail: **[KIOSK.md](KIOSK.md)** and **[DOCUMENTATION_MAP.md](DOCUMENTATION_MAP.md)** (*Wayland kiosk* authority row).
