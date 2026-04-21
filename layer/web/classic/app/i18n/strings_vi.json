@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "Dành cho shell Wayland/WPE trên thiết bị; xem docs/KIOSK.md.",
     "LOCALE_REGION": "Ngôn ngữ, khu vực và múi giờ",
     "PRIMARY_DISPLAY": "Màn hình chính",
-    "PRIMARY_DISPLAY_DOC": "Đầu ra nào hiển thị giao diện toàn màn hình khi bật kiosk."
+    "PRIMARY_DISPLAY_DOC": "Đầu ra nào hiển thị giao diện toàn màn hình khi bật kiosk.",
+    "KIOSK_ROTATION": "Xoay màn hình",
+    "KIOSK_ROTATION_DOC": "Xoay giao diện kiosk trong framebuffer (0°, 90°, 180° hoặc 270°).",
+    "KIOSK_AUTO_ROTATE": "Xoay tự động",
+    "KIOSK_AUTO_ROTATE_DOC": "Điều chỉnh xoay khi màn hình báo thay đổi hướng.",
+    "KIOSK_OSK": "Bàn phím trên màn hình",
+    "KIOSK_OSK_DOC": "Bàn phím ảo cảm ứng (Squeekboard, wvkbd hoặc không).",
+    "KIOSK_CURSOR": "Con trỏ",
+    "KIOSK_CURSOR_DOC": "Hiện hoặc ẩn con trỏ chuột hoặc mặc định.",
+    "KIOSK_ZOOM": "Thu phóng web",
+    "KIOSK_ZOOM_DOC": "Mức thu phóng trình duyệt kiosk nhúng.",
+    "KIOSK_SCALE": "Tỷ lệ giao diện",
+    "KIOSK_SCALE_DOC": "Tỷ lệ tổng thể của shell kiosk.",
+    "KIOSK_OSK_LAYOUT": "Bố cục bàn phím",
+    "KIOSK_OSK_LAYOUT_DOC": "Gợi ý bố cục hoặc ngôn ngữ cho bàn phím trên màn hình."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Đài Radios tốt nhất",

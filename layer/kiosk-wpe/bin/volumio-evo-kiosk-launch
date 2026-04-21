@@ -188,6 +188,9 @@ export KIOSK_CURSOR="${CURSOR}"
 export KIOSK_ZOOM
 export KIOSK_SCALE
 export KIOSK_OSK_LAYOUT
+# Session applies rotation via wlr-randr together with scale (single call). If scale
+# runs alone, wlroots resets output transform — WLR_* env at labwc start is lost.
+export KIOSK_ROT="${WLR_ROT}"
 
 if [ ! -x "${SESSION_BIN}" ]; then
   log "ERROR: session helper missing at ${SESSION_BIN}"

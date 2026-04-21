@@ -1053,7 +1053,21 @@
     "KIOSK_WPE_DOC": "Skirta Wayland/WPE apvalkalui įrenginyje; žr. docs/KIOSK.md.",
     "LOCALE_REGION": "Kalba, regionas ir laiko juosta",
     "PRIMARY_DISPLAY": "Pagrindinis ekranas",
-    "PRIMARY_DISPLAY_DOC": "Kuris išėjimas rodo viso ekrano sąsają įjungus kioską."
+    "PRIMARY_DISPLAY_DOC": "Kuris išėjimas rodo viso ekrano sąsają įjungus kioską.",
+    "KIOSK_ROTATION": "Ekrano pasukimas",
+    "KIOSK_ROTATION_DOC": "Suka kiosko sąsają rėminėje buferinėje atmintyje (0°, 90°, 180° arba 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatinis pasukimas",
+    "KIOSK_AUTO_ROTATE_DOC": "Derina pasukimą, kai ekranas praneša apie krypties pokytį.",
+    "KIOSK_OSK": "Ekrano klaviatūra",
+    "KIOSK_OSK_DOC": "Virtuali klaviatūra liečiamajam valdymui (Squeekboard, wvkbd arba jokios).",
+    "KIOSK_CURSOR": "Žymeklis",
+    "KIOSK_CURSOR_DOC": "Rodyti ar slėpti pelės žymeklį arba naudoti numatytą.",
+    "KIOSK_ZOOM": "Žiniatinklio mastelis",
+    "KIOSK_ZOOM_DOC": "Įdedamosios kiosko naršyklės mastelio lygis.",
+    "KIOSK_SCALE": "Sąsajos mastelis",
+    "KIOSK_SCALE_DOC": "Bendras kiosko apvalkalo mastelio keitimas.",
+    "KIOSK_OSK_LAYOUT": "Klaviatūros išdėstymas",
+    "KIOSK_OSK_LAYOUT_DOC": "Išdėstymo ar kalbos užuomina ekrano klaviatūrai."
   },
   "MAIN_MENU": {
     "ALARM": "Žadintuvas",

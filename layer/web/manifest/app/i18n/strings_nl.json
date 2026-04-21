@@ -1150,7 +1150,21 @@
     "KIOSK_WPE_DOC": "Gereserveerd voor Wayland/WPE-shell op het apparaat; zie docs/KIOSK.md.",
     "LOCALE_REGION": "Taal, regio en tijdzone",
     "PRIMARY_DISPLAY": "Primair scherm",
-    "PRIMARY_DISPLAY_DOC": "Welke uitgang toont de volledige scherm-interface als kiosk actief is."
+    "PRIMARY_DISPLAY_DOC": "Welke uitgang toont de volledige scherm-interface als kiosk actief is.",
+    "KIOSK_ROTATION": "Schermrotatie",
+    "KIOSK_ROTATION_DOC": "Roteert de kiosk-UI in het framebuffer (0°, 90°, 180° of 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatische rotatie",
+    "KIOSK_AUTO_ROTATE_DOC": "Past rotatie aan wanneer het scherm oriëntatieverandering meldt.",
+    "KIOSK_OSK": "Schermtoetsenbord",
+    "KIOSK_OSK_DOC": "Virtueel toetsenbord voor aanraakbediening (Squeekboard, wvkbd of geen).",
+    "KIOSK_CURSOR": "Aanwijzer",
+    "KIOSK_CURSOR_DOC": "Muiscursor tonen, verbergen of standaard laten.",
+    "KIOSK_ZOOM": "Webzoom",
+    "KIOSK_ZOOM_DOC": "Zoomniveau van de ingesloten kioskbrowser.",
+    "KIOSK_SCALE": "Interface­schaal",
+    "KIOSK_SCALE_DOC": "Globale schaling van de kiosk-shell.",
+    "KIOSK_OSK_LAYOUT": "Toetsenbordindeling",
+    "KIOSK_OSK_LAYOUT_DOC": "Indeling of taalhint voor het schermtoetsenbord."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Beste radiostations",

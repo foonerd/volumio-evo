@@ -951,7 +951,21 @@
     "KIOSK_WPE_DOC": "Reservat per a la shell Wayland/WPE al dispositiu; vegeu docs/KIOSK.md.",
     "LOCALE_REGION": "Idioma, regió i zona horària",
     "PRIMARY_DISPLAY": "Pantalla principal",
-    "PRIMARY_DISPLAY_DOC": "Quina sortida mostra la interfície a pantalla completa amb el quiosc activat."
+    "PRIMARY_DISPLAY_DOC": "Quina sortida mostra la interfície a pantalla completa amb el quiosc activat.",
+    "KIOSK_ROTATION": "Rotació de pantalla",
+    "KIOSK_ROTATION_DOC": "Gira la interfície del quiosc al framebuffer (0°, 90°, 180° o 270°).",
+    "KIOSK_AUTO_ROTATE": "Rotació automàtica",
+    "KIOSK_AUTO_ROTATE_DOC": "Ajusta la rotació quan la pantalla informa canvis d’orientació.",
+    "KIOSK_OSK": "Teclat en pantalla",
+    "KIOSK_OSK_DOC": "Teclat virtual tàctil (Squeekboard, wvkbd o cap).",
+    "KIOSK_CURSOR": "Cursor",
+    "KIOSK_CURSOR_DOC": "Mostrar o amagar el cursor o usar el valor per defecte.",
+    "KIOSK_ZOOM": "Zoom web",
+    "KIOSK_ZOOM_DOC": "Nivell de zoom del navegador integrat del quiosc.",
+    "KIOSK_SCALE": "Escala de la interfície",
+    "KIOSK_SCALE_DOC": "Escalat global del shell del quiosc.",
+    "KIOSK_OSK_LAYOUT": "Disposició del teclat",
+    "KIOSK_OSK_LAYOUT_DOC": "Indicació de disposició o idioma del teclat en pantalla."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Millors ràdios",

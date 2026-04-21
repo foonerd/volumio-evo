@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "기기의 Wayland/WPE 셸용 예약됨. docs/KIOSK.md 참고.",
     "LOCALE_REGION": "언어, 국가 및 표준 시간대",
     "PRIMARY_DISPLAY": "기본 디스플레이",
-    "PRIMARY_DISPLAY_DOC": "키오스크가 켜졌을 때 전체 화면 UI를 표시하는 출력입니다."
+    "PRIMARY_DISPLAY_DOC": "키오스크가 켜졌을 때 전체 화면 UI를 표시하는 출력입니다.",
+    "KIOSK_ROTATION": "화면 회전",
+    "KIOSK_ROTATION_DOC": "프레임버퍼에서 키오스크 UI를 회전합니다 (0°, 90°, 180°, 270°).",
+    "KIOSK_AUTO_ROTATE": "자동 회전",
+    "KIOSK_AUTO_ROTATE_DOC": "디스플레이 방향 변경을 보고하면 회전을 맞춥니다.",
+    "KIOSK_OSK": "화상 키보드",
+    "KIOSK_OSK_DOC": "터치용 가상 키보드 (Squeekboard, wvkbd 또는 없음).",
+    "KIOSK_CURSOR": "포인터",
+    "KIOSK_CURSOR_DOC": "마우스 포인터 표시·숨김 또는 기본값 사용.",
+    "KIOSK_ZOOM": "웹 확대",
+    "KIOSK_ZOOM_DOC": "내장 키오스크 브라우저의 확대 수준.",
+    "KIOSK_SCALE": "인터페이스 배율",
+    "KIOSK_SCALE_DOC": "키오스크 셸 전체 크기 조정.",
+    "KIOSK_OSK_LAYOUT": "키보드 레이아웃",
+    "KIOSK_OSK_LAYOUT_DOC": "화상 키보드의 레이아웃 또는 언어 힌트."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "베스트 라디오",

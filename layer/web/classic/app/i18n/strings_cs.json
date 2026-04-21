@@ -1098,7 +1098,21 @@
     "KIOSK_WPE_DOC": "Vyhrazeno pro Wayland/WPE shell na zařízení; viz docs/KIOSK.md.",
     "LOCALE_REGION": "Jazyk, region a časové pásmo",
     "PRIMARY_DISPLAY": "Primární displej",
-    "PRIMARY_DISPLAY_DOC": "Který výstup zobrazuje celoobrazové rozhraní při zapnutém kiosku."
+    "PRIMARY_DISPLAY_DOC": "Který výstup zobrazuje celoobrazové rozhraní při zapnutém kiosku.",
+    "KIOSK_ROTATION": "Otáčení obrazovky",
+    "KIOSK_ROTATION_DOC": "Otočí kioskové rozhraní ve framebufferu (0°, 90°, 180° nebo 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatické otáčení",
+    "KIOSK_AUTO_ROTATE_DOC": "Přizpůsobí rotaci při změně orientace displeje.",
+    "KIOSK_OSK": "Klávesnice na obrazovce",
+    "KIOSK_OSK_DOC": "Virtuální klávesnice pro dotyk (Squeekboard, wvkbd nebo žádná).",
+    "KIOSK_CURSOR": "Ukazatel",
+    "KIOSK_CURSOR_DOC": "Zobrazit nebo skrýt ukazatel myši nebo použít výchozí nastavení.",
+    "KIOSK_ZOOM": "Zoom webu",
+    "KIOSK_ZOOM_DOC": "Úroveň přiblížení vestavěného kioskového prohlížeče.",
+    "KIOSK_SCALE": "Měřítko rozhraní",
+    "KIOSK_SCALE_DOC": "Celkové měřítko kioskového prostředí.",
+    "KIOSK_OSK_LAYOUT": "Rozložení klávesnice",
+    "KIOSK_OSK_LAYOUT_DOC": "Nápověda rozložení nebo jazyka pro klávesnici na obrazovce."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Nejlepší rádia",

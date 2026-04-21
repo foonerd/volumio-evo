@@ -1097,7 +1097,21 @@
     "KIOSK_WPE_DOC": "预留给设备上的 Wayland/WPE 壳层；见 docs/KIOSK.md。",
     "LOCALE_REGION": "语言、地区与时区",
     "PRIMARY_DISPLAY": "主显示器",
-    "PRIMARY_DISPLAY_DOC": "开启展台时由哪个输出显示全屏界面。"
+    "PRIMARY_DISPLAY_DOC": "开启展台时由哪个输出显示全屏界面。",
+    "KIOSK_ROTATION": "屏幕旋转",
+    "KIOSK_ROTATION_DOC": "在帧缓冲中旋转展台界面（0°、90°、180° 或 270°）。",
+    "KIOSK_AUTO_ROTATE": "自动旋转",
+    "KIOSK_AUTO_ROTATE_DOC": "当显示器报告方向变化时匹配旋转。",
+    "KIOSK_OSK": "屏幕键盘",
+    "KIOSK_OSK_DOC": "触控虚拟键盘（Squeekboard、wvkbd 或无）。",
+    "KIOSK_CURSOR": "指针",
+    "KIOSK_CURSOR_DOC": "显示或隐藏鼠标指针，或使用默认行为。",
+    "KIOSK_ZOOM": "网页缩放",
+    "KIOSK_ZOOM_DOC": "内嵌展台浏览器的缩放级别。",
+    "KIOSK_SCALE": "界面缩放",
+    "KIOSK_SCALE_DOC": "展台外壳的整体界面缩放。",
+    "KIOSK_OSK_LAYOUT": "键盘布局",
+    "KIOSK_OSK_LAYOUT_DOC": "屏幕键盘的布局或语言提示。"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "最佳收音机",

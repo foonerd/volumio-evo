@@ -29,6 +29,8 @@
 #   KIOSK_CURSOR      "auto" | "show" | "hide"
 #   KIOSK_ZOOM        float or "auto"    (forwarded to the browser binary)
 #   KIOSK_SCALE       float or "auto"    (wlroots output scale)
+#   KIOSK_ROT         "normal" | "90" | "180" | "270" — MUST be applied in the same
+#                     wlr-randr invocation as scale; a scale-only call resets transform.
 #   KIOSK_OSK_LAYOUT  XKB code (us/gb/de/...) or empty; gsettings input source
 
 set -eu
@@ -39,39 +41,45 @@ OSK_FORCE_SHOW="${OSK_FORCE_SHOW:-false}"
 KIOSK_CURSOR="${KIOSK_CURSOR:-auto}"
 KIOSK_ZOOM="${KIOSK_ZOOM:-auto}"
 KIOSK_SCALE="${KIOSK_SCALE:-auto}"
+KIOSK_ROT="${KIOSK_ROT:-normal}"
 KIOSK_OSK_LAYOUT="${KIOSK_OSK_LAYOUT:-}"
 
 log() {
   printf '[kiosk-session] %s\n' "$*"
 }
 
-# --------------------- Output scale via wlr-randr ------------------------
+# ------------------ Output scale + rotation via wlr-randr ---------------
 
-# KIOSK_SCALE: "auto" -> no-op. Numeric float (1.0, 1.25, 1.5, 2, ...)
-# -> call wlr-randr on the first enabled output to set its scale.
-# wlroots supports fractional scales via wp_fractional_scale_v1; GTK 4
-# honours the advertised scale, so this shifts the CSS viewport seen
-# by the page. Orthogonal to KIOSK_ZOOM (which is a WebKit content
-# zoom and does not change the compositor's view of the output).
-apply_output_scale() {
-  if [ "${KIOSK_SCALE}" = "auto" ] || [ -z "${KIOSK_SCALE}" ]; then
+# KIOSK_SCALE: "auto" -> omit --scale. KIOSK_ROT: "normal" -> omit --transform.
+# IMPORTANT: wlroots resets output transform when wlr-randr runs with only
+# --scale, so we must pass --transform in the same command whenever rotation
+# is non-normal (labwc's WLR_OUTPUT_* env is applied first, then this call
+# must preserve it).
+apply_output_layout() {
+  scale_auto=true
+  if [ "${KIOSK_SCALE}" != "auto" ] && [ -n "${KIOSK_SCALE}" ]; then
+    scale_auto=false
+  fi
+  rot_normal=true
+  case "${KIOSK_ROT}" in
+    normal|'') rot_normal=true ;;
+    90|180|270) rot_normal=false ;;
+    *) rot_normal=true ;;
+  esac
+  if ${scale_auto} && ${rot_normal}; then
     return 0
   fi
   if ! command -v wlr-randr >/dev/null 2>&1; then
-    log "wlr-randr not installed; skipping scale=${KIOSK_SCALE}"
+    log "wlr-randr not installed; skipping layout (scale=${KIOSK_SCALE} rot=${KIOSK_ROT})"
     return 0
   fi
   # Give labwc a moment to finish output bring-up; wlr-randr will fail
   # with "compositor unavailable" otherwise on cold starts.
   sleep 1
-  # Parse wlr-randr output: top-level names start in column 0, followed
-  # by indented property lines. We want the first output whose details
-  # include "Enabled: yes".
   out=$(wlr-randr 2>/dev/null || true)
   name=""
   current=""
   first_enabled=""
-  # shellcheck disable=SC2086
   printf '%s\n' "${out}" | while IFS= read -r line; do
     case "${line}" in
       [!\ ]*)
@@ -91,17 +99,24 @@ apply_output_scale() {
     rm -f "/tmp/.kiosk-first-output.$$" 2>/dev/null || true
   fi
   if [ -z "${name}" ]; then
-    log "wlr-randr: no enabled output found; not applying scale=${KIOSK_SCALE}"
+    log "wlr-randr: no enabled output found; not applying layout"
     return 0
   fi
-  if wlr-randr --output "${name}" --scale "${KIOSK_SCALE}" 2>/dev/null; then
-    log "Applied wlr-randr scale=${KIOSK_SCALE} to output=${name}"
+  set -- wlr-randr --output "${name}"
+  if ! ${rot_normal}; then
+    set -- "$@" --transform "${KIOSK_ROT}"
+  fi
+  if ! ${scale_auto}; then
+    set -- "$@" --scale "${KIOSK_SCALE}"
+  fi
+  if "$@" 2>/dev/null; then
+    log "Applied wlr-randr output=${name} transform=${KIOSK_ROT} scale=${KIOSK_SCALE}"
   else
-    log "wlr-randr --output ${name} --scale ${KIOSK_SCALE} failed; continuing"
+    log "wlr-randr failed (output=${name} transform=${KIOSK_ROT} scale=${KIOSK_SCALE}); continuing"
   fi
 }
 
-apply_output_scale
+apply_output_layout
 
 # --------------------- OSK XKB layout via gsettings ----------------------
 

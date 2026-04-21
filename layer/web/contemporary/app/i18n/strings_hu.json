@@ -1096,7 +1096,21 @@
     "KIOSK_WPE_DOC": "Fenntartva az eszköz Wayland/WPE héjához; lásd docs/KIOSK.md.",
     "LOCALE_REGION": "Nyelv, régió és időzóna",
     "PRIMARY_DISPLAY": "Elsődleges kijelző",
-    "PRIMARY_DISPLAY_DOC": "Melyik kimenet mutatja a teljes képernyős felületet kioszk módban."
+    "PRIMARY_DISPLAY_DOC": "Melyik kimenet mutatja a teljes képernyős felületet kioszk módban.",
+    "KIOSK_ROTATION": "Képernyő forgatás",
+    "KIOSK_ROTATION_DOC": "Forgatja a kiosk felületét a framebufferben (0°, 90°, 180° vagy 270°).",
+    "KIOSK_AUTO_ROTATE": "Automatikus forgatás",
+    "KIOSK_AUTO_ROTATE_DOC": "Igazítja a forgatást, ha a kijelző tájolási változást jelez.",
+    "KIOSK_OSK": "Képernyő-billentyűzet",
+    "KIOSK_OSK_DOC": "Érintéshez virtuális billentyűzet (Squeekboard, wvkbd vagy nincs).",
+    "KIOSK_CURSOR": "Mutató",
+    "KIOSK_CURSOR_DOC": "Egérmutató megjelenítése, elrejtése vagy alapértelmezés.",
+    "KIOSK_ZOOM": "Web nagyítás",
+    "KIOSK_ZOOM_DOC": "A beágyazott kiosk böngésző nagyítási szintje.",
+    "KIOSK_SCALE": "Felületi méretezés",
+    "KIOSK_SCALE_DOC": "A kiosk shell általános méretezése.",
+    "KIOSK_OSK_LAYOUT": "Billentyűzet kiosztás",
+    "KIOSK_OSK_LAYOUT_DOC": "Kiosztás vagy nyelv jelzés a képernyő-billentyűzethez."
   },
   "WEBRADIO": {
     "BEST_RADIOS": "Legjobb rádiók",

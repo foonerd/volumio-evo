@@ -1097,7 +1097,21 @@
     "KIOSK_WPE_DOC": "สำรองสำหรับ Wayland/WPE shell บนอุปกรณ์ ดู docs/KIOSK.md",
     "LOCALE_REGION": "ภาษา ภูมิภาค และเขตเวลา",
     "PRIMARY_DISPLAY": "จอหลัก",
-    "PRIMARY_DISPLAY_DOC": "เอาต์พุตใดแสดง UI เต็มจอเมื่อเปิดโหมดคีออสก์"
+    "PRIMARY_DISPLAY_DOC": "เอาต์พุตใดแสดง UI เต็มจอเมื่อเปิดโหมดคีออสก์",
+    "KIOSK_ROTATION": "หมุนหน้าจอ",
+    "KIOSK_ROTATION_DOC": "หมุน UI คีออสก์ใน framebuffer (0°, 90°, 180° หรือ 270°)",
+    "KIOSK_AUTO_ROTATE": "หมุนอัตโนมัติ",
+    "KIOSK_AUTO_ROTATE_DOC": "ปรับการหมุนเมื่อจอรายงานการเปลี่ยนแนว",
+    "KIOSK_OSK": "แป้นพิมพ์บนหน้าจอ",
+    "KIOSK_OSK_DOC": "แป้นพิมพ์เสมือนสำหรับสัมผัส (Squeekboard, wvkbd หรือไม่มี)",
+    "KIOSK_CURSOR": "ตัวชี้",
+    "KIOSK_CURSOR_DOC": "แสดงหรือซ่อนตัวชี้เมาส์หรือใช้ค่าเริ่มต้น",
+    "KIOSK_ZOOM": "ซูมเว็บ",
+    "KIOSK_ZOOM_DOC": "ระดับซูมของเบราว์เซอร์คีออสก์ที่ฝัง",
+    "KIOSK_SCALE": "สเกลอินเทอร์เฟซ",
+    "KIOSK_SCALE_DOC": "การปรับขนาดทั้งหมดของเชลล์คีออสก์",
+    "KIOSK_OSK_LAYOUT": "เลย์เอาต์แป้นพิมพ์",
+    "KIOSK_OSK_LAYOUT_DOC": "คำแนะนำเลย์เอาต์หรือภาษาสำหรับแป้นพิมพ์บนหน้าจอ"
   },
   "WEBRADIO": {
     "BEST_RADIOS": "วิทยุที่ดีที่สุด",
