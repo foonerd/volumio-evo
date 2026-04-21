@@ -47,6 +47,8 @@ Environment=XDG_SESSION_TYPE=wayland
 Environment=GDK_BACKEND=wayland
 Environment=COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
 Environment=WLR_LIBINPUT_NO_DEVICES=0
+# Dedicated appliance UI on trusted LAN; sandbox can break GPU/WPE under cage restart.
+Environment=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 ExecStartPre=/usr/local/bin/volumio-evo-kiosk-preflight
 ExecStart=/usr/local/bin/volumio-evo-kiosk-launch
 Restart=always

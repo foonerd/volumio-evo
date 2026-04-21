@@ -16,10 +16,10 @@
 #   OSK              "squeekboard" | "wvkbd" | "none"
 #   OSK_FORCE_SHOW   "true" | "false"  (debug: make squeekboard visible on launch)
 #
-# Fullscreen is NOT a cog CLI flag - no such option exists in cog. cog
-# reads COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 from the unit Environment=,
-# and running under cage (a kiosk compositor) fullscreens the single
-# client regardless.
+# Fullscreen is NOT a cog CLI flag. Use --platform=wl when cog is a nested
+# client of cage (Wayland shell); libwpebackend-fdo --platform=fdo targets a
+# different embedding model. Unit still sets COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
+# where the build honours it; cage fullscreens the single client regardless.
 
 set -eu
 
@@ -79,5 +79,5 @@ fi
 
 # --------------------------- Exec cog ------------------------------------
 
-log "exec cog --platform=fdo ${KIOSK_URL}"
-exec cog --platform=fdo "${KIOSK_URL}"
+log "exec cog --platform=wl ${KIOSK_URL}"
+exec cog --platform=wl "${KIOSK_URL}"
