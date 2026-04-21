@@ -21,7 +21,8 @@ pre-installed.
                                         - accelerometer watcher, disabled by default
       bin/
         volumio-evo-kiosk-preflight     - DRM probe only (ExecStartPre)
-        volumio-evo-kiosk-launch        - cage + cog + OSK launcher
+        volumio-evo-kiosk-launch        - resolves overlays/TOML; exec cage with session helper
+        volumio-evo-kiosk-session       - cage client: OSK then cog (needs WAYLAND_DISPLAY)
         volumio-evo-kiosk-autorotate    - iio-sensor-proxy DBus client
       etc/
         kiosk.toml.example              - seeded once to /etc/volumio-evo/kiosk.toml
@@ -155,10 +156,15 @@ Default OSK is squeekboard. Fallback is wvkbd. Selection lives in
 settings/kiosk/osk or kiosk.toml osk key. Both packages install by default
 so switching is a runtime change with no apt churn.
 
+The OSK starts from **`volumio-evo-kiosk-session`** (cage's single Wayland
+client), not from `volumio-evo-kiosk-launch`, so the Wayland compositor socket
+already exists — this avoids flaky restarts when squeekboard/wvkbd ran before
+cage had brought up Wayland.
+
 Squeekboard auto-show requires the compositor to forward text-input-v3 and
-input-method-v2. Cage 0.2.0 in Trixie is expected to handle this; the
-launcher still sets the squeekboard gsettings key on first start. If your
-hardware needs manual toggling, pick wvkbd in the UI.
+input-method-v2. Cage 0.2.0 in Trixie is expected to handle this; the session
+helper still sets the squeekboard gsettings key on start. If your hardware
+needs manual toggling, pick wvkbd in the UI.
 
 ## Headless / VM guard
 

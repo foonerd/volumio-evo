@@ -309,7 +309,7 @@ EOF
 
 install_helper_scripts() {
   local bin
-  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-autorotate; do
+  for bin in volumio-evo-kiosk-preflight volumio-evo-kiosk-launch volumio-evo-kiosk-session volumio-evo-kiosk-autorotate; do
     local src="${SCRIPT_DIR}/bin/${bin}"
     local dst="/usr/local/bin/${bin}"
     [[ -f "${src}" ]] || fail "Missing helper ${src}"

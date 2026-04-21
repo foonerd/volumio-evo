@@ -1,14 +1,21 @@
 #!/bin/sh
-# volumio-evo-kiosk-launch - spawn OSK + exec cage+cog.
+# volumio-evo-kiosk-launch - cage launcher (system-level setup).
 #
-# Unit file sets TTYPath (static /dev/tty1), Wayland env, and
-# RuntimeDirectory=/run/volumio-evo-kiosk. Preflight only probes DRM.
+# Unit file sets TTYPath=/dev/tty1, Wayland env, RuntimeDirectory=, and
+# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1. Preflight only probes DRM.
+#
+# This script resolves user settings (from overlay files + kiosk.toml),
+# exports wlroots environment for cage, and execs cage with the session
+# script as cage's single Wayland client.
+#
+# The OSK is NOT started here. It is a Wayland client and needs the cage
+# Wayland socket to already exist, which is only true after cage has
+# started. OSK startup therefore lives in volumio-evo-kiosk-session, which
+# cage spawns as its child with WAYLAND_DISPLAY already set.
 #
 # Runtime config (overlays win over TOML):
 #   - /etc/volumio-evo/kiosk.toml
 #   - /var/lib/volumio-evo/settings/kiosk/*
-#
-# OSK selection order: overlay file -> kiosk.toml osk -> squeekboard.
 
 set -eu
 
@@ -16,6 +23,7 @@ KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
 KIOSK_TOML="${KIOSK_TOML:-/etc/volumio-evo/kiosk.toml}"
 KIOSK_SETTINGS_DIR="${KIOSK_SETTINGS_DIR:-/var/lib/volumio-evo/settings/kiosk}"
 KIOSK_OUTPUT="${KIOSK_OUTPUT:-}"
+SESSION_BIN="/usr/local/bin/volumio-evo-kiosk-session"
 
 log() {
   printf '[kiosk-launch] %s\n' "$*"
@@ -98,7 +106,7 @@ AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
 XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
 ROT_RAW=$(resolve rotation rotation 0)
 
-# Rotation: overlay > TOML > 0 (preflight no longer exports KIOSK_ROTATION).
+# Rotation: overlay > TOML > 0.
 case "${ROT_RAW}" in
   0)   CAGE_ROT=normal ;;
   90)  CAGE_ROT=90 ;;
@@ -107,7 +115,7 @@ case "${ROT_RAW}" in
   *)   CAGE_ROT=normal ;;
 esac
 
-# URL override via TOML, but overlay fixed to nginx root in P0.
+# URL override via TOML.
 URL_FROM_TOML=$(toml_get url "${KIOSK_URL}")
 if [ -n "${URL_FROM_TOML}" ]; then
   KIOSK_URL="${URL_FROM_TOML}"
@@ -115,53 +123,7 @@ fi
 
 log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${CAGE_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE}"
 
-# --------------------------- OSK spawning ------------------------------
-
-OSK_PID=""
-
-start_squeekboard() {
-  if ! command -v squeekboard >/dev/null 2>&1; then
-    log "squeekboard not installed; skipping OSK"
-    return
-  fi
-  # Make sure the GNOME a11y key is set so squeekboard does not self-hide.
-  if command -v gsettings >/dev/null 2>&1; then
-    gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled true 2>/dev/null || true
-  fi
-  squeekboard &
-  OSK_PID=$!
-  log "Started squeekboard pid=${OSK_PID}"
-}
-
-start_wvkbd() {
-  if ! command -v wvkbd-mobintl >/dev/null 2>&1 && ! command -v wvkbd >/dev/null 2>&1; then
-    log "wvkbd not installed; skipping OSK"
-    return
-  fi
-  if command -v wvkbd-mobintl >/dev/null 2>&1; then
-    wvkbd-mobintl -L 280 &
-  else
-    wvkbd -L 280 &
-  fi
-  OSK_PID=$!
-  log "Started wvkbd pid=${OSK_PID}"
-}
-
-case "${OSK}" in
-  squeekboard) start_squeekboard ;;
-  wvkbd)       start_wvkbd ;;
-  none)        log "OSK disabled by config" ;;
-  *)           log "Unknown osk=${OSK}; defaulting to squeekboard"; start_squeekboard ;;
-esac
-
-cleanup() {
-  if [ -n "${OSK_PID}" ]; then
-    kill "${OSK_PID}" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-# ---------------------------- Cage + Cog -------------------------------
+# ---------------------------- Cage environment ------------------------------
 
 # Cage takes -s (allow switching) and -d (hide cursor) plus a command after
 # `--`. We map CURSOR=hide -> -d. On CURSOR=show we leave the default.
@@ -197,16 +159,23 @@ if [ -n "${KIOSK_OUTPUT}" ]; then
   export WLR_OUTPUTS="${KIOSK_OUTPUT}"
 fi
 
-# OSK_FORCE_SHOW is a debug aid: squeekboard can be forced visible via DBus.
-if [ "${OSK_FORCE_SHOW}" = "true" ] && command -v busctl >/dev/null 2>&1 && [ "${OSK}" = "squeekboard" ]; then
-  (
-    sleep 2
-    busctl call --user sm.puri.OSK0 /sm/puri/OSK0 sm.puri.OSK0 SetVisible b true 2>/dev/null || true
-  ) &
+# Pass resolved settings through to the session script. cage inherits the
+# parent environment for its single client process, so these variables are
+# visible to volumio-evo-kiosk-session when cage spawns it.
+export KIOSK_URL
+export OSK
+export OSK_FORCE_SHOW
+
+if [ ! -x "${SESSION_BIN}" ]; then
+  log "ERROR: session helper missing at ${SESSION_BIN}"
+  exit 1
 fi
 
-# Exec cage. cog runs under cage as its only client. --platform=fdo binds to
-# libwpebackend-fdo-1.0; --fullscreen is the cog flag (COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
-# is set in the unit as well).
-log "exec cage ${CAGE_ARGS} -- cog --platform=fdo --fullscreen ${KIOSK_URL}"
-exec cage ${CAGE_ARGS} -- cog --platform=fdo --fullscreen "${KIOSK_URL}"
+# Exec cage with the session script as cage's single Wayland client. The
+# session script runs inside cage's Wayland environment and will start the
+# OSK (after the Wayland socket exists) then exec cog. No --fullscreen
+# flag on cog: that flag does not exist. Fullscreen is controlled by
+# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 set in the unit Environment= block,
+# and cage as a kiosk compositor fullscreens its single client anyway.
+log "exec cage ${CAGE_ARGS} -- ${SESSION_BIN}"
+exec cage ${CAGE_ARGS} -- "${SESSION_BIN}"

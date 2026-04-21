@@ -1,0 +1,83 @@
+#!/bin/sh
+# volumio-evo-kiosk-session - cage client (runs inside the Wayland session).
+#
+# cage spawns this script as its single Wayland client after creating its
+# Wayland socket. By the time this script runs:
+#   - WAYLAND_DISPLAY is set (by cage) -> Wayland clients can connect
+#   - XDG_RUNTIME_DIR is set (by pam_systemd) -> /run/user/<uid>/
+#
+# Responsibilities:
+#   1. Start the on-screen keyboard (squeekboard, wvkbd, or none).
+#   2. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
+#   3. Exec cog as the only browser client.
+#
+# Environment variables expected from volumio-evo-kiosk-launch:
+#   KIOSK_URL        URL cog loads (resolved from overlay/TOML)
+#   OSK              "squeekboard" | "wvkbd" | "none"
+#   OSK_FORCE_SHOW   "true" | "false"  (debug: make squeekboard visible on launch)
+#
+# Fullscreen is NOT a cog CLI flag - no such option exists in cog. cog
+# reads COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 from the unit Environment=,
+# and running under cage (a kiosk compositor) fullscreens the single
+# client regardless.
+
+set -eu
+
+KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
+OSK="${OSK:-squeekboard}"
+OSK_FORCE_SHOW="${OSK_FORCE_SHOW:-false}"
+
+log() {
+  printf '[kiosk-session] %s\n' "$*"
+}
+
+# --------------------------- OSK startup ---------------------------------
+
+start_squeekboard() {
+  if ! command -v squeekboard >/dev/null 2>&1; then
+    log "squeekboard not installed; skipping OSK"
+    return
+  fi
+  # GNOME a11y key must be true or squeekboard hides itself immediately.
+  # Harmless on systems without gsettings.
+  if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.desktop.a11y.applications screen-keyboard-enabled true 2>/dev/null || true
+  fi
+  squeekboard &
+  log "Started squeekboard pid=$!"
+}
+
+start_wvkbd() {
+  if command -v wvkbd-mobintl >/dev/null 2>&1; then
+    wvkbd-mobintl -L 280 &
+    log "Started wvkbd-mobintl pid=$!"
+  elif command -v wvkbd >/dev/null 2>&1; then
+    wvkbd -L 280 &
+    log "Started wvkbd pid=$!"
+  else
+    log "wvkbd not installed; skipping OSK"
+  fi
+}
+
+case "${OSK}" in
+  squeekboard) start_squeekboard ;;
+  wvkbd)       start_wvkbd ;;
+  none)        log "OSK disabled by config" ;;
+  *)           log "Unknown osk='${OSK}'; defaulting to squeekboard"; start_squeekboard ;;
+esac
+
+# Debug aid: force squeekboard visible ~2 seconds after its DBus service is
+# up. Only meaningful when OSK=squeekboard. busctl --user uses the user bus
+# at $XDG_RUNTIME_DIR/bus which pam_systemd provisions for this session.
+if [ "${OSK_FORCE_SHOW}" = "true" ] && [ "${OSK}" = "squeekboard" ] && command -v busctl >/dev/null 2>&1; then
+  (
+    sleep 2
+    busctl call --user sm.puri.OSK0 /sm/puri/OSK0 sm.puri.OSK0 SetVisible b true 2>/dev/null || true
+  ) &
+  log "Scheduled squeekboard SetVisible true (OSK_FORCE_SHOW=true)"
+fi
+
+# --------------------------- Exec cog ------------------------------------
+
+log "exec cog --platform=fdo ${KIOSK_URL}"
+exec cog --platform=fdo "${KIOSK_URL}"
