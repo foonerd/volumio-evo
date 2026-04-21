@@ -102,9 +102,13 @@ EVO_REPO_UPDATE="${EVO_REPO_UPDATE:-1}"
 # Clone/fetch depth: default 1 (shallow) so Pi / slow Wi-Fi pulls ~current tree only (~100MB-class vs full ~1GB+).
 # Set 0 for full history (git troubleshooting, bisect); updates then use non-shallow fetch for that branch only.
 EVO_REPO_DEPTH="${EVO_REPO_DEPTH:-1}"
-# If 1 (default): when merge --ff-only FETCH_HEAD fails (shallow divergence, rewritten history,
-# unrelated histories after URL/branch changes), reset --hard FETCH_HEAD so the device tracks origin.
+# merge: try merge --ff-only FETCH_HEAD first; if that fails and EVO_REPO_RESET_IF_MERGE_FAILS=1,
+# reset --hard (local commits on device are discarded when tracking origin).
 EVO_REPO_RESET_IF_MERGE_FAILS="${EVO_REPO_RESET_IF_MERGE_FAILS:-1}"
+# Default reset: after fetch, align HEAD to FETCH_HEAD (same as ff-only merge when fast-forward possible;
+# avoids 'unrelated histories' after force-push — and updates files including this script).
+# merge: ff-only merge + optional reset on failure (development checkouts with local commits).
+EVO_REPO_UPDATE_STRATEGY="${EVO_REPO_UPDATE_STRATEGY:-reset}"
 # Optional branch to clone/track (default: remote HEAD). Export EVO_REPO_BRANCH=main if needed.
 EVO_REPO_BRANCH="${EVO_REPO_BRANCH:-}"
 # 1: if git clone fails, use pre-installed EVO_BINARY_PATH only (no layer/web — not recommended).
@@ -141,7 +145,8 @@ Environment (common):
   EVO_REPO_UPDATE=1
   EVO_REPO_DEPTH=1
   EVO_REPO_BRANCH=
-  EVO_REPO_RESET_IF_MERGE_FAILS=1   # device: align checkout to origin when ff-only fails
+  EVO_REPO_UPDATE_STRATEGY=reset    # reset | merge — reset tracks origin after fetch (recommended on devices)
+  EVO_REPO_RESET_IF_MERGE_FAILS=1   # with merge strategy: reset to FETCH_HEAD when ff-only fails
   EVO_ALLOW_BINARY_FALLBACK=0
   UI_DIST_SOURCE=/path/to/single/dist
   BACKEND_URL=http://<device-ip>:3000
@@ -1089,16 +1094,29 @@ clone_or_update_repo() {
     else
       git -C "${dir}" fetch --prune origin "${curr}" || return 1
     fi
-    if git -C "${dir}" merge --ff-only FETCH_HEAD 2>/dev/null; then
-      :
-    elif [[ "${EVO_REPO_RESET_IF_MERGE_FAILS:-1}" == "1" ]]; then
-      echo "WARN: git merge --ff-only failed for ${curr} (shallow clone, rewritten history, or unrelated histories)."
-      echo "WARN: Resetting ${dir} hard to FETCH_HEAD so this checkout matches origin/${curr} (see EVO_REPO_RESET_IF_MERGE_FAILS)."
-      git -C "${dir}" reset --hard FETCH_HEAD || return 1
-    else
-      echo "ERROR: git merge --ff-only FETCH_HEAD failed for ${curr}. Fix manually or set EVO_REPO_RESET_IF_MERGE_FAILS=1."
-      return 1
-    fi
+    # Prefer reset after fetch on devices: merge --ff-only breaks on unrelated histories after force-push,
+    # and this script lives inside the repo — merge failure prevents ever updating to a fix.
+    case "${EVO_REPO_UPDATE_STRATEGY:-reset}" in
+      merge)
+        if git -C "${dir}" merge --ff-only FETCH_HEAD 2>/dev/null; then
+          :
+        elif [[ "${EVO_REPO_RESET_IF_MERGE_FAILS:-1}" == "1" ]]; then
+          echo "WARN: git merge --ff-only failed for ${curr} (shallow clone, rewritten history, or unrelated histories)."
+          echo "WARN: Resetting ${dir} hard to FETCH_HEAD so this checkout matches origin/${curr} (see EVO_REPO_RESET_IF_MERGE_FAILS)."
+          git -C "${dir}" reset --hard FETCH_HEAD || return 1
+        else
+          echo "ERROR: git merge --ff-only FETCH_HEAD failed for ${curr}. Fix manually (e.g. git reset --hard FETCH_HEAD), set EVO_REPO_RESET_IF_MERGE_FAILS=1, or EVO_REPO_UPDATE_STRATEGY=reset."
+          return 1
+        fi
+        ;;
+      reset | "")
+        git -C "${dir}" reset --hard FETCH_HEAD || return 1
+        ;;
+      *)
+        echo "ERROR: EVO_REPO_UPDATE_STRATEGY must be reset or merge (got ${EVO_REPO_UPDATE_STRATEGY})."
+        return 1
+        ;;
+    esac
   else
     echo "Using existing repo without update: ${dir}"
   fi
