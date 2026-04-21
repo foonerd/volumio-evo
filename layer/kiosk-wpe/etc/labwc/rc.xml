@@ -1,0 +1,45 @@
+<?xml version="1.0" ?>
+<!--
+  Volumio Evo kiosk - labwc compositor config.
+
+  Minimal config: server-side decorations off (cog draws no chrome
+  anyway; this removes any titlebar/border labwc might otherwise add)
+  and F24 bound to the HideCursor action. The session script fires
+  F24 via wtype when the operator sets cursor=hide (overlay file).
+
+  Fullscreen is handled by cog itself: the unit file sets
+  COG_PLATFORM_FDO_VIEW_FULLSCREEN=1, which causes cog to issue
+  xdg_toplevel.set_fullscreen at window map time. labwc honors this
+  request as a standards-compliant xdg-shell compositor.
+
+  Installed to /etc/volumio-evo/labwc/rc.xml by
+  layer/kiosk-wpe/install.sh -> install_labwc_config(). Used via
+    labwc --config-dir /etc/volumio-evo/labwc
+  invoked from /usr/local/bin/volumio-evo-kiosk-launch.
+
+  Do not edit /etc/volumio-evo/labwc/rc.xml in place - it is
+  overwritten on every install. Edit the source at
+  layer/kiosk-wpe/etc/labwc/rc.xml in the repo.
+-->
+<labwc_config>
+
+  <core>
+    <!-- Client-side decorations: labwc draws nothing around client
+         windows. cog does not draw its own chrome for kiosk content
+         so the net effect is a clean, borderless surface. -->
+    <decoration>client</decoration>
+  </core>
+
+  <keyboard>
+    <!-- Keep the default labwc keybinds alongside ours. -->
+    <default />
+
+    <!-- F24 is a high function key not present on any real keyboard.
+         Safe to use as an IPC signal from the session script via wtype
+         without colliding with user input or application shortcuts. -->
+    <keybind key="F24">
+      <action name="HideCursor" />
+    </keybind>
+  </keyboard>
+
+</labwc_config>

@@ -1,14 +1,14 @@
-# Volumio Evo - Kiosk layer component (WPE / Cog / Cage)
+# Volumio Evo - Kiosk layer component (WPE / Cog / labwc)
 
 This directory is the runtime layer for the on-device WPE kiosk. The design
 reference is docs/KIOSK.md; this README documents what actually installs and
 how it maps to the backend.
 
 The kiosk is a Wayland full-screen shell based on Cog + WPE WebKit running
-inside the Cage compositor. It points at http://127.0.0.1/ (nginx root) and
-renders the Evo UI on a connected display with touch, keyboard, and mouse
-input. Base OS target is Debian 13 Trixie Lite with no graphical stack
-pre-installed.
+inside the **labwc** wlroots stacking compositor (`labwc --session`). It points
+at http://127.0.0.1/ (nginx root) and renders the Evo UI on a connected
+display with touch, keyboard, and mouse input. Base OS target is Debian 13
+Trixie Lite with no graphical stack pre-installed.
 
 ## File tree
 
@@ -21,12 +21,13 @@ pre-installed.
                                         - accelerometer watcher, disabled by default
       bin/
         volumio-evo-kiosk-preflight     - DRM probe only (ExecStartPre)
-        volumio-evo-kiosk-launch        - resolves overlays/TOML; exec cage with session helper
-        volumio-evo-kiosk-session       - cage client: OSK then cog (needs WAYLAND_DISPLAY)
+        volumio-evo-kiosk-launch        - overlays/TOML; exec labwc --session with session helper
+        volumio-evo-kiosk-session       - labwc session: OSK then cog (WAYLAND_DISPLAY set)
         volumio-evo-kiosk-autorotate    - iio-sensor-proxy DBus client
       etc/
         kiosk.toml.example              - seeded once to /etc/volumio-evo/kiosk.toml
         cog-settings.ini.example        - placeholder for forward-compat
+        labwc/rc.xml                    - copied to /etc/volumio-evo/labwc/rc.xml (HideCursor keybind)
 
 ## Install
 
@@ -40,8 +41,9 @@ Environment equivalent (useful in piped one-liners):
 
 The flag is off by default. Running bootstrap without it does not install any
 kiosk assets. When set, layer/kiosk-wpe/install.sh is invoked after the Evo
-stack validates, adds packages, copies units and helper scripts, seeds
-/etc/volumio-evo/kiosk.toml, and runs systemctl daemon-reload. It does NOT
+stack validates, adds packages (cog, labwc, wtype, …), copies units and helper
+scripts, seeds /etc/volumio-evo/kiosk.toml and **/etc/volumio-evo/labwc/rc.xml**,
+and runs systemctl daemon-reload. It does NOT
 enable the kiosk units - the backend toggle (Settings -> System -> WPE Kiosk)
 is the single source of truth for runtime state.
 
@@ -57,9 +59,10 @@ index (`apt-cache show`). Names that are missing on your mirror or suite (for
 example optional fonts, GStreamer plugins, or VA drivers) are skipped with a
 warning instead of failing the whole run. **`cog` pulls in the correct
 `libwpewebkit-*` / `libwpebackend-fdo-*` SONAME for your release** — those
-libraries are no longer pinned by name in the installer. **`cog` and `cage`**
+libraries are no longer pinned by name in the installer. **`cog` and `labwc`**
 must both be available or the install stops with an error (on Ubuntu, enable
-the **universe** repository).
+the **universe** repository). **`cage`** remains in the apt list only as an
+optional rollback artefact; the launcher uses labwc only.
 
 Conditional packages:
 
@@ -98,8 +101,8 @@ files above; the overlay always wins.
     osk_force_show = false                       - debug: keep OSK visible
     auto_rotate    = false                       - requires accelerometer
     color_depth    = "auto"                      - auto | 16 | 24 | 32
-    xkb_layout     = "us"                        - passed to cage via WLR_XKB_LAYOUT
-    [env]                                        - extra env for cog/cage
+    xkb_layout     = "us"                        - passed to labwc via WLR_XKB_LAYOUT
+    [env]                                        - extra env for cog/labwc
 
 ## Backend toggle and sudoers
 
@@ -147,7 +150,7 @@ Preflight now only probes **/dev/dri/card***; overlays and kiosk.toml are read b
 
 WantedBy=multi-user.target. No systemctl set-default. graphical.target is
 intentionally avoided to keep the boot graph minimal on Pi 2 class hardware.
-Cage talks directly to DRM/KMS via logind; display-manager.service is not
+labwc talks directly to DRM/KMS via logind; display-manager.service is not
 required.
 
 ## OSK behaviour
@@ -156,15 +159,18 @@ Default OSK is squeekboard. Fallback is wvkbd. Selection lives in
 settings/kiosk/osk or kiosk.toml osk key. Both packages install by default
 so switching is a runtime change with no apt churn.
 
-The OSK starts from **`volumio-evo-kiosk-session`** (cage's single Wayland
-client), not from `volumio-evo-kiosk-launch`, so the Wayland compositor socket
-already exists — this avoids flaky restarts when squeekboard/wvkbd ran before
-cage had brought up Wayland.
+The OSK starts from **`volumio-evo-kiosk-session`** (passed to **`labwc --session`**),
+not from `volumio-evo-kiosk-launch`, so the Wayland compositor socket already
+exists — **labwc implements `wlr_layer_shell_v1`**, which cage lacks and which
+on-screen keyboards rely on.
 
 Squeekboard auto-show requires the compositor to forward text-input-v3 and
-input-method-v2. Cage 0.2.0 in Trixie is expected to handle this; the session
-helper still sets the squeekboard gsettings key on start. If your hardware
-needs manual toggling, pick wvkbd in the UI.
+input-method-v2. labwc handles this stack; the session helper still sets the
+squeekboard gsettings key on start. If your hardware needs manual toggling,
+pick wvkbd in the UI.
+
+**cursor=hide:** the session script sends a synthetic **F24** via **wtype**
+(matched to **HideCursor** in `/etc/volumio-evo/labwc/rc.xml`).
 
 ## Headless / VM guard
 
@@ -200,8 +206,8 @@ This component uninstalls by:
     sudo rm -f /etc/sudoers.d/volumio-evo-kiosk-control
     sudo systemctl daemon-reload
 
-The apt packages (cog, libwpewebkit-2.0-1, cage, squeekboard, wvkbd, ...)
-remain installed; remove them with apt if desired. Persisted settings under
+The apt packages (cog, labwc, squeekboard, wvkbd, …) remain installed; remove
+them with apt if desired. Persisted settings under
 /var/lib/volumio-evo/settings/kiosk/ and /etc/volumio-evo/kiosk.toml are
 left in place.
 

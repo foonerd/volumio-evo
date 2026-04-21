@@ -1,31 +1,36 @@
 #!/bin/sh
-# volumio-evo-kiosk-session - cage client (runs inside the Wayland session).
+# volumio-evo-kiosk-session - labwc session command (Wayland client context).
 #
-# cage spawns this script as its single Wayland client after creating its
-# Wayland socket. By the time this script runs:
-#   - WAYLAND_DISPLAY is set (by cage) -> Wayland clients can connect
+# labwc spawns this script as its --session (-S) client after
+# creating its Wayland socket. By the time this script runs:
+#   - WAYLAND_DISPLAY is set (by labwc) -> Wayland clients can connect
 #   - XDG_RUNTIME_DIR is set (by pam_systemd) -> /run/user/<uid>/
 #
 # Responsibilities:
 #   1. Start the on-screen keyboard (squeekboard, wvkbd, or none).
-#   2. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
-#   3. Exec cog as the only browser client.
+#   2. If cursor=hide, fire HideCursor via wtype (keybind in rc.xml).
+#   3. Optionally force the OSK visible for debugging (OSK_FORCE_SHOW).
+#   4. Exec cog as the only browser client.
+#
+# When cog exits, this script exits, labwc exits (because it was started
+# with --session <this-script>), systemd restarts the volumio-evo-kiosk unit.
 #
 # Environment variables expected from volumio-evo-kiosk-launch:
 #   KIOSK_URL        URL cog loads (resolved from overlay/TOML)
 #   OSK              "squeekboard" | "wvkbd" | "none"
 #   OSK_FORCE_SHOW   "true" | "false"  (debug: make squeekboard visible on launch)
+#   KIOSK_CURSOR     "auto" | "show" | "hide"
 #
-# Fullscreen is NOT a cog CLI flag. Use --platform=wl when cog is a nested
-# client of cage (Wayland shell); libwpebackend-fdo --platform=fdo targets a
-# different embedding model. Unit still sets COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
-# where the build honours it; cage fullscreens the single client regardless.
+# Fullscreen is NOT a cog CLI flag - no such option exists. cog reads
+# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 from the unit Environment= and
+# requests xdg_toplevel.set_fullscreen at window map, which labwc honors.
 
 set -eu
 
 KIOSK_URL="${KIOSK_URL:-http://127.0.0.1/}"
 OSK="${OSK:-squeekboard}"
 OSK_FORCE_SHOW="${OSK_FORCE_SHOW:-false}"
+KIOSK_CURSOR="${KIOSK_CURSOR:-auto}"
 
 log() {
   printf '[kiosk-session] %s\n' "$*"
@@ -65,6 +70,20 @@ case "${OSK}" in
   none)        log "OSK disabled by config" ;;
   *)           log "Unknown osk='${OSK}'; defaulting to squeekboard"; start_squeekboard ;;
 esac
+
+# --------------------------- Cursor hide ---------------------------------
+
+# When operator sets cursor=hide (overlay), fire labwc's HideCursor action
+# via wtype. F24 is bound to HideCursor in /etc/volumio-evo/labwc/rc.xml.
+# Small delay lets labwc finish keyboard-focus setup before the synthetic
+# key arrives. Silent no-op if wtype is not installed.
+if [ "${KIOSK_CURSOR}" = "hide" ] && command -v wtype >/dev/null 2>&1; then
+  (
+    sleep 1
+    wtype -P F24 2>/dev/null || true
+  ) &
+  log "Scheduled HideCursor keybind (KIOSK_CURSOR=hide)"
+fi
 
 # Debug aid: force squeekboard visible ~2 seconds after its DBus service is
 # up. Only meaningful when OSK=squeekboard. busctl --user uses the user bus

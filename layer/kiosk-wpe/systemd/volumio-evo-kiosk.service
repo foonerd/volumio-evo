@@ -47,14 +47,14 @@ Environment=XDG_SESSION_TYPE=wayland
 Environment=GDK_BACKEND=wayland
 Environment=COG_PLATFORM_FDO_VIEW_FULLSCREEN=1
 Environment=WLR_LIBINPUT_NO_DEVICES=0
-# Dedicated appliance UI on trusted LAN; sandbox can break GPU/WPE under cage restart.
+# Dedicated appliance UI on trusted LAN; sandbox can break GPU/WPE under compositor restart.
 Environment=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 ExecStartPre=/usr/local/bin/volumio-evo-kiosk-preflight
 ExecStart=/usr/local/bin/volumio-evo-kiosk-launch
 Restart=always
 RestartSec=2
 # Do not put this unit on logind seat0 exclusively; logind + PAMName=login
-# creates the seat. Extra seat claims here just confuse cage.
+# creates the seat. Extra seat claims here just confuse labwc.
 
 [Install]
 WantedBy=multi-user.target

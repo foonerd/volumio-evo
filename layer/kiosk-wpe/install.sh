@@ -154,9 +154,16 @@ install_packages() {
   # Core browser/compositor: `cog` pulls libwpewebkit / libwpebackend-fdo with
   # correct SONAME for this release — do not pin libwpewebkit-* here (names
   # change across Debian versions and break minimal/custom mirrors).
+  #
+  # Compositor note: labwc is the active compositor (as of the cage→labwc
+  # swap). cage is kept in the list as a one-commit rollback fallback; it is
+  # not started by the launcher. wtype is used by the session script to fire
+  # a HideCursor keybind into labwc when cursor=hide is set.
   local -a pkgs=(
     cog
+    labwc
     cage
+    wtype
     squeekboard
     wvkbd
     xkb-data
@@ -221,16 +228,21 @@ install_packages() {
   local -a resolved=()
   filter_apt_packages resolved "${pkgs[@]}"
 
-  local has_cog has_cage
+  local has_cog has_labwc has_cage
   has_cog=0
+  has_labwc=0
   has_cage=0
   local q
   for q in "${resolved[@]}"; do
     [[ "${q}" == "cog" ]] && has_cog=1
+    [[ "${q}" == "labwc" ]] && has_labwc=1
     [[ "${q}" == "cage" ]] && has_cage=1
   done
-  if [[ "${has_cog}" != "1" || "${has_cage}" != "1" ]]; then
-    fail "Required packages 'cog' and/or 'cage' are not available from apt. On Ubuntu enable the 'universe' repository; on Debian use main. See docs/KIOSK.md."
+  if [[ "${has_cog}" != "1" || "${has_labwc}" != "1" ]]; then
+    fail "Required packages 'cog' and/or 'labwc' are not available from apt. On Ubuntu enable the 'universe' repository; on Debian use main. See docs/KIOSK.md."
+  fi
+  if [[ "${has_cage}" != "1" ]]; then
+    log "Note: 'cage' fallback package not available from apt; labwc is the active compositor (cage is rollback-only)."
   fi
 
   log "Installing ${#resolved[@]} package(s) (filtered to index-available names)."
@@ -337,6 +349,21 @@ seed_etc_kiosk_toml() {
   fi
 }
 
+install_labwc_config() {
+  # labwc configuration lives in its own dir to avoid collision with any
+  # /etc/xdg/labwc that other packages might drop. The launcher invokes
+  # labwc with --config-dir /etc/volumio-evo/labwc so only this file is
+  # used. Contents: server-side decorations off, F24 bound to HideCursor
+  # (the session script fires F24 via wtype when cursor=hide).
+  local src="${SCRIPT_DIR}/etc/labwc/rc.xml"
+  local dir="/etc/volumio-evo/labwc"
+  local dst="${dir}/rc.xml"
+  [[ -f "${src}" ]] || fail "Missing labwc config ${src}"
+  mkdir -p "${dir}"
+  install -m 0644 "${src}" "${dst}"
+  log "Installed ${dst}"
+}
+
 ensure_settings_dir() {
   local u="$1"
   local dir="/var/lib/volumio-evo/settings/kiosk"
@@ -412,6 +439,7 @@ main() {
   install_unit_user_drop_in "${user}"
   install_helper_scripts
   seed_etc_kiosk_toml
+  install_labwc_config
   ensure_settings_dir "${user}"
   ensure_runtime_dir_stub
 

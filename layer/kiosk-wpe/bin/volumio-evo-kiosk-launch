@@ -1,17 +1,28 @@
 #!/bin/sh
-# volumio-evo-kiosk-launch - cage launcher (system-level setup).
+# volumio-evo-kiosk-launch - compositor launcher (system-level setup).
 #
-# Unit file sets TTYPath=/dev/tty1, Wayland env, RuntimeDirectory=, and
+# Unit file sets TTYPath=/dev/tty1, Wayland env, RuntimeDirectory, and
 # COG_PLATFORM_FDO_VIEW_FULLSCREEN=1. Preflight only probes DRM.
 #
 # This script resolves user settings (from overlay files + kiosk.toml),
-# exports wlroots environment for cage, and execs cage with the session
-# script as cage's single Wayland client.
+# exports wlroots environment for the compositor, and execs labwc with
+# the session script as labwc's --session client. labwc -S <cmd> (not -s)
+# runs <cmd> and terminates the compositor when <cmd> exits — the kiosk
+# lifecycle (systemd restarts the whole unit on exit). -s alone only
+# autostarts a background command; the compositor would outlive cog.
 #
-# The OSK is NOT started here. It is a Wayland client and needs the cage
-# Wayland socket to already exist, which is only true after cage has
-# started. OSK startup therefore lives in volumio-evo-kiosk-session, which
-# cage spawns as its child with WAYLAND_DISPLAY already set.
+# Design history: an earlier revision used cage as the compositor. cage
+# is insufficient for this use case - it does not implement
+# wlr_layer_shell_v1 (breaks on-screen keyboard) and its wl_pointer
+# button delivery does not reach WPE WebKit's DOM (breaks clicks). labwc
+# fixes both, supports the same WLR_* env vars we already set, and is
+# the current default on Raspberry Pi OS with desktop.
+#
+# The OSK is NOT started here. It is a Wayland client and needs the
+# compositor's Wayland socket to already exist, which is only true after
+# labwc has started. OSK startup lives in volumio-evo-kiosk-session,
+# which labwc spawns as its session command with WAYLAND_DISPLAY already
+# set.
 #
 # Runtime config (overlays win over TOML):
 #   - /etc/volumio-evo/kiosk.toml
@@ -24,6 +35,7 @@ KIOSK_TOML="${KIOSK_TOML:-/etc/volumio-evo/kiosk.toml}"
 KIOSK_SETTINGS_DIR="${KIOSK_SETTINGS_DIR:-/var/lib/volumio-evo/settings/kiosk}"
 KIOSK_OUTPUT="${KIOSK_OUTPUT:-}"
 SESSION_BIN="/usr/local/bin/volumio-evo-kiosk-session"
+LABWC_CONFIG_DIR="/etc/volumio-evo/labwc"
 
 log() {
   printf '[kiosk-launch] %s\n' "$*"
@@ -106,13 +118,14 @@ AUTO_ROTATE=$(resolve auto_rotate auto_rotate false)
 XKB_LAYOUT=$(resolve xkb_layout xkb_layout us)
 ROT_RAW=$(resolve rotation rotation 0)
 
-# Rotation: overlay > TOML > 0.
+# Rotation: overlay > TOML > 0. Variable name WLR_ROT (was CAGE_ROT in the
+# cage era) to match the actual consumer - wlroots env vars read by labwc.
 case "${ROT_RAW}" in
-  0)   CAGE_ROT=normal ;;
-  90)  CAGE_ROT=90 ;;
-  180) CAGE_ROT=180 ;;
-  270) CAGE_ROT=270 ;;
-  *)   CAGE_ROT=normal ;;
+  0)   WLR_ROT=normal ;;
+  90)  WLR_ROT=90 ;;
+  180) WLR_ROT=180 ;;
+  270) WLR_ROT=270 ;;
+  *)   WLR_ROT=normal ;;
 esac
 
 # URL override via TOML.
@@ -121,37 +134,28 @@ if [ -n "${URL_FROM_TOML}" ]; then
   KIOSK_URL="${URL_FROM_TOML}"
 fi
 
-log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${CAGE_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE}"
+log "url=${KIOSK_URL} output=${KIOSK_OUTPUT:-<first>} rotation=${WLR_ROT} osk=${OSK} cursor=${CURSOR} auto_rotate=${AUTO_ROTATE}"
 
-# ---------------------------- Cage environment ------------------------------
+# ---------------------------- Compositor environment ----------------------
 
-# Cage takes -s (allow switching) and -d (hide cursor) plus a command after
-# `--`. We map CURSOR=hide -> -d. On CURSOR=show we leave the default.
-CAGE_ARGS="-s"
-case "${CURSOR}" in
-  hide)
-    # Cage 0.2.0 supports -d (no cursor). Older: fall back to transparent
-    # XCURSOR_THEME; we do not ship one in P0.
-    CAGE_ARGS="${CAGE_ARGS} -d"
-    ;;
-  show|auto|*) : ;;
-esac
-
-# Rotation via WLR env (wlroots reads this). Only set when non-normal so we
-# do not override the compositor default on fresh installs.
+# Keyboard layout (read by wlroots at compositor start).
 export WLR_XKB_LAYOUT="${XKB_LAYOUT}"
-if [ "${CAGE_ROT}" != "normal" ]; then
+
+# Rotation via WLR env (wlroots reads this; works identically for cage and
+# labwc). Only set when non-normal so we do not override the compositor
+# default on fresh installs.
+if [ "${WLR_ROT}" != "normal" ]; then
   if [ -n "${KIOSK_OUTPUT}" ]; then
     # Preferred form: per-output transform. wlroots key format:
     #   WLR_OUTPUT_<NAME_WITH_DASHES_REPLACED_BY_UNDERSCORES>_TRANSFORM
     canon=$(printf '%s' "${KIOSK_OUTPUT}" | tr '-' '_')
     varname="WLR_OUTPUT_${canon}_TRANSFORM"
     # POSIX sh has no `export "${var}=val"`. Use env.
-    export "${varname}=${CAGE_ROT}" 2>/dev/null || eval "export ${varname}=${CAGE_ROT}"
+    export "${varname}=${WLR_ROT}" 2>/dev/null || eval "export ${varname}=${WLR_ROT}"
   else
     export WLR_RENDER_NO_EXPLICIT_SYNC=1 2>/dev/null || true
     # Global fallback (older wlroots).
-    export WLR_OUTPUT_TRANSFORM="${CAGE_ROT}"
+    export WLR_OUTPUT_TRANSFORM="${WLR_ROT}"
   fi
 fi
 
@@ -159,23 +163,26 @@ if [ -n "${KIOSK_OUTPUT}" ]; then
   export WLR_OUTPUTS="${KIOSK_OUTPUT}"
 fi
 
-# Pass resolved settings through to the session script. cage inherits the
-# parent environment for its single client process, so these variables are
-# visible to volumio-evo-kiosk-session when cage spawns it.
+# Pass resolved settings through to the session script. labwc inherits the
+# parent environment for its session command, so these are visible to
+# volumio-evo-kiosk-session when labwc spawns it.
 export KIOSK_URL
 export OSK
 export OSK_FORCE_SHOW
+export KIOSK_CURSOR="${CURSOR}"
 
 if [ ! -x "${SESSION_BIN}" ]; then
   log "ERROR: session helper missing at ${SESSION_BIN}"
   exit 1
 fi
 
-# Exec cage with the session script as cage's single Wayland client. The
-# session script runs inside cage's Wayland environment and will start the
-# OSK (after the Wayland socket exists) then exec cog. No --fullscreen
-# flag on cog: that flag does not exist. Fullscreen is controlled by
-# COG_PLATFORM_FDO_VIEW_FULLSCREEN=1 set in the unit Environment= block,
-# and cage as a kiosk compositor fullscreens its single client anyway.
-log "exec cage ${CAGE_ARGS} -- ${SESSION_BIN}"
-exec cage ${CAGE_ARGS} -- "${SESSION_BIN}"
+if [ ! -r "${LABWC_CONFIG_DIR}/rc.xml" ]; then
+  log "ERROR: labwc config missing at ${LABWC_CONFIG_DIR}/rc.xml"
+  exit 1
+fi
+
+# Exec labwc --session (-S): when the session script exits (cog exited),
+# labwc exits so systemd can restart the unit. Do not use -s/--startup here;
+# that keeps labwc running after cog dies.
+log "exec labwc --config-dir ${LABWC_CONFIG_DIR} --session ${SESSION_BIN}"
+exec labwc --config-dir "${LABWC_CONFIG_DIR}" --session "${SESSION_BIN}"
